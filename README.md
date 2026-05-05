@@ -1,6 +1,6 @@
 # ShiftSouq E-Commerce Platform
 
-![ShiftSouq Banner](banner.png)
+![ShiftSouq Banner](./public/banner.png)
 
 ShiftSouq is a premium, full-featured e-commerce platform built with cutting-edge web technologies. It provides a seamless, responsive, and bilingual shopping experience for customers while offering a robust, dynamic administrative dashboard for business owners.
 
