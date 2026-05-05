@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginAction } from "@/lib/actions/auth";
@@ -16,6 +17,8 @@ export default function LoginForm({ dict }: { dict: Dictionary }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [scope, animate] = useAnimate();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") ?? undefined;
 
   const {
     register,
@@ -27,7 +30,7 @@ export default function LoginForm({ dict }: { dict: Dictionary }) {
 
   const onSubmit = async (data: LoginInput) => {
     setServerError(null);
-    const result = await loginAction(data);
+    const result = await loginAction(data, redirectTo);
     if (result?.error) {
       setServerError(result.error);
       // Shake animation on error (respects reduced motion)

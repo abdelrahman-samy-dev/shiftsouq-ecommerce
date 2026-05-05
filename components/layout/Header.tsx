@@ -178,7 +178,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
           className="flex-shrink-0 flex items-center group transition-transform group-hover:scale-[1.02]"
           aria-label="ShiftSouq Home"
         >
-          <Logo locale={locale} size="md" />
+          <Logo locale={locale} size="md" hideTextOnMobile={true} />
         </Link>
 
         {/* Professional Search Bar — Client Component */}

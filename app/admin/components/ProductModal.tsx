@@ -579,7 +579,7 @@ export function ProductModal({
                {/* URL Add logic */}
                <div className="flex gap-2 max-w-xl">
                  <input 
-                   type="url" 
+                   type="text" 
                    value={newImageUrl} 
                    onChange={e => setNewImageUrl(e.target.value)} 
                    placeholder={dict.admin?.products?.enterImageUrl || "Enter image URL"}

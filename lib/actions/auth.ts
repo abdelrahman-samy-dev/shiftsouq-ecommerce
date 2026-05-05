@@ -35,7 +35,7 @@ import {
  * @returns `{ error: string }` if validation or auth fails;
  *          never returns on success (redirects).
  */
-export async function loginAction(data: LoginInput) {
+export async function loginAction(data: LoginInput, redirectTo?: string) {
   const result = loginSchema.safeParse(data);
 
   if (!result.success) {
@@ -55,7 +55,12 @@ export async function loginAction(data: LoginInput) {
   }
 
   revalidatePath("/");
-  redirect("/");
+
+  // Redirect to the originally requested page, or fallback to home.
+  // Only allow relative paths to prevent open-redirect vulnerabilities.
+  const destination =
+    redirectTo && redirectTo.startsWith("/") ? redirectTo : "/";
+  redirect(destination);
 }
 
 /**

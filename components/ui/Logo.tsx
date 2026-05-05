@@ -23,6 +23,7 @@ interface LogoProps {
   className?: string;
   iconOnly?: boolean;
   size?: "sm" | "md" | "lg";
+  hideTextOnMobile?: boolean;
 }
 
 /* ── Icon size map ─────────────────────────────────────────── */
@@ -128,6 +129,7 @@ export function Logo({
   className = "",
   iconOnly = false,
   size = "md",
+  hideTextOnMobile = false,
 }: LogoProps) {
   const { icon, text } = iconSizeMap[size];
   const isAr = locale === "ar";
@@ -142,7 +144,7 @@ export function Logo({
       {/* Wordmark */}
       {!iconOnly && (
         <span
-          className={`${text} font-extrabold tracking-tight leading-none select-none whitespace-nowrap`}
+          className={`${hideTextOnMobile ? "hidden sm:inline-block" : ""} ${text} font-extrabold tracking-tight leading-none select-none whitespace-nowrap`}
         >
           {isAr ? (
             /* Arabic wordmark */

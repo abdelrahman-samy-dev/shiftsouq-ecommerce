@@ -8,9 +8,9 @@ test.describe('Authentication & Security', () => {
     // The user should be intercepted by middleware or client guard and redirected to /login
     await expect(page).toHaveURL(/.*\/login/, { timeout: 10000 });
     
-    // Verify login page is visible
-    const loginHeader = page.locator('h1').filter({ hasText: /Log In|Welcome Back|تسجيل الدخول/i }).first();
-    await expect(loginHeader).toBeVisible();
+    // Verify login page is visible by checking for the email input
+    const emailInput = page.locator('input[type="email"], input#login-email').first();
+    await expect(emailInput).toBeVisible({ timeout: 5000 });
   });
 
   test('User can successfully log in and log out', async ({ page }) => {
