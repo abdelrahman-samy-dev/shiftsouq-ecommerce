@@ -39,15 +39,20 @@ import { getPublicClient } from "@/lib/supabase/public";
  * Pages are revalidated on-demand when product data changes.
  */
 export async function generateStaticParams() {
-  const supabase = getPublicClient();
-  const { data } = await supabase
-    .from("products")
-    .select("slug")
-    .eq("is_active", true);
+  try {
+    const supabase = getPublicClient();
+    const { data } = await supabase
+      .from("products")
+      .select("slug")
+      .eq("is_active", true);
 
-  return (data ?? []).map((product) => ({
-    slug: product.slug,
-  }));
+    return (data ?? []).map((product) => ({
+      slug: product.slug,
+    }));
+  } catch (error) {
+    console.warn("⚠️ Build Warning: Failed to fetch products for static generation. Missing database credentials?", error);
+    return [];
+  }
 }
 
 /* ── Dynamic Metadata (SEO + OpenGraph + Twitter) ─────────── */

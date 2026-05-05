@@ -15,8 +15,8 @@ let adminClient: ReturnType<typeof createClient> | null = null;
 export function getSupabaseAdmin() {
   if (!adminClient) {
     adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder",
       {
         auth: { persistSession: false },
       }

@@ -46,14 +46,19 @@ import { getPublicClient } from "@/lib/supabase/public";
  * Pre-renders all category pages at build time.
  */
 export async function generateStaticParams() {
-  const supabase = getPublicClient();
-  const { data } = await supabase
-    .from("categories")
-    .select("slug");
+  try {
+    const supabase = getPublicClient();
+    const { data } = await supabase
+      .from("categories")
+      .select("slug");
 
-  return (data ?? []).map((cat) => ({
-    slug: cat.slug,
-  }));
+    return (data ?? []).map((cat) => ({
+      slug: cat.slug,
+    }));
+  } catch (error) {
+    console.warn("⚠️ Build Warning: Failed to fetch categories for static generation. Missing database credentials?", error);
+    return [];
+  }
 }
 
 /* ── Dynamic Metadata (SEO + OpenGraph) ───────────────────── */
