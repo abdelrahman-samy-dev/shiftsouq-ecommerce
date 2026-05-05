@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerAction } from "@/lib/actions/auth";
 import { registerSchema, type RegisterInput } from "@/lib/validations/auth";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2, ArrowRight, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, Loader2, ArrowRight, ArrowLeft, ChevronDown } from "lucide-react";
 import type { Dictionary } from "@/lib/i18n/get-dictionary";
-import { motion, useReducedMotion, useAnimate } from "framer-motion";
+import { motion, useReducedMotion, useAnimate, AnimatePresence } from "framer-motion";
 import { formEntrance, formItem, shakeAnimation } from "@/lib/motion";
 
 export default function RegisterForm({ dict }: { dict: Dictionary }) {
@@ -18,9 +18,24 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
   const prefersReducedMotion = useReducedMotion();
   const [scope, animate] = useAnimate();
 
+  const [isCountryOpen, setIsCountryOpen] = useState(false);
+  const countryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (countryRef.current && !countryRef.current.contains(event.target as Node)) {
+        setIsCountryOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -28,6 +43,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
       gender: "female",
     },
   });
+
+  const selectedCountry = watch("country");
 
   const onSubmit = async (data: RegisterInput) => {
     setServerError(null);
@@ -164,28 +181,64 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <motion.div variants={formItem} className="space-y-1.5">
+          <motion.div variants={formItem} className="space-y-1.5" ref={countryRef}>
             <label className="text-sm font-semibold text-text-primary/90 block ms-1">
               {dict.auth?.country || "Country"}
             </label>
             <div className="relative">
-              <select
-                {...register("country")}
-                defaultValue=""
-                className="input-field appearance-none"
+              <div
+                onClick={() => setIsCountryOpen(!isCountryOpen)}
+                className={`flex items-center justify-between input-field cursor-pointer transition-all ${errors.country ? 'border-destructive' : ''}`}
+                aria-invalid={!!errors.country}
               >
-                <option value="" disabled>{dict.auth?.selectCountry || "Select Country"}</option>
-                <option value="EGY">{dict.auth?.egy || "Egypt"}</option>
-                <option value="KSA">{dict.auth?.ksa || "Saudi Arabia"}</option>
-                <option value="UAE">{dict.auth?.uae || "United Arab Emirates"}</option>
-                <option value="USA">{dict.auth?.usa || "United States"}</option>
-                <option value="UK">{dict.auth?.uk || "United Kingdom"}</option>
-              </select>
-              <div className="absolute end-4 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
-                <svg width="12" height="7" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <span className={`text-sm ${selectedCountry ? 'text-text-primary' : 'text-text-muted'}`}>
+                  {selectedCountry === "EGY" ? (dict.auth?.egy || "Egypt") :
+                   selectedCountry === "KSA" ? (dict.auth?.ksa || "Saudi Arabia") :
+                   selectedCountry === "UAE" ? (dict.auth?.uae || "United Arab Emirates") :
+                   selectedCountry === "USA" ? (dict.auth?.usa || "United States") :
+                   selectedCountry === "UK" ? (dict.auth?.uk || "United Kingdom") :
+                   (dict.auth?.selectCountry || "Select Country")}
+                </span>
+                <ChevronDown size={16} className={`text-text-muted transition-transform duration-200 ${isCountryOpen ? 'rotate-180' : ''}`} />
               </div>
+
+              <AnimatePresence>
+                {isCountryOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full left-0 right-0 mt-1 bg-surface-elevated border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col max-h-[240px]"
+                  >
+                    <div className="overflow-y-auto py-1">
+                      {[
+                        { val: "EGY", label: dict.auth?.egy || "Egypt" },
+                        { val: "KSA", label: dict.auth?.ksa || "Saudi Arabia" },
+                        { val: "UAE", label: dict.auth?.uae || "United Arab Emirates" },
+                        { val: "USA", label: dict.auth?.usa || "United States" },
+                        { val: "UK", label: dict.auth?.uk || "United Kingdom" },
+                      ].map((item) => (
+                        <button
+                          key={item.val}
+                          type="button"
+                          onClick={() => {
+                            setValue("country", item.val as any, { shouldValidate: true });
+                            setIsCountryOpen(false);
+                          }}
+                          className={`w-full text-start px-4 py-2.5 text-sm transition-colors hover:bg-surface ${
+                            selectedCountry === item.val
+                              ? "bg-primary/5 text-primary font-medium"
+                              : "text-text-secondary"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             {errors.country && (
               <p className="text-xs font-medium text-destructive mt-1.5 ms-1">{errors.country.message}</p>
