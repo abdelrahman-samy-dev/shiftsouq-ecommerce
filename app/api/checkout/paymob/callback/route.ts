@@ -133,17 +133,30 @@ export async function POST(request: NextRequest) {
       source_data,
     } = transactionData;
 
-    const orderId = order?.id ?? "unknown";
+    const paymobOrderId = order?.id ?? "unknown";
+    const merchantOrderId = order?.merchant_order_id ?? "";
     const paymentMethod = source_data?.type ?? "unknown";
     const cardLast4 = source_data?.pan ?? "****";
 
     console.log(
       `[Paymob Callback] Transaction #${transactionId} | ` +
-      `Order #${orderId} | ` +
+      `Paymob Order #${paymobOrderId} | Merchant Order: ${merchantOrderId} | ` +
       `${success ? "✅ SUCCESS" : "❌ FAILED"} | ` +
       `${amount_cents / 100} ${currency} | ` +
       `Method: ${paymentMethod} (${cardLast4})`
     );
+
+    /* ── Determine the Supabase order ID to update ─────────── */
+    // merchantOrderId is set to the Supabase UUID during checkout
+    const supabaseOrderId = merchantOrderId;
+
+    if (!supabaseOrderId) {
+      console.error(
+        `[Paymob Callback] No merchant_order_id found in callback data. ` +
+        `Cannot update Supabase order. Paymob Order: ${paymobOrderId}`
+      );
+      return NextResponse.json({ received: true });
+    }
 
     if (success) {
       /* ── Successful Payment ─────────────────────────────── */
@@ -157,12 +170,12 @@ export async function POST(request: NextRequest) {
           payment_status: "paid", 
           transaction_id: String(transactionId) 
         })
-        .eq("id", orderId);
+        .eq("id", supabaseOrderId);
 
       if (error) {
-        console.error(`[Paymob Callback] Database error updating order #${orderId} to PAID:`, error);
+        console.error(`[Paymob Callback] Database error updating order ${supabaseOrderId} to PAID:`, error);
       } else {
-        console.log(`[Paymob Callback] Order #${orderId} marked as PAID. Transaction: ${transactionId}`);
+        console.log(`[Paymob Callback] Order ${supabaseOrderId} marked as PAID. Transaction: ${transactionId}`);
       }
       
       // TODO: Send order confirmation email
@@ -179,12 +192,12 @@ export async function POST(request: NextRequest) {
           payment_status: "failed", 
           transaction_id: String(transactionId) 
         })
-        .eq("id", orderId);
+        .eq("id", supabaseOrderId);
 
       if (error) {
-        console.error(`[Paymob Callback] Database error updating order #${orderId} to FAILED:`, error);
+        console.error(`[Paymob Callback] Database error updating order ${supabaseOrderId} to FAILED:`, error);
       } else {
-        console.log(`[Paymob Callback] Order #${orderId} payment FAILED. Transaction: ${transactionId}`);
+        console.log(`[Paymob Callback] Order ${supabaseOrderId} payment FAILED. Transaction: ${transactionId}`);
       }
       
       // TODO: Send failure notification (optional)

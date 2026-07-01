@@ -77,10 +77,10 @@ export function HeaderActions({ locale }: HeaderActionsProps) {
       {/* Wishlist Icon */}
       <Link
         href="/wishlist"
-        className="h-[46px] px-2.5 sm:px-3.5 flex items-center gap-2 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        className="h-[40px] sm:h-[46px] px-2 sm:px-3.5 flex items-center gap-1.5 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         aria-label={isAr ? `قائمة الرغبات (${displayWishCount})` : `Wishlist (${displayWishCount})`}
       >
-        <Heart size={20} strokeWidth={1.8} className="flex-shrink-0" />
+        <Heart size={18} strokeWidth={1.8} className="flex-shrink-0 sm:w-5 sm:h-5" />
         <span className="text-sm font-bold hidden sm:block">{displayWishCount}</span>
         <AnimatePresence>
           {displayWishCount > 0 && (
@@ -108,10 +108,10 @@ export function HeaderActions({ locale }: HeaderActionsProps) {
       >
         <Link
           href="/cart"
-          className="h-[46px] px-2.5 sm:px-3.5 flex items-center gap-2 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="h-[40px] sm:h-[46px] px-2 sm:px-3.5 flex items-center gap-1.5 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           aria-label={isAr ? `سلة التسوق (${displayCartCount})` : `Cart (${displayCartCount})`}
         >
-          <ShoppingBag size={20} strokeWidth={1.8} className="flex-shrink-0" />
+          <ShoppingBag size={18} strokeWidth={1.8} className="flex-shrink-0 sm:w-5 sm:h-5" />
           <span className="text-sm font-bold hidden sm:block">{displayCartCount}</span>
           <AnimatePresence>
             {displayCartCount > 0 && (

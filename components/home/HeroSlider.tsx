@@ -77,7 +77,7 @@ export function HeroSlider({ dict, locale }: HeroSliderProps) {
         }
       `}} />
 
-      <section className="relative w-full h-[650px] sm:h-[750px] lg:h-[85vh] min-h-[600px] group overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
+      <section className="relative w-full h-[500px] sm:h-[650px] lg:h-[85vh] min-h-[450px] sm:min-h-[600px] group overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
         <Swiper
           modules={[Navigation, Pagination, Autoplay, EffectFade]}
           effect="fade"
@@ -118,20 +118,20 @@ export function HeroSlider({ dict, locale }: HeroSliderProps) {
 
               {/* Centered Content Container */}
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="max-w-4xl w-full px-6 sm:px-8 text-center flex flex-col items-center">
+                <div className="max-w-4xl w-full px-4 sm:px-8 text-center flex flex-col items-center">
 
                   {/* Small decorative line */}
-                  <div className="w-12 h-1 bg-white/80 rounded-full mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }} />
+                  <div className="w-8 sm:w-12 h-0.5 sm:h-1 bg-white/80 rounded-full mb-5 sm:mb-8 animate-fade-in-up" style={{ animationDelay: '100ms' }} />
 
                   <h2
-                    className="text-4xl sm:text-6xl lg:text-7xl font-black text-white mb-6 uppercase tracking-wider drop-shadow-2xl animate-fade-in-up"
+                    className="text-2xl sm:text-5xl lg:text-7xl font-black text-white mb-3 sm:mb-6 uppercase tracking-wider drop-shadow-2xl animate-fade-in-up"
                     style={{ animationDelay: '200ms', textShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
                   >
                     {slide.title}
                   </h2>
 
                   <p
-                    className="text-lg sm:text-2xl text-gray-200 mb-10 max-w-2xl drop-shadow-lg leading-relaxed animate-fade-in-up font-light"
+                    className="text-sm sm:text-xl lg:text-2xl text-gray-200 mb-6 sm:mb-10 max-w-2xl drop-shadow-lg leading-relaxed animate-fade-in-up font-light"
                     style={{ animationDelay: '300ms' }}
                   >
                     {slide.subtitle}
@@ -158,15 +158,15 @@ export function HeroSlider({ dict, locale }: HeroSliderProps) {
         </Swiper>
 
         {/* Custom Navigation Arrows - Premium Glassmorphism */}
-        <div className="swiper-button-prev-custom absolute top-1/2 start-4 sm:start-8 z-10 w-14 h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 -translate-x-4 rtl:translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
-          <ChevronLeft size={28} className="rtl:rotate-180" strokeWidth={1.5} />
+        <div className="swiper-button-prev-custom absolute top-1/2 start-3 sm:start-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 -translate-x-4 rtl:translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
+          <ChevronLeft size={22} className="rtl:rotate-180 sm:w-7 sm:h-7" strokeWidth={1.5} />
         </div>
-        <div className="swiper-button-next-custom absolute top-1/2 end-4 sm:end-8 z-10 w-14 h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 translate-x-4 rtl:-translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
-          <ChevronRight size={28} className="rtl:rotate-180" strokeWidth={1.5} />
+        <div className="swiper-button-next-custom absolute top-1/2 end-3 sm:end-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 translate-x-4 rtl:-translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
+          <ChevronRight size={22} className="rtl:rotate-180 sm:w-7 sm:h-7" strokeWidth={1.5} />
         </div>
 
         {/* Custom Pagination - Centered Dashes */}
-        <div className="absolute bottom-10 start-0 w-full z-10 flex justify-center">
+        <div className="absolute bottom-6 sm:bottom-10 start-0 w-full z-10 flex justify-center">
           <div className="swiper-pagination-custom flex items-center justify-center" />
         </div>
       </section>

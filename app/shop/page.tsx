@@ -164,7 +164,7 @@ export default async function ShopPage({
 
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+      <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-12">
         {/* ── Breadcrumb ──────────────────────────────────── */}
         <nav
           className="flex items-center gap-1.5 text-sm mb-8 flex-wrap animate-fade-in"
@@ -241,7 +241,7 @@ export default async function ShopPage({
 
             {/* ── Products Grid ────────────────────────── */}
             {products.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 animate-fade-in-up">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 animate-fade-in-up">
                 {products.map((product, index) => (
                   <AnimatedProductCard key={product.id} index={index}>
                     <ProductCard

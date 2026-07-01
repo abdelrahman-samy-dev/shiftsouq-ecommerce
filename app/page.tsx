@@ -22,7 +22,7 @@ export default async function Home() {
       {/* ── Hero Section ───────────────────────────────────── */}
       <HeroSlider dict={dict} locale={locale} />
 
-      <main className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 flex flex-col gap-16">
+      <main className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-10 sm:py-16 flex flex-col gap-10 sm:gap-16">
         {/* ── Shop by Category ─────────────────────────────── */}
         <section>
           <SectionHeader 
@@ -92,7 +92,7 @@ async function NewArrivalsSection({ dict, locale }: { dict: any; locale: string 
   if (!products.length) return null;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
       {products.map((product, index) => (
         <AnimatedProductCard key={product.id} index={index}>
           <ProductCard product={product} dict={dict} locale={locale} />
@@ -109,7 +109,7 @@ async function FeaturedSneakersSection({ dict, locale }: { dict: any; locale: st
   if (!products.length) return null;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
       {products.map((product, index) => (
         <AnimatedProductCard key={product.id} index={index}>
           <ProductCard product={product} dict={dict} locale={locale} />
@@ -132,7 +132,7 @@ async function PremiumCollectionsSection({ dict, locale }: { dict: any; locale: 
         viewMoreText={dict.home?.viewMore || "View more"} 
         locale={locale} 
       />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         {products.map((product, index) => (
           <AnimatedProductCard key={product.id} index={index}>
             <ProductCard product={product} dict={dict} locale={locale} />
@@ -147,7 +147,7 @@ async function PremiumCollectionsSection({ dict, locale }: { dict: any; locale: 
 
 function CategoryGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6">
       {Array.from({ length: 5 }).map((_, i) => (
         <div 
           key={i} 
@@ -160,7 +160,7 @@ function CategoryGridSkeleton() {
 
 function ProductsSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="card-elevated flex flex-col">
           <div className="aspect-[4/5] skeleton-block rounded-none" />

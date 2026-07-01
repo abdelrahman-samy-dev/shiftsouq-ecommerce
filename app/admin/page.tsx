@@ -172,11 +172,11 @@ export default async function AdminDashboardPage() {
                   return (
                     <tr key={order.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors group">
                       <td className="px-6 py-4 font-mono text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                        #{order.id.split("-")[0]}
+                        {order.order_number || `#${order.id.split("-")[0]}`}
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-semibold text-zinc-900 dark:text-white">
-                          {order.user?.full_name || "Guest User"}
+                          {order.user?.full_name || order.shipping_name || "Guest User"}
                         </div>
                         <div className="text-zinc-500 text-xs mt-0.5">
                           {order.shipping_email || dict.admin?.orders?.noEmail || "No email"}

@@ -46,13 +46,13 @@ export default function LoginForm({ dict }: { dict: Dictionary }) {
       variants={formEntrance}
       initial={prefersReducedMotion ? false : "hidden"}
       animate="visible"
-      className="w-full max-w-md mx-auto p-8 sm:p-10 glass-panel bg-background/70 dark:bg-background/50 relative overflow-hidden rounded-[24px]"
+      className="w-full max-w-md mx-auto p-5 sm:p-8 lg:p-10 glass-panel bg-background/70 dark:bg-background/50 relative overflow-hidden rounded-2xl sm:rounded-[24px]"
     >
       {/* Decorative gradient orb */}
       <div className="absolute top-0 start-1/2 -translate-x-1/2 rtl:translate-x-1/2 w-[150%] h-32 bg-gradient-to-b from-primary/5 dark:from-white/10 to-transparent blur-3xl pointer-events-none -z-10"></div>
 
-      <motion.div variants={formItem} className="mb-10 text-center">
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary mb-3">
+      <motion.div variants={formItem} className="mb-6 sm:mb-10 text-center">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-text-primary mb-2 sm:mb-3">
           {dict.auth?.loginTitle || "Welcome Back"}
         </h1>
         <p className="text-sm text-text-muted font-medium">
@@ -60,7 +60,7 @@ export default function LoginForm({ dict }: { dict: Dictionary }) {
         </p>
       </motion.div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
         {serverError && (
           <motion.div
             variants={formItem}
@@ -155,7 +155,7 @@ export default function LoginForm({ dict }: { dict: Dictionary }) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="btn-primary group relative w-full py-4 h-auto text-[15px] overflow-hidden shadow-xl shadow-primary/10 hover:shadow-primary/20"
+            className="btn-primary group relative w-full py-3 sm:py-4 h-auto text-[15px] overflow-hidden shadow-xl shadow-primary/10 hover:shadow-primary/20"
           >
             {/* Hover sheen effect */}
             <div className="absolute inset-0 -translate-x-full rtl:translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 dark:via-black/10 to-transparent"></div>

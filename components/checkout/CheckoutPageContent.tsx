@@ -31,6 +31,7 @@ import {
 } from "@/lib/store/useCheckoutStore";
 
 import { processPaymobPayment, type BillingData, type PaymobOrderItem } from "@/lib/actions/paymob";
+import { createOrder } from "@/lib/actions/checkout";
 
 import { CheckoutSteps } from "./CheckoutSteps";
 import { ContactStep } from "./ContactStep";
@@ -145,12 +146,43 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
     const total = subtotal + shippingCost;
 
     try {
+      /* ── Step 0: Create Order in Supabase ─────────────────── */
+      const orderResult = await createOrder({
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: contact.email,
+        phone: contact.phone,
+        governorate: shipping.governorate,
+        city: shipping.city,
+        address: shipping.address,
+        apartment: shipping.apartment,
+        postalCode: shipping.postalCode,
+        subtotal,
+        shippingCost,
+        total,
+        paymentMethod,
+        items: items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          name: item.name_en,
+          variantLabel: [item.size, item.color_en].filter(Boolean).join(" / ") || null,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.image || null,
+        })),
+      });
+
+      if (!orderResult.success || !orderResult.orderId) {
+        throw new Error(orderResult.error || "Failed to create order.");
+      }
+
+      const supabaseOrderId = orderResult.orderId;
+
       if (paymentMethod === "cod") {
-        /* ── COD: Process locally ────────────────────────────── */
-        await new Promise((r) => setTimeout(r, 1500));
+        /* ── COD: Order already created — done ─────────────── */
         clearCart();
         resetCheckout();
-        router.push("/checkout/success");
+        router.push(`/checkout/success?order=${orderResult.orderNumber}`);
         return;
       }
 
@@ -180,7 +212,7 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
       const amountCents = Math.round(total * 100);
 
       if (paymentMethod === "wallet") {
-        /* ── Wallet: Standard fetch() — bypasses RSC serialization ─ */
+        /* ── Wallet: Pass supabaseOrderId to Paymob ───────── */
         const res = await fetch("/api/checkout/paymob/wallet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -189,6 +221,7 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
             items: paymobItems,
             billingData,
             walletPhone: contact.phone,
+            supabaseOrderId,
           }),
         });
 
@@ -202,19 +235,20 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
           clearCart();
           resetCheckout();
           window.location.href = data.redirectUrl;
-          // Do NOT reset isProcessing — browser is navigating away
           return;
         }
 
         throw new Error("No redirect URL received from wallet API");
       }
 
-      /* ── Card: Server Action (iFrame token works via RSC) ────── */
+      /* ── Card: Pass supabaseOrderId to Paymob ─────────────── */
       const result = await processPaymobPayment(
         "card",
         amountCents,
         paymobItems,
-        billingData
+        billingData,
+        undefined,
+        supabaseOrderId
       );
 
       if (!result.success) {
@@ -378,7 +412,7 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 lg:gap-10 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 lg:gap-10 items-start">
         {/* Left: Checkout Steps + Form */}
         <div>
           {/* Step Progress */}

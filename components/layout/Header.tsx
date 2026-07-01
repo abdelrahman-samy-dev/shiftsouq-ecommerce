@@ -171,7 +171,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
       role="banner"
     >
       {/* Main Bar */}
-      <div className="max-w-7xl w-full mx-auto px-4 py-4 flex items-center justify-between gap-6 xl:gap-8">
+      <div className="max-w-7xl w-full mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-6 xl:gap-8">
         {/* Logo */}
         <Link
           href="/"
@@ -189,7 +189,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         />
 
         {/* Actions */}
-        <div className="flex items-center gap-2.5 text-text-primary">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 text-text-primary">
           {/* Language & Theme Toggles */}
           <div className="hidden lg:flex items-center gap-2.5 mr-1 border-r border-border pr-3">
             <LanguageSwitcher currentLocale={locale} />

@@ -38,6 +38,8 @@ interface WalletRequestBody {
     country: string;
   };
   walletPhone: string;
+  /** Supabase order UUID — used as merchant_order_id in Paymob */
+  supabaseOrderId?: string;
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -213,7 +215,7 @@ export async function POST(request: NextRequest) {
     const authToken = await authenticate();
 
     /* ── Step 2: Register Order ────────────────────────────── */
-    const merchantOrderId = `SS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const merchantOrderId = body.supabaseOrderId || `SS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const orderId = await registerOrder(authToken, amountCents, items, merchantOrderId);
 
     /* ── Step 3: Get Payment Key ───────────────────────────── */

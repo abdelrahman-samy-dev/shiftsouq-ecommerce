@@ -18,6 +18,7 @@ import { ExportCsvButton } from "../components/ExportCsvButton";
 import { AdminSearchInput } from "../components/AdminSearchInput";
 import { AdminFilterDropdown } from "../components/AdminFilterDropdown";
 import { AdminPagination } from "../components/AdminPagination";
+import { OrderActionsDropdown } from "../components/OrderActionsDropdown";
 
 export const metadata: Metadata = {
   title: `Orders | ${APP_NAME} Admin`,
@@ -81,7 +82,7 @@ export default async function AdminOrdersPage({
       </div>
 
       {/* ── Data Table ─────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm">
         {orders.length === 0 ? (
           <div className="p-16 text-center flex flex-col items-center justify-center">
             <div className="w-20 h-20 bg-zinc-50 dark:bg-zinc-800/50 rounded-full flex items-center justify-center mb-5 ring-8 ring-zinc-50/50 dark:ring-zinc-800/20">
@@ -91,8 +92,8 @@ export default async function AdminOrdersPage({
             <p className="text-zinc-500 text-sm max-w-sm mx-auto">{dict.admin?.orders?.noOrdersDesc || "Try adjusting your search or filters to find what you're looking for."}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className={`w-full text-sm ${isRTL ? 'text-right' : 'text-left'} whitespace-nowrap`}>
+          <div className="">
+            <table className={`w-full min-w-[900px] text-sm ${isRTL ? 'text-right' : 'text-left'} whitespace-nowrap`}>
               <thead className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800/80">
                 <tr>
                   <th className="px-6 py-4">{dict.admin?.orders?.orderId || "Order ID"}</th>
@@ -125,7 +126,7 @@ export default async function AdminOrdersPage({
                     "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400",
                     "bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400",
                   ];
-                  const initial = (order.user?.full_name?.[0] || "G").toUpperCase();
+                  const initial = (order.user?.full_name?.[0] || order.shipping_name?.[0] || "G").toUpperCase();
                   const colorIndex = initial.charCodeAt(0) % avatarColors.length;
                   const avatarColorClass = avatarColors[colorIndex];
 
@@ -133,7 +134,7 @@ export default async function AdminOrdersPage({
                     <tr key={order.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="font-mono text-xs font-semibold text-zinc-900 dark:text-white">
-                          #{order.order_number || order.id.split("-")[0]}
+                          {order.order_number || `#${order.id.split("-")[0]}`}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -143,7 +144,7 @@ export default async function AdminOrdersPage({
                           </div>
                           <div>
                             <div className="font-semibold text-zinc-900 dark:text-white">
-                              {order.user?.full_name || dict.admin?.orders?.guestUser || "Guest User"}
+                              {order.user?.full_name || order.shipping_name || dict.admin?.orders?.guestUser || "Guest User"}
                             </div>
                             <div className="text-zinc-500 text-xs mt-0.5">
                               {order.shipping_email || dict.admin?.orders?.noEmail || "No email"}
@@ -180,9 +181,12 @@ export default async function AdminOrdersPage({
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <button className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white transition-colors bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 px-3 py-1.5 rounded-lg shadow-sm">
-                          {dict.admin?.orders?.view || "View"}
-                        </button>
+                        <OrderActionsDropdown
+                          orderId={order.id}
+                          currentStatus={order.status}
+                          currentPaymentStatus={order.payment_status || "unpaid"}
+                          locale={locale}
+                        />
                       </td>
                     </tr>
                   );

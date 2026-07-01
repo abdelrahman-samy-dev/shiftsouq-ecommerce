@@ -51,7 +51,7 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
         // 5) Recent 5 orders — fetch only what we display
         supabase
           .from("orders")
-          .select("id, total, created_at, status, shipping_email, user:profiles(full_name)")
+          .select("id, order_number, total, created_at, status, shipping_email, shipping_name, user:profiles(full_name)")
           .order("created_at", { ascending: false })
           .limit(5),
       ]);
@@ -96,11 +96,8 @@ export async function getAllOrders({ page = 1, pageSize = 10, search, status }: 
       .select("*, shipping_email, user:profiles(full_name)", { count: "exact" });
 
     if (search) {
-      // Supabase text search. In a real app, you might use FTS or multiple ilike conditions.
-      // Since order ID is UUID, casting might be needed for ID, but email and user are easy.
-      // Wait, we can't easily search across joined tables with standard ilike in Supabase REST.
-      // We will search by shipping_email or id (if it's a valid uuid). Let's stick to shipping_email for now.
-      query = query.ilike("shipping_email", `%${search}%`);
+      // Search by shipping_email or order_number
+      query = query.or(`shipping_email.ilike.%${search}%,order_number.ilike.%${search}%,shipping_name.ilike.%${search}%`);
     }
 
     if (status && status !== "all") {

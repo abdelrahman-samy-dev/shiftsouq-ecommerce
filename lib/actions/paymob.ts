@@ -244,7 +244,8 @@ export async function processPaymobPayment(
   amountCents: number,
   items: PaymobOrderItem[],
   billingData: BillingData,
-  walletPhone?: string
+  walletPhone?: string,
+  supabaseOrderId?: string
 ): Promise<PaymobResult> {
   /* ── Validate all inputs with Zod (C5) ─────────────────── */
   const parsed = processPaymentSchema.safeParse({
@@ -274,7 +275,7 @@ export async function processPaymobPayment(
     const authToken = await authenticate();
 
     /* ── Step 2: Register Order ────────────────────────────── */
-    const merchantOrderId = `SS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const merchantOrderId = supabaseOrderId || `SS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const orderId = await registerOrder(
       authToken,
       amountCents,

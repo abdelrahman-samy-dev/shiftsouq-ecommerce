@@ -83,12 +83,12 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
 
   return (
     <footer
-      className="w-full bg-background border-t border-border pt-12 pb-6 text-text-primary transition-colors duration-300"
+      className="w-full bg-background border-t border-border pt-8 sm:pt-12 pb-6 text-text-primary transition-colors duration-300"
       role="contentinfo"
     >
-      <div className="max-w-7xl mx-auto px-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4">
         {/* Main Links Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12 pb-10 border-b border-border">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-12 pb-8 sm:pb-10 border-b border-border">
           {/* Column 1: Brand Info */}
           <div className="flex flex-col gap-4">
             <Link

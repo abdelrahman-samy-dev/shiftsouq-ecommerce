@@ -211,7 +211,7 @@ export default async function ProductPage({
 
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+      <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-12">
         {/* ── Breadcrumb ─────────────────────────────────────── */}
         <nav
           className="flex items-center gap-1.5 text-sm mb-8 flex-wrap animate-fade-in"

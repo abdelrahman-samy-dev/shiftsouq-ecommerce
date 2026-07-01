@@ -120,10 +120,10 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
       </div>
 
       {/* ── Right Component: Stacked Banners (col-span-4) ─────────── */}
-      <div className="lg:col-span-4 flex flex-col gap-6 h-[400px] sm:h-[500px]">
+      <div className="lg:col-span-4 flex flex-col gap-3 sm:gap-6 h-[300px] sm:h-[400px] lg:h-[500px]">
 
         {/* Top Banner */}
-        <Link href="/category/accessories" className="group card-hover flex-1 relative rounded-2xl overflow-hidden bg-surface dark:bg-surface-inset border border-border-subtle shadow-glow">
+        <Link href="/category/accessories" className="group card-hover flex-1 relative rounded-xl sm:rounded-2xl overflow-hidden bg-surface dark:bg-surface-inset border border-border-subtle shadow-glow">
           <div className="absolute inset-0">
             <Image
               src="https://images.unsplash.com/photo-1523170335258-f5ed11844a49?q=80&w=1000&auto=format&fit=crop"
@@ -135,10 +135,10 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
           <div className="absolute inset-0 flex flex-col justify-end p-6">
-            <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-md">
+            <h3 className="text-lg sm:text-2xl font-bold text-white mb-1 drop-shadow-md">
               {dict.promo?.rightTop?.title || "Urban Essentials"}
             </h3>
-            <p className="text-sm text-gray-300 mb-4 drop-shadow-sm">
+            <p className="text-xs sm:text-sm text-gray-300 mb-2 sm:mb-4 drop-shadow-sm">
               {dict.promo?.rightTop?.subtitle || "Elevate your daily style."}
             </p>
             <div className="btn-glass self-start">
@@ -149,7 +149,7 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
         </Link>
 
         {/* Bottom Banner */}
-        <Link href="/category/men" className="group card-hover flex-1 relative rounded-2xl overflow-hidden bg-surface dark:bg-surface-inset border border-border-subtle shadow-glow">
+        <Link href="/category/men" className="group card-hover flex-1 relative rounded-xl sm:rounded-2xl overflow-hidden bg-surface dark:bg-surface-inset border border-border-subtle shadow-glow">
           <div className="absolute inset-0">
             <Image
               src="https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?q=80&w=1000&auto=format&fit=crop"
@@ -161,10 +161,10 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
           <div className="absolute inset-0 flex flex-col justify-end p-6">
-            <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-md">
+            <h3 className="text-lg sm:text-2xl font-bold text-white mb-1 drop-shadow-md">
               {dict.promo?.rightBottom?.title || "Classic Fit"}
             </h3>
-            <p className="text-sm text-gray-300 mb-4 drop-shadow-sm">
+            <p className="text-xs sm:text-sm text-gray-300 mb-2 sm:mb-4 drop-shadow-sm">
               {dict.promo?.rightBottom?.subtitle || "Timeless aesthetics."}
             </p>
             <div className="btn-glass self-start">

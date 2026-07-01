@@ -162,9 +162,9 @@ export default function ProductCard({
     : productName;
 
   return (
-    <article className="group card-elevated card-hover flex flex-col h-full w-full max-w-[340px] mx-auto sm:max-w-none">
+    <article className="group card-elevated card-hover flex flex-col h-full w-full">
       {/* ── Image Container ────────────────────────────── */}
-      <div className="relative aspect-[4/3] sm:aspect-[4/5] bg-surface dark:bg-surface-inset overflow-hidden">
+      <div className="relative aspect-[4/5] bg-surface dark:bg-surface-inset overflow-hidden">
         {/* Badges */}
         <div className="absolute top-3 start-3 z-10 flex flex-col gap-2">
           {product.is_new && (
@@ -204,10 +204,10 @@ export default function ProductCard({
       </div>
 
       {/* ── Content & Actions ──────────────────────────── */}
-      <div className="p-4 flex flex-col flex-grow">
+      <div className="p-3 sm:p-4 flex flex-col flex-grow">
         {/* Price */}
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-bold text-lg text-text-primary">
+          <span className="font-bold text-base sm:text-lg text-text-primary">
             {formattedPrice}
           </span>
           {hasSale && (
@@ -222,7 +222,7 @@ export default function ProductCard({
           href={`/product/${product.slug}`}
           className="block group/link mb-4"
         >
-          <h3 className="text-text-secondary text-sm line-clamp-2 min-h-[40px] group-hover/link:text-text-primary transition-colors">
+          <h3 className="text-text-secondary text-xs sm:text-sm line-clamp-2 min-h-[32px] sm:min-h-[40px] group-hover/link:text-text-primary transition-colors">
             {productName}
           </h3>
         </Link>
@@ -234,7 +234,7 @@ export default function ProductCard({
             type="button"
             whileTap={{ scale: 0.85 }}
             onClick={handleWishlistToggle}
-            className="btn-icon flex-shrink-0 w-11 h-11 transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            className="btn-icon flex-shrink-0 w-9 h-9 sm:w-11 sm:h-11 transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             style={{
               borderColor: wishlisted ? "var(--destructive)" : undefined,
               color: wishlisted ? "var(--destructive)" : "var(--text-secondary)",
@@ -265,7 +265,7 @@ export default function ProductCard({
             type="button"
             whileTap={{ scale: 0.97 }}
             onClick={handleAddToCart}
-            className={`flex-1 h-11 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+            className={`flex-1 h-9 sm:h-11 text-xs sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
               addedToCart ? "btn-secondary" : "btn-primary"
             }`}
             title={dict?.products?.addToCart || "Add to cart"}

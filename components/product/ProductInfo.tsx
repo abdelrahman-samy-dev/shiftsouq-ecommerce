@@ -836,7 +836,7 @@ export default function ProductInfo({
       )}
 
       {/* ── CTA: Add to Cart + Wishlist ─────────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} />
 
         {/* Add to Cart */}
@@ -845,7 +845,7 @@ export default function ProductInfo({
           whileTap={{ scale: 0.97 }}
           disabled={ctaDisabled || !inStock}
           onClick={handleAddToCart}
-          className={`flex-1 h-12 text-base font-bold gap-2 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+          className={`flex-1 h-10 sm:h-12 text-sm sm:text-base font-bold gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
             addedToCart ? "btn-secondary" : "btn-primary"
           }`}
         >
@@ -893,7 +893,7 @@ export default function ProductInfo({
           type="button"
           whileTap={{ scale: 0.85 }}
           onClick={handleWishlistToggle}
-          className="btn-icon w-12 h-12 flex-shrink-0 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="btn-icon w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           style={{
             borderColor: wishlistActive
               ? "var(--destructive)"

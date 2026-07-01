@@ -433,3 +433,118 @@ export async function getAllOrdersForExport() {
     return [];
   }
 }
+
+/* ── Update Order Status ──────────────────────────────────────── */
+
+/**
+ * Valid status transitions for order fulfillment.
+ * Prevents illogical jumps like delivered → pending.
+ */
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  pending: ["confirmed", "processing", "cancelled"],
+  confirmed: ["processing", "shipped", "cancelled"],
+  processing: ["shipped", "cancelled"],
+  shipped: ["delivered", "cancelled"],
+  delivered: ["refunded"],
+  cancelled: [],
+  refunded: [],
+};
+
+export async function updateOrderStatus(
+  orderId: string,
+  newStatus: string
+): Promise<{ success?: boolean; error?: string }> {
+  /* Auth guard */
+  const { error: authError, supabase } = await requireAdmin();
+  if (authError || !supabase) return { error: authError || "Unauthorized" };
+
+  /* Validate UUID */
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(orderId)) {
+    return { error: "Invalid order ID." };
+  }
+
+  /* Validate status value */
+  const validStatuses = [
+    "pending", "confirmed", "processing", "shipped",
+    "delivered", "cancelled", "refunded",
+  ];
+  if (!validStatuses.includes(newStatus)) {
+    return { error: `Invalid status: ${newStatus}` };
+  }
+
+  try {
+    /* Fetch current status to validate transition */
+    const { data: order, error: fetchError } = await supabase
+      .from("orders")
+      .select("status")
+      .eq("id", orderId)
+      .single();
+
+    if (fetchError || !order) {
+      return { error: "Order not found." };
+    }
+
+    const allowed = VALID_STATUS_TRANSITIONS[order.status] || [];
+    if (!allowed.includes(newStatus)) {
+      return {
+        error: `Cannot change status from "${order.status}" to "${newStatus}".`,
+      };
+    }
+
+    /* Perform update */
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({ status: newStatus })
+      .eq("id", orderId);
+
+    if (updateError) throw updateError;
+
+    revalidatePath("/admin/orders");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error: any) {
+    console.error("[updateOrderStatus] error:", error);
+    return { error: error.message || "Failed to update order status." };
+  }
+}
+
+/* ── Update Payment Status ─────────────────────────────────────── */
+
+export async function updatePaymentStatus(
+  orderId: string,
+  newStatus: string
+): Promise<{ success?: boolean; error?: string }> {
+  /* Auth guard */
+  const { error: authError, supabase } = await requireAdmin();
+  if (authError || !supabase) return { error: authError || "Unauthorized" };
+
+  /* Validate UUID */
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(orderId)) {
+    return { error: "Invalid order ID." };
+  }
+
+  const validPaymentStatuses = ["unpaid", "paid", "failed", "refunded"];
+  if (!validPaymentStatuses.includes(newStatus)) {
+    return { error: `Invalid payment status: ${newStatus}` };
+  }
+
+  try {
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({ payment_status: newStatus })
+      .eq("id", orderId);
+
+    if (updateError) throw updateError;
+
+    revalidatePath("/admin/orders");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error: any) {
+    console.error("[updatePaymentStatus] error:", error);
+    return { error: error.message || "Failed to update payment status." };
+  }
+}

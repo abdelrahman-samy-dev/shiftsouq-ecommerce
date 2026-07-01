@@ -47,7 +47,7 @@ export function CategoryGrid({ categories, dict, locale }: CategoryGridProps) {
   const displayCategories = categories.slice(0, 5);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6">
       {displayCategories.map((category, index) => {
         const name = isAr ? category.name_ar : category.name_en;
         const imageUrl = category.image_url || getCategoryImage(category.slug);
@@ -67,7 +67,7 @@ export function CategoryGrid({ categories, dict, locale }: CategoryGridProps) {
           >
             <Link
               href={`/category/${category.slug}`}
-              className="group card-hover relative flex flex-col h-64 sm:h-72 w-full rounded-2xl overflow-hidden bg-surface-inset border border-transparent hover:border-border-hover transition-all duration-300"
+              className="group card-hover relative flex flex-col h-48 sm:h-64 md:h-72 w-full rounded-xl sm:rounded-2xl overflow-hidden bg-surface-inset border border-transparent hover:border-border-hover transition-all duration-300"
             >
               {/* Background Image */}
               <div className="absolute inset-0 w-full h-full">
@@ -84,13 +84,13 @@ export function CategoryGrid({ categories, dict, locale }: CategoryGridProps) {
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-300" />
 
               {/* Content Bottom Left/Start */}
-              <div className="relative z-10 flex flex-col mt-auto p-5 sm:p-6">
-                <h3 className="text-xl font-bold text-white mb-1 drop-shadow-md">
+              <div className="relative z-10 flex flex-col mt-auto p-3 sm:p-5 md:p-6">
+                <h3 className="text-base sm:text-xl font-bold text-white mb-0.5 sm:mb-1 drop-shadow-md">
                   {name}
                 </h3>
-                <div className="flex items-center gap-1.5 text-sm font-medium text-gray-200 group-hover:text-white transition-colors duration-300">
+                <div className="flex items-center gap-1 sm:gap-1.5 text-xs sm:text-sm font-medium text-gray-200 group-hover:text-white transition-colors duration-300">
                   <span>{dict.home?.shopNow || "Shop Now"}</span>
-                  <ArrowRight size={16} className={`transition-transform duration-300 group-hover:translate-x-1 ${isAr ? 'rtl:-scale-x-100 group-hover:-translate-x-1' : ''}`} />
+                  <ArrowRight size={14} className={`transition-transform duration-300 group-hover:translate-x-1 ${isAr ? 'rtl:-scale-x-100 group-hover:-translate-x-1' : ''}`} />
                 </div>
               </div>
             </Link>
