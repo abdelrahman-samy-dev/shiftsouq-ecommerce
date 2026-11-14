@@ -1,24 +1,18 @@
 "use client";
 
-import ErrorState from "@/components/shared/ErrorState";
+import { ListingError } from "@/components/shop/ListingError";
 
-export default function ShopError({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
+export default function ShopError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <ErrorState
-      title="Couldn't Load Products"
-      message="We ran into an issue loading the shop. This is usually temporary — please try again in a moment."
+    <ListingError
+      reset={reset}
       digest={error.digest}
-      onReset={reset}
-      retryLabel="Reload Products"
-      secondaryHref="/"
-      secondaryLabel="Back to Home"
-      secondaryIcon="home"
+      title={{ en: "We couldn't load the products", ar: "تعذّر تحميل المنتجات" }}
+      body={{
+        en: "This is usually temporary. Please try again in a moment.",
+        ar: "غالبًا ما تكون المشكلة مؤقتة. يُرجى المحاولة مرة أخرى بعد قليل.",
+      }}
+      link={{ href: "/", label: { en: "Back to home", ar: "العودة إلى الرئيسية" } }}
     />
   );
 }
