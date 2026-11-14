@@ -17,15 +17,15 @@ test.describe("checkout", () => {
     await addTestProductToCart(page);
     await fillCheckoutDetails(page);
 
-    // Summary before placing: 120 (sale price) + 50 shipping to Cairo.
-    await expect(page.getByText("EGP 170").filter({ visible: true }).first()).toBeVisible();
+    // Summary before placing: 490 (sale price) + 50 delivery to Cairo.
+    await expect(page.getByText("EGP 540").filter({ visible: true }).first()).toBeVisible();
     await page.getByRole("button", { name: /cash on delivery/i }).click();
     await page.getByRole("button", { name: /place order/i }).click();
 
     await expect(page).toHaveURL(/\/checkout\/success\?order=SS-\d{8}-[0-9A-F]{6}/, { timeout: 30_000 });
     const orderNumber = new URL(page.url()).searchParams.get("order")!;
     await expect(page.getByText(orderNumber)).toBeVisible();
-    await expect(page.getByText("EGP 170").filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByText("EGP 540").filter({ visible: true }).first()).toBeVisible();
 
     // The order is listed in My Orders.
     await page.goto("/orders");

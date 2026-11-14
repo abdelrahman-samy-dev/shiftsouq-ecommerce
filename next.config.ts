@@ -51,7 +51,8 @@ const csp = [
   "form-action 'self'",
   // The Paymob return page is shown inside our own checkout page.
   "frame-ancestors 'self'",
-  ...(isDev ? [] : ["upgrade-insecure-requests"]),
+  // Only when the site itself is served over https (a local production build on http keeps working).
+  ...(!isDev && (process.env.NEXT_PUBLIC_SITE_URL ?? "").startsWith("https://") ? ["upgrade-insecure-requests"] : []),
 ].join("; ");
 
 const securityHeaders = [

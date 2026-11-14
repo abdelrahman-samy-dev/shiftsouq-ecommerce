@@ -1,24 +1,18 @@
 "use client";
 
-import ErrorState from "@/components/shared/ErrorState";
+import { ListingError } from "@/components/shop/ListingError";
 
-export default function CategoryError({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
+export default function CategoryError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <ErrorState
-      title="Category Not Available"
-      message="We couldn't load this category right now. Please try again or explore our full collection."
+    <ListingError
+      reset={reset}
       digest={error.digest}
-      onReset={reset}
-      retryLabel="Try Again"
-      secondaryHref="/shop"
-      secondaryLabel="All Products"
-      secondaryIcon="shop"
+      title={{ en: "This category didn't load", ar: "تعذّر تحميل هذه الفئة" }}
+      body={{
+        en: "Please try again, or browse everything in the shop.",
+        ar: "يُرجى المحاولة مرة أخرى، أو تصفّح جميع المنتجات في المتجر.",
+      }}
+      link={{ href: "/shop", label: { en: "All products", ar: "جميع المنتجات" } }}
     />
   );
 }

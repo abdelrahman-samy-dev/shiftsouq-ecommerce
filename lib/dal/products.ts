@@ -1,22 +1,24 @@
 /* ══════════════════════════════════════════════════════════════
-   DAL – Products Repository
+   DAL – Products
    ──────────────────────────────────────────────────────────────
-   Central data-access module for product entities. Implements
-   the Repository Pattern to keep all Supabase/database logic
-   strictly isolated from UI components.
-
-   Design decisions:
-   - Uses the cookie-free public Supabase client so every call
-     is safe inside React.cache() and Server Components.
-   - All filtering, sorting, and pagination is delegated to the
-     database (PostgREST) to avoid client-side O(n) scans.
-   - Error handling returns empty data instead of throwing, so
-     upstream components always get predictable shapes.
+   Listing, search and facet reads go through the database's
+   search_products() / product_facets() functions
+   (supabase/migrations/20261114020000_search.sql):
+   - filters and sorting use the price buyers actually pay
+     (lowest variant price after sale price and overrides),
+   - sizes are filtered within their size system,
+   - search is Arabic-aware and typo tolerant.
+   Card rows are then read with the public, cookie-free client
+   (RLS: active products only). Errors return empty results so
+   pages always get predictable shapes.
    ══════════════════════════════════════════════════════════════ */
+
+import "server-only";
 
 import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
 import type {
+  Category,
   Product,
   ProductWithDetails,
   ProductImage,
@@ -25,7 +27,12 @@ import type {
   PaginationParams,
 } from "@/lib/types";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
-import { toSafeLikeTerm } from "@/lib/search/normalize";
+import { priceSummary } from "@/lib/seo/pricing";
+import { EMPTY_FACETS, parseFacets, type ListingFacets } from "@/lib/search/facets";
+import type { ListingSort } from "@/lib/search/listing-params";
+import { cleanQuery, textMatchLevel } from "@/lib/search/normalize";
+import { compareSizes } from "@/lib/search/sizes";
+import { getCategories } from "./categories";
 
 /* ── Listing types ───────────────────────────────────────────── */
 
@@ -44,37 +51,60 @@ export type ListingProduct = Omit<ProductWithDetails, "variants"> & {
   variants: ListingVariant[];
 };
 
-/** Columns selected for listing cards. */
-const LISTING_SELECT = `*, category:categories!category_id(name_en, name_ar, slug),
+/** Product columns for cards (no search document). */
+const PRODUCT_COLUMNS: (keyof Product)[] = [
+  "id",
+  "category_id",
+  "store_id",
+  "name_en",
+  "name_ar",
+  "slug",
+  "description_en",
+  "description_ar",
+  "base_price",
+  "sale_price",
+  "brand",
+  "rating",
+  "review_count",
+  "total_orders",
+  "is_featured",
+  "is_new",
+  "is_active",
+  "created_at",
+  "updated_at",
+];
+
+const LISTING_SELECT = `${PRODUCT_COLUMNS.join(", ")},
+         category:categories!category_id(name_en, name_ar, slug),
          store:stores!store_id(name, slug),
          product_images(id, url, alt_text_en, alt_text_ar, is_primary, sort_order),
          variants:product_variants(id, size, color_en, color_ar, color_hex, stock, price_override)`;
 
-/* ── Private Helpers ─────────────────────────────────────────── */
+/** Card rows: primary photo first, then the next one for the hover swap. */
+function listingRows(ids: string[]) {
+  return getPublicClient()
+    .from("products")
+    .select(LISTING_SELECT)
+    .eq("is_active", true)
+    .in("id", ids)
+    .order("is_primary", { referencedTable: "product_images", ascending: false })
+    .order("sort_order", { referencedTable: "product_images", ascending: true })
+    .limit(2, { referencedTable: "product_images" });
+}
 
-/**
- * Transforms a raw Supabase join result into the `ProductWithDetails`
- * shape expected by the UI layer.
- *
- * Why this exists: Supabase returns `product_images` as an array even
- * when we filter `is_primary = true`. We extract the first image and
- * attach it as `primary_image` for ergonomic access in components.
- *
- * @param raw - A single row from the Supabase query with joined relations.
- * @returns A fully-typed `ProductWithDetails` object.
- */
+/** Adds `primary_image` / `secondary_image` to a raw row. */
 function reshapeProduct(raw: Record<string, unknown>): ListingProduct {
   const rawImages = raw.product_images;
   const images = (Array.isArray(rawImages) ? (rawImages as ProductImage[]) : [])
     .slice()
     .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const primaryImage =
-    images.length > 0 ? { ...images[0], product_id: raw.id as string } : null;
-  // Second photo for the card hover swap.
+  const primaryImage = images.length > 0 ? { ...images[0], product_id: raw.id as string } : null;
   const secondaryImage = images.length > 1 ? { ...images[1], product_id: raw.id as string } : null;
 
+  const rest = { ...raw };
+  delete rest.product_images;
   return {
-    ...(raw as unknown as Product),
+    ...(rest as unknown as Product),
     category: (raw.category as ProductWithDetails["category"]) ?? null,
     store: (raw.store as ProductWithDetails["store"]) ?? null,
     variants: (raw.variants as ListingVariant[]) ?? [],
@@ -83,278 +113,318 @@ function reshapeProduct(raw: Record<string, unknown>): ListingProduct {
   };
 }
 
-/**
- * Resolves a category slug into an array of category UUIDs,
- * including all direct child categories.
- *
- * Why: When a user selects a parent category like "Men", they
- * expect to see products from "Men > Shirts", "Men > Pants", etc.
- * This performs the parent → children lookup at the DB level.
- *
- * @param slug - The category slug to resolve (e.g. "men").
- * @returns An array of category UUIDs (parent + children), or empty if not found.
- */
-async function resolveCategorySlugToIds(slug: string): Promise<string[]> {
-  const supabase = getPublicClient();
-
-  const { data: parent } = await supabase
-    .from("categories")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!parent?.id) return [];
-
-  const { data: children } = await supabase
-    .from("categories")
-    .select("id")
-    .eq("parent_id", parent.id);
-
-  return [
-    parent.id,
-    ...(children ?? []).map((c) => (c as { id: string }).id),
-  ];
-}
-
-/**
- * Resolves size filters into matching product IDs via the
- * `product_variants` table. This is a pre-filter step because
- * sizes live in a separate table and can't be filtered in the
- * main products query directly.
- *
- * @param sizes - Array of size strings to match (e.g. ["S", "M", "L"]).
- * @returns Array of unique product UUIDs that have matching variants,
- *          or `null` if no variants match (signals early empty return).
- */
-async function resolveProductIdsBySizes(
-  sizes: string[]
-): Promise<string[] | null> {
-  const supabase = getPublicClient();
-
-  const { data: variantData } = await supabase
-    .from("product_variants")
-    .select("product_id")
-    .in("size", sizes);
-
-  if (!variantData || variantData.length === 0) return null;
-
-  return [...new Set(variantData.map((v) => v.product_id))];
-}
-
-/**
- * Resolves color filters into matching product IDs via the
- * `product_variants` table.
- *
- * @param colors - Array of color names (e.g. ["Black", "White"]).
- * @returns Array of unique product UUIDs that have matching variants,
- *          or `null` if no variants match.
- */
-async function resolveProductIdsByColors(
-  colors: string[]
-): Promise<string[] | null> {
-  const supabase = getPublicClient();
-
-  const { data: variantData } = await supabase
-    .from("product_variants")
-    .select("product_id")
-    .in("color_en", colors);
-
-  if (!variantData || variantData.length === 0) return null;
-
-  return [...new Set(variantData.map((v) => v.product_id))];
-}
-
-/**
- * Resolves a store slug into a store UUID.
- *
- * @param slug - The store's URL slug.
- * @returns The store UUID, or `null` if not found.
- */
-async function resolveStoreSlugToId(slug: string): Promise<string | null> {
-  const supabase = getPublicClient();
-
-  const { data } = await supabase
-    .from("stores")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  return data?.id ?? null;
-}
-
-/* ── Sort Configuration ──────────────────────────────────────── */
-
-/**
- * Maps user-facing sort keys to Supabase order-by parameters.
- * Centralised here to avoid switch-statement duplication.
- */
-const SORT_MAP: Record<string, { column: string; ascending: boolean }> = {
-  price_asc: { column: "base_price", ascending: true },
-  price_desc: { column: "base_price", ascending: false },
-  rating: { column: "rating", ascending: false },
-  popular: { column: "total_orders", ascending: false },
-  newest: { column: "created_at", ascending: false },
-};
-
-/* ── Public Repository Methods ───────────────────────────────── */
-
-/**
- * Fetches a paginated, filtered list of active products with their
- * primary image, category, and store info.
- *
- * All filtering and pagination is performed at the database level
- * via PostgREST operators — no client-side array scanning.
- *
- * @param filters    - Optional filter criteria (category, price range, sizes, etc.).
- * @param pagination - Page number and page size (defaults to page 1, 12 per page).
- * @returns An object with `products` array and total `count` for pagination.
- *
- * @example
- * ```ts
- * const { products, count } = await getProducts(
- *   { categorySlug: "sneakers", minPrice: 100 },
- *   { page: 2, pageSize: 12 }
- * );
- * ```
- */
-export async function getProducts(
-  filters?: ProductFilters,
-  pagination?: PaginationParams
-): Promise<{ products: ListingProduct[]; count: number }> {
+/** Card rows for the ids, in the order given. */
+async function fetchListingProducts(ids: string[]): Promise<ListingProduct[]> {
+  if (ids.length === 0) return [];
   try {
-    const supabase = getPublicClient();
-    const page = pagination?.page ?? 1;
-    const pageSize = pagination?.pageSize ?? PRODUCTS_PER_PAGE;
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    /* ── Resolve category slug → category UUIDs ────────────── */
-    let resolvedCategoryIds = filters?.categoryIds ?? [];
-
-    if (resolvedCategoryIds.length === 0 && filters?.categorySlug) {
-      resolvedCategoryIds = await resolveCategorySlugToIds(
-        filters.categorySlug
-      );
-    }
-
-    /* ── Resolve size filter → product IDs (cross-table) ───── */
-    let sizeFilteredProductIds: string[] | undefined;
-
-    if (filters?.sizes && filters.sizes.length > 0) {
-      const ids = await resolveProductIdsBySizes(filters.sizes);
-      if (ids === null) {
-        // No variants match the requested sizes — short-circuit
-        return { products: [], count: 0 };
-      }
-      sizeFilteredProductIds = ids;
-    }
-
-    /* ── Resolve color filter → product IDs (cross-table) ───── */
-    let colorFilteredProductIds: string[] | undefined;
-
-    if (filters?.colors && filters.colors.length > 0) {
-      const ids = await resolveProductIdsByColors(filters.colors);
-      if (ids === null) {
-        // No variants match the requested colors — short-circuit
-        return { products: [], count: 0 };
-      }
-      colorFilteredProductIds = ids;
-    }
-
-    /* ── Resolve store slug → store ID ─────────────────────── */
-    let storeId: string | undefined;
-
-    if (filters?.storeSlug) {
-      const id = await resolveStoreSlugToId(filters.storeSlug);
-      if (id) storeId = id;
-    }
-
-    /* ── Build main query ──────────────────────────────────── */
-    let query = supabase
-      .from("products")
-      .select(LISTING_SELECT, { count: "exact" })
-      .eq("product_images.is_primary", true)
-      .eq("is_active", true);
-
-    /* Apply resolved filters */
-    if (resolvedCategoryIds.length > 0) {
-      query = query.in("category_id", resolvedCategoryIds);
-    }
-    if (sizeFilteredProductIds) {
-      query = query.in("id", sizeFilteredProductIds);
-    }
-    if (colorFilteredProductIds) {
-      query = query.in("id", colorFilteredProductIds);
-    }
-    if (storeId) {
-      query = query.eq("store_id", storeId);
-    }
-
-    /* Scalar column filters */
-    if (filters?.minPrice !== undefined) {
-      query = query.gte("base_price", filters.minPrice);
-    }
-    if (filters?.maxPrice !== undefined) {
-      query = query.lte("base_price", filters.maxPrice);
-    }
-    const searchTerm = filters?.search ? toSafeLikeTerm(filters.search) : "";
-    if (searchTerm) {
-      query = query.or(
-        `name_en.ilike.%${searchTerm}%,name_ar.ilike.%${searchTerm}%`
-      );
-    }
-    if (filters?.isNew) {
-      query = query.eq("is_new", true);
-    }
-    if (filters?.isFeatured) {
-      query = query.eq("is_featured", true);
-    }
-
-    /* Sorting — defaults to newest */
-    const sortConfig = SORT_MAP[filters?.sortBy ?? "newest"] ?? SORT_MAP.newest;
-    query = query.order(sortConfig.column, {
-      ascending: sortConfig.ascending,
-    });
-
-    /* Pagination window */
-    query = query.range(from, to);
-
-    const { data, error, count } = await query;
-
+    const { data, error } = await listingRows(ids);
     if (error) {
-      console.error("[DAL:getProducts]", error.message);
-      return { products: [], count: 0 };
+      console.error("[DAL:fetchListingProducts]", error.message);
+      return [];
     }
-
-    return {
-      products: (data ?? []).map((p) =>
-        reshapeProduct(p as Record<string, unknown>)
-      ),
-      count: count ?? 0,
-    };
+    const byId = new Map(
+      (data ?? []).map((row) => [(row as unknown as { id: string }).id, row as unknown as Record<string, unknown>]),
+    );
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [reshapeProduct(row)] : [];
+    });
   } catch (err) {
-    console.error("[DAL:getProducts] unexpected:", err);
-    return { products: [], count: 0 };
+    console.error("[DAL:fetchListingProducts] unexpected:", err);
+    return [];
   }
 }
 
+/* ── Search / listing ─────────────────────────────────────────── */
+
+export interface ListingQuery {
+  /** Search text. */
+  q?: string;
+  /** Fixed scope (category page): these categories and everything below them. */
+  scopeCategoryIds?: string[];
+  /** Fixed scope (collection page). */
+  collectionId?: string;
+  /** Buyer's category filter (subcategories included). */
+  categoryIds?: string[];
+  /** Size tokens: "group.value" (e.g. "shoes.42") or a bare value. */
+  sizes?: string[];
+  /** Colour names (English, case-insensitive). */
+  colors?: string[];
+  /** Effective price range (what buyers pay). */
+  priceMin?: number | null;
+  priceMax?: number | null;
+  inStock?: boolean;
+  onSale?: boolean;
+  isNew?: boolean;
+  featured?: boolean;
+  sort?: ListingSort | "rating";
+}
+
+const nonEmpty = (list?: string[]) => (list && list.length > 0 ? list : null);
+
+function filterArgs(query: ListingQuery) {
+  return {
+    p_query: query.q?.trim() ? query.q.trim().slice(0, 100) : null,
+    p_scope_category_ids: nonEmpty(query.scopeCategoryIds),
+    p_collection_id: query.collectionId ?? null,
+    p_category_ids: nonEmpty(query.categoryIds),
+    p_sizes: nonEmpty(query.sizes),
+    p_colors: nonEmpty(query.colors),
+    p_price_min: query.priceMin ?? null,
+    p_price_max: query.priceMax ?? null,
+    p_in_stock: Boolean(query.inStock),
+    p_on_sale: Boolean(query.onSale),
+    p_is_new: Boolean(query.isNew),
+    p_featured: Boolean(query.featured),
+  };
+}
+
+/** A scope that was asked for but resolved to nothing matches nothing. */
+const emptyScope = (query: ListingQuery) => query.scopeCategoryIds !== undefined && query.scopeCategoryIds.length === 0;
+
+/** Ordered product ids for one page plus the total number of matches. */
+export async function searchProductIds(
+  query: ListingQuery,
+  limit: number,
+  offset = 0,
+): Promise<{ ids: string[]; total: number }> {
+  if (emptyScope(query)) return { ids: [], total: 0 };
+  try {
+    const { data, error } = await getPublicClient().rpc("search_products", {
+      ...filterArgs(query),
+      p_sort: query.sort ?? "relevance",
+      p_limit: limit,
+      p_offset: offset,
+    });
+    if (error) {
+      console.error("[DAL:searchProductIds]", error.message);
+      return { ids: [], total: 0 };
+    }
+    const result = (data ?? {}) as { ids?: unknown; total?: unknown };
+    return {
+      ids: Array.isArray(result.ids) ? result.ids.filter((id): id is string => typeof id === "string") : [],
+      total: Number(result.total) || 0,
+    };
+  } catch (err) {
+    console.error("[DAL:searchProductIds] unexpected:", err);
+    return { ids: [], total: 0 };
+  }
+}
+
+/** One page of listing cards and the total. */
+export async function searchListing(
+  query: ListingQuery,
+  page: number,
+  pageSize: number,
+): Promise<{ products: ListingProduct[]; total: number }> {
+  const { ids, total } = await searchProductIds(query, pageSize, (Math.max(page, 1) - 1) * pageSize);
+  return { products: await fetchListingProducts(ids), total };
+}
+
+/** Filter options and counts for the current result set. */
+export async function getListingFacets(query: ListingQuery): Promise<ListingFacets> {
+  if (emptyScope(query)) return EMPTY_FACETS;
+  try {
+    const { data, error } = await getPublicClient().rpc("product_facets", filterArgs(query));
+    if (error) {
+      console.error("[DAL:getListingFacets]", error.message);
+      return EMPTY_FACETS;
+    }
+    return parseFacets(data);
+  } catch (err) {
+    console.error("[DAL:getListingFacets] unexpected:", err);
+    return EMPTY_FACETS;
+  }
+}
+
+/* ── Search suggestions (header search panel) ─────────────────── */
+
+export interface SuggestProduct {
+  id: string;
+  slug: string;
+  name_en: string;
+  name_ar: string;
+  image: string | null;
+  price: number;
+  compareAt: number | null;
+  varies: boolean;
+}
+
+export interface SuggestCategory {
+  id: string;
+  slug: string;
+  name_en: string;
+  name_ar: string;
+  parent_en: string | null;
+  parent_ar: string | null;
+}
+
+export interface SearchSuggestions {
+  query: string;
+  total: number;
+  products: SuggestProduct[];
+  categories: SuggestCategory[];
+}
+
+function toSuggestProduct(p: ListingProduct): SuggestProduct {
+  const summary = priceSummary(p, p.variants);
+  return {
+    id: p.id,
+    slug: p.slug,
+    name_en: p.name_en,
+    name_ar: p.name_ar,
+    image: p.primary_image?.url ?? null,
+    price: summary.price,
+    compareAt: summary.compareAt,
+    varies: summary.varies,
+  };
+}
+
+type FlatCategory = SuggestCategory & { featured: boolean; depth: number };
+
+/** Every navigation category (with products), with its parent's name. */
+async function flatCategories(): Promise<FlatCategory[]> {
+  const tree = await getCategories();
+  const featured = (c: Category) => Boolean((c as Category & { is_featured?: boolean }).is_featured);
+  return tree.flatMap((parent) => [
+    {
+      id: parent.id,
+      slug: parent.slug,
+      name_en: parent.name_en,
+      name_ar: parent.name_ar,
+      parent_en: null,
+      parent_ar: null,
+      featured: featured(parent),
+      depth: 0,
+    },
+    ...parent.children.map((c) => ({
+      id: c.id,
+      slug: c.slug,
+      name_en: c.name_en,
+      name_ar: c.name_ar,
+      parent_en: parent.name_en,
+      parent_ar: parent.name_ar,
+      featured: featured(c),
+      depth: 1,
+    })),
+  ]);
+}
+
+const toSuggestCategory = ({ id, slug, name_en, name_ar, parent_en, parent_ar }: FlatCategory): SuggestCategory => ({
+  id,
+  slug,
+  name_en,
+  name_ar,
+  parent_en,
+  parent_ar,
+});
+
+/** Search synonyms (normalised word → alternatives), as the database search uses them. */
+const getSearchSynonyms = cache(async (): Promise<Map<string, string[]>> => {
+  try {
+    const { data, error } = await getPublicClient().from("search_synonyms").select("term, alternatives").limit(2000);
+    if (error) {
+      console.error("[DAL:getSearchSynonyms]", error.message);
+      return new Map();
+    }
+    return new Map(
+      (data ?? []).map((row) => [String(row.term), Array.isArray(row.alternatives) ? row.alternatives.map(String) : []]),
+    );
+  } catch (err) {
+    console.error("[DAL:getSearchSynonyms] unexpected:", err);
+    return new Map();
+  }
+});
+
+/** Up to 6 products and 4 categories for a typed query. */
+export async function getSearchSuggestions(rawQuery: string): Promise<SearchSuggestions> {
+  const query = cleanQuery(rawQuery);
+  if (!query) return { query, total: 0, products: [], categories: [] };
+
+  const [{ ids, total }, categories, synonyms] = await Promise.all([
+    searchProductIds({ q: query }, 6),
+    flatCategories(),
+    getSearchSynonyms(),
+  ]);
+  const products = (await fetchListingProducts(ids)).map(toSuggestProduct);
+
+  const matched = categories
+    .map((c) => ({
+      c,
+      level: Math.max(textMatchLevel(query, c.name_en, synonyms), textMatchLevel(query, c.name_ar, synonyms)),
+    }))
+    .filter((m) => m.level > 0)
+    .sort((a, b) => b.level - a.level || a.c.depth - b.c.depth)
+    .slice(0, 4)
+    .map((m) => toSuggestCategory(m.c));
+
+  return { query, total, products, categories: matched };
+}
+
+/** What the search panel shows before anything is typed: popular categories and best sellers. */
+export async function getSearchStarters(): Promise<{ categories: SuggestCategory[]; products: SuggestProduct[] }> {
+  const [categories, best] = await Promise.all([flatCategories(), searchProductIds({ sort: "bestselling" }, 4)]);
+  const featured = categories.filter((c) => c.featured);
+  const popular = [...featured, ...categories.filter((c) => !c.featured && c.depth === 0)]
+    .slice(0, 6)
+    .map(toSuggestCategory);
+  const products = (await fetchListingProducts(best.ids)).map(toSuggestProduct);
+  return { categories: popular, products };
+}
+
+/* ── Older entry points (home rails, related products, wishlist) ─ */
+
+const LEGACY_SORT: Record<NonNullable<ProductFilters["sortBy"]>, ListingQuery["sort"]> = {
+  price_asc: "price_asc",
+  price_desc: "price_desc",
+  newest: "newest",
+  rating: "rating",
+  popular: "bestselling",
+};
+
+/** Category slug → [category id] (the search expands subcategories). */
+async function categoryIdForSlug(slug: string): Promise<string[]> {
+  const { data } = await getPublicClient().from("categories").select("id").eq("slug", slug).maybeSingle();
+  return data?.id ? [data.id as string] : [];
+}
+
 /**
- * Fetches featured products directly from the database.
- *
- * Previously this fetched ALL products then filtered client-side
- * with `.filter(p => p.is_featured)` — an O(n) scan that loaded
- * unnecessary data. Now delegates filtering to the DB.
- *
- * @param limit - Maximum number of featured products to return (default: 8).
- * @returns Array of featured `ProductWithDetails`.
+ * Paginated, filtered list of active products (defaults to newest
+ * first). Prices filter and sort on what buyers pay. `storeSlug` is
+ * no longer supported (there is one store).
  */
-export async function getFeaturedProducts(
-  limit: number = 8
-): Promise<ListingProduct[]> {
-  const { products } = await getProducts(
-    { isFeatured: true },
-    { page: 1, pageSize: limit }
+export async function getProducts(
+  filters?: ProductFilters,
+  pagination?: PaginationParams,
+): Promise<{ products: ListingProduct[]; count: number }> {
+  const page = pagination?.page ?? 1;
+  const pageSize = pagination?.pageSize ?? PRODUCTS_PER_PAGE;
+
+  let scope: string[] | undefined;
+  if (filters?.categoryIds && filters.categoryIds.length > 0) scope = filters.categoryIds;
+  else if (filters?.categorySlug) scope = await categoryIdForSlug(filters.categorySlug);
+
+  const { products, total } = await searchListing(
+    {
+      q: filters?.search,
+      scopeCategoryIds: scope,
+      sizes: filters?.sizes,
+      colors: filters?.colors,
+      priceMin: filters?.minPrice ?? null,
+      priceMax: filters?.maxPrice ?? null,
+      isNew: filters?.isNew,
+      featured: filters?.isFeatured,
+      sort: LEGACY_SORT[filters?.sortBy ?? "newest"] ?? "newest",
+    },
+    page,
+    pageSize,
   );
+  return { products, count: total };
+}
+
+/** Featured products (newest first). */
+export async function getFeaturedProducts(limit: number = 8): Promise<ListingProduct[]> {
+  const { products } = await getProducts({ isFeatured: true }, { page: 1, pageSize: limit });
   return products;
 }
 
@@ -402,106 +472,24 @@ export const getProductBySlug = cache(async (slug: string) => {
   }
 });
 
-/**
- * Fetches multiple products by their UUIDs with primary image,
- * category, and store info. Used by the Wishlist page to display
- * saved products.
- *
- * @param ids - Array of product UUIDs to fetch.
- * @returns Array of `ProductWithDetails` matching the given IDs.
- */
-export async function getProductsByIds(
-  ids: string[]
-): Promise<ListingProduct[]> {
-  if (ids.length === 0) return [];
-
-  try {
-    const supabase = getPublicClient();
-
-    const { data, error } = await supabase
-      .from("products")
-      .select(LISTING_SELECT)
-      .eq("product_images.is_primary", true)
-      .eq("is_active", true)
-      .in("id", ids);
-
-    if (error) {
-      console.error("[DAL:getProductsByIds]", error.message);
-      return [];
-    }
-
-    return (data ?? []).map((p) =>
-      reshapeProduct(p as Record<string, unknown>)
-    );
-  } catch (err) {
-    console.error("[DAL:getProductsByIds] unexpected:", err);
-    return [];
-  }
+/** Cards for the given product ids (wishlist), in the order given. */
+export async function getProductsByIds(ids: string[]): Promise<ListingProduct[]> {
+  return fetchListingProducts(Array.from(new Set(ids)).slice(0, 200));
 }
 
 /**
- * Extracts all unique available sizes and colors for a given list of categories.
- * Used to dynamically populate the sidebar filters based on actual product data.
- *
- * @param categoryIds - Array of category UUIDs to filter products by. If empty, extracts globally.
- * @returns An object containing arrays of unique sizes and distinct colors.
+ * Sizes (natural order) and colours that exist in the given
+ * categories (all categories when empty).
  */
 export async function getAvailableFiltersForCategories(
-  categoryIds: string[]
+  categoryIds: string[],
 ): Promise<{ sizes: string[]; colors: { en: string; ar: string; hex: string }[] }> {
-  try {
-    const supabase = getPublicClient();
-
-    let productQuery = supabase
-      .from("products")
-      .select("id")
-      .eq("is_active", true);
-
-    if (categoryIds.length > 0) {
-      productQuery = productQuery.in("category_id", categoryIds);
-    }
-
-    const { data: products, error: productsError } = await productQuery;
-
-    if (productsError || !products || products.length === 0) {
-      return { sizes: [], colors: [] };
-    }
-
-    const productIds = products.map((p) => p.id);
-
-    const { data: variants, error: variantsError } = await supabase
-      .from("product_variants")
-      .select("size, color_en, color_ar, color_hex")
-      .in("product_id", productIds);
-
-    if (variantsError || !variants || variants.length === 0) {
-      return { sizes: [], colors: [] };
-    }
-
-    const sizes = new Set<string>();
-    const colorsMap = new Map<string, { en: string; ar: string; hex: string }>();
-
-    variants.forEach((v) => {
-      if (v.size && v.size.trim() !== "") {
-        sizes.add(v.size.trim());
-      }
-      if (v.color_en && v.color_en.trim() !== "" && v.color_hex) {
-        if (!colorsMap.has(v.color_en)) {
-          colorsMap.set(v.color_en, {
-            en: v.color_en,
-            ar: v.color_ar || v.color_en,
-            hex: v.color_hex,
-          });
-        }
-      }
-    });
-
-    return {
-      sizes: Array.from(sizes).sort(),
-      colors: Array.from(colorsMap.values()).sort((a, b) => a.en.localeCompare(b.en)),
-    };
-  } catch (err) {
-    console.error("[DAL:getAvailableFiltersForCategories] unexpected:", err);
-    return { sizes: [], colors: [] };
-  }
+  const facets = await getListingFacets({ scopeCategoryIds: categoryIds.length > 0 ? categoryIds : undefined });
+  return {
+    sizes: Array.from(new Set(facets.sizes.map((s) => s.value))).sort(compareSizes),
+    colors: facets.colors
+      .filter((c) => c.hex)
+      .map((c) => ({ en: c.name_en, ar: c.name_ar, hex: c.hex as string }))
+      .sort((a, b) => a.en.localeCompare(b.en)),
+  };
 }

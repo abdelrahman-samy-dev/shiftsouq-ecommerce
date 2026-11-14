@@ -1,373 +1,159 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   ProductGallery — Image Gallery with Zoom Lightbox
+   ProductGallery — photos of the selected colour
    ──────────────────────────────────────────────────────────────
-   Elevated image gallery with thumbnail strip + full-screen
-   zoom overlay (lightbox). Supports LTR/RTL, dark mode,
-   keyboard navigation, and smooth transitions.
-
-   Architecture:
-   - Main gallery with primary image + navigation arrows
-   - Scrollable thumbnail strip for quick image selection
-   - Portal-based lightbox for full-screen zoom viewing
+   One list of images, two layouts (pure CSS, no duplicate DOM):
+   • phones/tablets: a swipeable scroll-snap carousel with a
+     "2 / 5" counter and dots;
+   • desktop: a two-column stack on the sand ground, the first
+     photo across both columns (see galleryLayout()).
+   The first photo is the page's LCP: preloaded, real `sizes`.
+   Any photo opens the full-screen viewer.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
-import { ZoomIn, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import type { ProductImage } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { Locale } from "@/lib/types";
+import { galleryLayout, type PdpImage } from "./pdp-logic";
+import { pdpCopy } from "./pdp-copy";
+import { useHydrated } from "./use-hydrated";
 
-/* ── Types ───────────────────────────────────────────────────── */
+const ImageViewer = dynamic(() => import("./ImageViewer"), { ssr: false });
+
+/** Matches the page grid: gallery = viewport minus the info column on desktop. */
+const SIZES_FULL = "(max-width: 1023px) 100vw, (max-width: 1279px) calc(100vw - 480px), min(calc(100vw - 600px), 1040px)";
+const SIZES_HALF = "(max-width: 1023px) 100vw, (max-width: 1279px) calc(50vw - 240px), min(calc(50vw - 300px), 520px)";
 
 interface ProductGalleryProps {
-  /** Array of product images sorted by `sort_order`. */
-  images: ProductImage[];
-  /** Product name used as fallback alt text. */
+  images: PdpImage[];
   productName: string;
-  /** Current display locale for RTL/alt text. */
-  locale: string;
+  locale: Locale;
 }
 
-/* ── Component ───────────────────────────────────────────────── */
+export default function ProductGallery({ images, productName, locale }: ProductGalleryProps) {
+  const copy = pdpCopy(locale);
+  const trackRef = useRef<HTMLUListElement>(null);
+  const [active, setActive] = useState(0);
+  const [viewer, setViewer] = useState<{ open: boolean; index: number } | null>(null);
+  const hydrated = useHydrated();
+  const layout = galleryLayout(images.length);
+  const count = images.length;
 
-/**
- * ProductGallery renders a primary image viewer with thumbnails
- * and an optional full-screen zoom lightbox.
- *
- * Accessibility:
- * - Keyboard navigation (←/→/Escape) in lightbox mode
- * - Proper ARIA labels on all interactive elements
- * - Body scroll lock when lightbox is open
- * - Focus-visible indicators for keyboard users
- *
- * @param images      - Sorted product images array.
- * @param productName - Fallback alt text when image alt is empty.
- * @param locale      - "en" or "ar" for directional/alt text logic.
- */
-export default function ProductGallery({
-  images,
-  productName,
-  locale,
-}: ProductGalleryProps) {
-  const isAr = locale === "ar";
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isZoomed, setIsZoomed] = useState(false);
-  const prefersReducedMotion = useReducedMotion();
-
-  const hasImages = images.length > 0;
-  const activeImage = hasImages ? images[activeIndex] : null;
-
-  /**
-   * Returns the localised alt text for a product image,
-   * falling back to the product name when alt text is missing.
-   */
-  const getAlt = useCallback(
-    (img: ProductImage) =>
-      (isAr ? img.alt_text_ar : img.alt_text_en) || productName,
-    [isAr, productName]
-  );
-
-  /** Navigate to the next image (wraps around) */
-  const goNext = useCallback(() => {
-    setActiveIndex((i) => (i + 1) % images.length);
-  }, [images.length]);
-
-  /** Navigate to the previous image (wraps around) */
-  const goPrev = useCallback(() => {
-    setActiveIndex((i) => (i - 1 + images.length) % images.length);
-  }, [images.length]);
-
-  /** Open the lightbox overlay */
-  const openZoom = useCallback(() => setIsZoomed(true), []);
-
-  /** Close the lightbox overlay */
-  const closeZoom = useCallback(() => setIsZoomed(false), []);
-
-  /**
-   * Handles keyboard navigation within the zoom lightbox.
-   * ArrowRight/Left for image cycling, Escape to close.
-   */
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (!isZoomed) return;
-      if (e.key === "ArrowRight") goNext();
-      if (e.key === "ArrowLeft") goPrev();
-      if (e.key === "Escape") closeZoom();
-    },
-    [isZoomed, goNext, goPrev, closeZoom]
-  );
-
-  /** Attach/detach keyboard listener and body scroll lock */
+  // Which slide is in view (phones): the one at least 60% visible.
   useEffect(() => {
-    if (isZoomed) {
-      document.body.style.overflow = "hidden";
-      window.addEventListener("keydown", handleKeyDown);
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isZoomed, handleKeyDown]);
+    const track = trackRef.current;
+    if (!track || count < 2) return;
+    const slides = Array.from(track.children) as HTMLElement[];
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActive(Number((entry.target as HTMLElement).dataset.index ?? 0));
+        }
+      },
+      { root: track, threshold: 0.6 },
+    );
+    slides.forEach((s) => io.observe(s));
+    return () => io.disconnect();
+  }, [count]);
+
+  if (count === 0) {
+    return (
+      <div className="flex aspect-[4/5] w-full items-center justify-center bg-surface text-[0.8125rem] text-text-muted">
+        {copy.noImage}
+      </div>
+    );
+  }
+
+  const goTo = (index: number) => {
+    const slide = trackRef.current?.children[index] as HTMLElement | undefined;
+    slide?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+  };
 
   return (
-    <>
-      {/* ── Main Gallery ─────────────────────────────────────── */}
-      <div className="flex flex-col gap-3">
-        {/* Primary Image */}
-        <div
-          className="relative aspect-square rounded-2xl overflow-hidden bg-surface border border-border"
-          style={{ boxShadow: "var(--shadow-glow)" }}
-        >
-          {activeImage ? (
-            <>
-              {/* The first image is the page's LCP: fetch it eagerly and first. */}
-              <Image
-                key={activeImage.id}
-                src={activeImage.url}
-                alt={getAlt(activeImage)}
-                fill
-                loading={activeIndex === 0 ? "eager" : undefined}
-                fetchPriority={activeIndex === 0 ? "high" : undefined}
-                className={`object-contain object-center transition-opacity duration-500 ${activeIndex === 0 ? "" : "animate-fade-in"}`}
-                sizes="(max-width: 1023px) 100vw, 600px"
-              />
-
-              {/* Zoom trigger */}
-              <button
-                type="button"
-                className="absolute top-3 end-3 z-10 btn-icon w-10 h-10 bg-background/80 backdrop-blur-sm border-border/60 hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                onClick={openZoom}
-                aria-label={isAr ? "تكبير الصورة" : "Zoom image"}
-              >
-                <ZoomIn size={18} strokeWidth={1.5} />
-              </button>
-
-              {/* Navigation arrows (only if multiple images) */}
-              {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={goPrev}
-                    className="absolute start-3 top-1/2 -translate-y-1/2 z-10 btn-icon w-10 h-10 bg-background/80 backdrop-blur-sm border-border/60 hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                    aria-label={isAr ? "الصورة السابقة" : "Previous image"}
-                  >
-                    {isAr ? (
-                      <ChevronRight size={18} />
-                    ) : (
-                      <ChevronLeft size={18} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    className="absolute end-3 top-1/2 -translate-y-1/2 z-10 btn-icon w-10 h-10 bg-background/80 backdrop-blur-sm border-border/60 hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                    aria-label={isAr ? "الصورة التالية" : "Next image"}
-                  >
-                    {isAr ? (
-                      <ChevronLeft size={18} />
-                    ) : (
-                      <ChevronRight size={18} />
-                    )}
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-            /* Placeholder when no images */
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-text-faint">
-              <div
-                className="w-20 h-20 rounded-full flex items-center justify-center"
-                style={{ background: "var(--surface-inset)" }}
-              >
-                <ZoomIn size={28} strokeWidth={1} />
-              </div>
-              <span className="text-sm">
-                {isAr ? "لا توجد صورة" : "No image available"}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Thumbnail Strip */}
-        {images.length > 1 && (
-          <div
-            className="flex gap-2.5 overflow-x-auto pb-1"
-            style={{ scrollbarWidth: "none" }}
-            role="tablist"
-            aria-label={isAr ? "صور المنتج" : "Product images"}
+    <div className="relative">
+      <ul
+        ref={trackRef}
+        aria-label={copy.productImages}
+        className={cn(
+          "no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain",
+          "lg:grid lg:grid-cols-2 lg:gap-1.5 lg:overflow-visible lg:snap-none",
+        )}
+      >
+        {images.map((img, i) => (
+          <li
+            key={img.id}
+            data-index={i}
+            className={cn("relative w-full shrink-0 snap-start snap-always lg:w-auto", layout[i] === "full" && "lg:col-span-2")}
           >
-            {images.map((img, idx) => {
-              const isActive = idx === activeIndex;
-              return (
-                <button
-                  key={img.id}
-                  type="button"
-                  role="tab"
-                  onClick={() => setActiveIndex(idx)}
-                  aria-label={`${isAr ? "عرض الصورة" : "View image"} ${idx + 1}`}
-                  aria-selected={isActive}
-                  className="relative flex-shrink-0 w-[72px] h-[72px] rounded-xl overflow-hidden border-2 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                  style={{
-                    borderColor: isActive
-                      ? "var(--primary)"
-                      : "var(--border)",
-                    opacity: isActive ? 1 : 0.6,
-                    boxShadow: isActive ? "var(--shadow-sm)" : "none",
-                  }}
-                >
-                  <Image
-                    src={img.url}
-                    alt={getAlt(img)}
-                    fill
-                    className="object-cover object-center transition-transform duration-300 hover:scale-110"
-                    sizes="72px"
-                  />
-                  {/* Active indicator dot */}
-                  {isActive && (
-                    <span
-                      className="absolute bottom-1 start-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
-                      style={{ background: "var(--primary)" }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Image counter pill */}
-        {images.length > 1 && (
-          <div className="flex justify-center">
-            <span
-              className="text-xs font-medium px-3 py-1 rounded-full"
-              style={{
-                background: "var(--surface-elevated)",
-                color: "var(--text-muted)",
-              }}
-              aria-live="polite"
-            >
-              {activeIndex + 1} / {images.length}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Zoom Overlay / Lightbox (opens only after a click) ─── */}
-      {isZoomed &&
-        activeImage &&
-        createPortal(
-          <AnimatePresence>
-            {isZoomed && (
-              <motion.div
-                initial={prefersReducedMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/90 backdrop-blur-xl"
-                onClick={closeZoom}
-                role="dialog"
-                aria-modal="true"
-                aria-label={isAr ? "تكبير الصورة" : "Image zoom"}
-              >
-            {/* Close */}
             <button
               type="button"
-              className="absolute top-4 end-4 md:top-8 md:end-8 z-[60] rounded-full bg-white/10 border border-white/20 hover:bg-white/25 hover:scale-110 flex items-center justify-center w-12 h-12 !text-white transition-all backdrop-blur-md shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              onClick={closeZoom}
-              aria-label={isAr ? "إغلاق" : "Close zoom"}
+              onClick={() => setViewer({ open: true, index: i })}
+              className="group/img relative block aspect-[4/5] w-full cursor-zoom-in overflow-hidden bg-surface focus-visible:outline-offset-[-4px]"
             >
-              <X size={24} />
-            </button>
-
-            {/* Prev/Next in lightbox */}
-            {images.length > 1 && (
-              <>
-                <button
-                  type="button"
-                  className="absolute start-4 md:start-8 top-1/2 -translate-y-1/2 z-[60] rounded-full bg-white/10 border border-white/20 hover:bg-white/25 hover:scale-110 flex items-center justify-center w-12 h-12 !text-white transition-all backdrop-blur-md shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goPrev();
-                  }}
-                  aria-label={isAr ? "السابق" : "Previous"}
-                >
-                  {isAr ? (
-                    <ChevronRight size={24} />
-                  ) : (
-                    <ChevronLeft size={24} />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="absolute end-4 md:end-8 top-1/2 -translate-y-1/2 z-[60] rounded-full bg-white/10 border border-white/20 hover:bg-white/25 hover:scale-110 flex items-center justify-center w-12 h-12 !text-white transition-all backdrop-blur-md shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goNext();
-                  }}
-                  aria-label={isAr ? "التالي" : "Next"}
-                >
-                  {isAr ? (
-                    <ChevronLeft size={24} />
-                  ) : (
-                    <ChevronRight size={24} />
-                  )}
-                </button>
-              </>
-            )}
-
-            {/* Zoomed Image Container */}
-            <div
-              className="relative w-full h-full p-4 md:p-12 flex items-center justify-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="relative w-full h-full flex items-center justify-center">
+              {/* Only the first photo is in the server HTML, so nothing competes with it
+                  for the first paint; the rest join right after hydration (boxes are
+                  already sized, so nothing moves). */}
+              {i === 0 || hydrated ? (
                 <Image
-                  key={activeImage.id + "-zoom"}
-                  src={activeImage.url}
-                  alt={getAlt(activeImage)}
+                  src={img.url}
+                  alt={img.alt || productName}
                   fill
-                  unoptimized
-                  className="object-contain animate-scale-in"
-                  sizes="100vw"
-                  style={{ objectFit: "contain" }}
+                  sizes={layout[i] === "full" ? SIZES_FULL : SIZES_HALF}
+                  preload={i === 0}
+                  fetchPriority={i === 0 ? "high" : undefined}
+                  loading={i === 0 ? undefined : "lazy"}
+                  className="object-cover"
                 />
-              </div>
-            </div>
+              ) : null}
+              <span className="sr-only">{copy.enlarge(i + 1)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
 
-            {/* Counter dots in lightbox */}
-            {images.length > 1 && (
-              <div className="absolute bottom-6 md:bottom-10 start-1/2 -translate-x-1/2 flex gap-2 z-[60]">
-                {images.map((_, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveIndex(idx);
-                    }}
-                    className="h-2 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                    style={{
-                      background:
-                        idx === activeIndex
-                          ? "#ffffff"
-                          : "rgba(255,255,255,0.3)",
-                      width: idx === activeIndex ? "24px" : "8px",
-                    }}
-                    aria-label={`${isAr ? "انتقل للصورة" : "Go to image"} ${idx + 1}`}
-                  />
-                ))}
-              </div>
-            )}
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
-    </>
+      {count > 1 ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 px-4 pb-4 lg:hidden">
+          <span
+            className="rounded-[2px] bg-background/85 px-2 py-1 text-[0.75rem] tabular-nums text-text-primary"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span className="sr-only">{copy.imageOf(active + 1, count)}</span>
+            <span aria-hidden="true" dir="ltr">
+              {active + 1} / {count}
+            </span>
+          </span>
+          <span className="pointer-events-auto flex items-center gap-1.5" aria-hidden="true">
+            {images.map((img, i) => (
+              <button
+                key={img.id}
+                type="button"
+                tabIndex={-1}
+                onClick={() => goTo(i)}
+                className={cn(
+                  "size-1.5 rounded-full transition-[background-color,transform] duration-200",
+                  i === active ? "scale-125 bg-text-primary" : "bg-text-primary/30",
+                )}
+              />
+            ))}
+          </span>
+        </div>
+      ) : null}
+
+      {viewer ? (
+        <ImageViewer
+          images={images}
+          productName={productName}
+          locale={locale}
+          open={viewer.open}
+          index={viewer.index}
+          onIndexChange={(index) => setViewer({ open: true, index })}
+          onClose={() => setViewer((v) => (v ? { ...v, open: false } : v))}
+        />
+      ) : null}
+    </div>
   );
 }
