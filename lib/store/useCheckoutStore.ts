@@ -14,36 +14,8 @@ import { create } from "zustand";
 export type CheckoutStep = 1 | 2 | 3;
 export type PaymentMethod = "cod" | "card" | "wallet";
 
-/** Egyptian governorates with their shipping cost tier */
-export const GOVERNORATE_SHIPPING: Record<string, number> = {
-  cairo: 50,
-  giza: 50,
-  alexandria: 100,
-  dakahlia: 100,
-  sharqia: 100,
-  qalyubia: 100,
-  "kafr-el-sheikh": 100,
-  gharbia: 100,
-  monufia: 100,
-  beheira: 100,
-  ismailia: 100,
-  suez: 100,
-  "port-said": 100,
-  damietta: 100,
-  fayoum: 100,
-  "beni-suef": 100,
-  minya: 100,
-  asyut: 100,
-  sohag: 100,
-  qena: 100,
-  luxor: 100,
-  aswan: 100,
-  "red-sea": 100,
-  "new-valley": 100,
-  matruh: 100,
-  "north-sinai": 100,
-  "south-sinai": 100,
-};
+/** Shipping fees live in one place shared with the server. */
+export { GOVERNORATE_SHIPPING } from "@/lib/checkout/shipping";
 
 /** Governorate display labels (EN + AR) */
 export const GOVERNORATES = [

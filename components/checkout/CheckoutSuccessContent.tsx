@@ -7,30 +7,70 @@
    order number, and CTA to continue shopping.
    ══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   CheckCircle2,
   Package,
   ArrowRight,
   ShoppingBag,
-  Mail,
+  Clock,
+  AlertCircle,
+  Truck,
 } from "lucide-react";
+import type { Receipt } from "@/lib/dal/receipt";
+import { formatPrice } from "@/lib/utils";
 
 interface CheckoutSuccessContentProps {
   locale: string;
+  /** The real order, or null when this browser can't see it (e.g. opened on another device). */
+  receipt: Receipt | null;
 }
 
-export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) {
+export function CheckoutSuccessContent({ locale, receipt }: CheckoutSuccessContentProps) {
   const isAr = locale === "ar";
-  const [orderNumber, setOrderNumber] = useState("");
+  const router = useRouter();
+  const loc = isAr ? "ar" : "en";
+  const online = receipt?.paymentMethod === "card" || receipt?.paymentMethod === "wallet";
+  const confirming = online && receipt?.paymentStatus === "unpaid";
+  const failed = online && receipt?.paymentStatus === "failed";
 
+  // The webhook usually confirms within seconds: refresh a few times while we wait.
   useEffect(() => {
-    // Generate a mock order number
-    const num = `SS-${Date.now().toString(36).toUpperCase().slice(-6)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
-    setOrderNumber(num);
-  }, []);
+    if (!confirming) return;
+    let n = 0;
+    const id = setInterval(() => {
+      n += 1;
+      router.refresh();
+      if (n >= 10) clearInterval(id);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [confirming, router]);
+
+  const heading = failed
+    ? isAr ? "لم تكتمل عملية الدفع" : "Payment not completed"
+    : confirming
+      ? isAr ? "جارٍ تأكيد الدفع…" : "Confirming your payment…"
+      : isAr ? "تم استلام طلبك!" : "Order placed!";
+  const body = failed
+    ? isAr
+      ? "لم نتمكن من تأكيد الدفع. يمكنك المحاولة مرة أخرى أو اختيار الدفع عند الاستلام."
+      : "We couldn't confirm the payment. You can try again or choose cash on delivery."
+    : confirming
+      ? isAr
+        ? "نتحقق من الدفع مع البنك، قد يستغرق ذلك بضع ثوانٍ."
+        : "We're checking the payment with your bank. This usually takes a few seconds."
+      : receipt?.paymentMethod === "cod"
+        ? isAr
+          ? "شكراً لتسوقك من شيفت سوق. ستدفع عند الاستلام، وسنتواصل معك لتأكيد الشحن."
+          : "Thank you for shopping at ShiftSouq. You'll pay on delivery — we'll contact you to confirm shipping."
+        : isAr
+          ? "شكراً لتسوقك من شيفت سوق. سنبدأ تجهيز طلبك."
+          : "Thank you for shopping at ShiftSouq. We're preparing your order.";
+  const StatusIcon = failed ? AlertCircle : confirming ? Clock : CheckCircle2;
+  const tone = failed ? "var(--error, #dc2626)" : confirming ? "var(--accent)" : "var(--success)";
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-12">
@@ -53,20 +93,16 @@ export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) 
             animate={{ scale: 1.6, opacity: 0 }}
             transition={{ delay: 0.5, duration: 1.5, repeat: 2 }}
             className="absolute inset-0 w-24 h-24 mx-auto rounded-full"
-            style={{ background: "var(--success)", opacity: 0.15 }}
+            style={{ background: tone, opacity: 0.15 }}
           />
           <div
             className="relative w-24 h-24 mx-auto rounded-3xl flex items-center justify-center"
             style={{
-              background: "var(--success-bg)",
-              border: "2px solid var(--success)",
+              background: failed || confirming ? "var(--surface)" : "var(--success-bg)",
+              border: `2px solid ${tone}`,
             }}
           >
-            <CheckCircle2
-              size={48}
-              strokeWidth={1.5}
-              className="text-[var(--success)]"
-            />
+            <StatusIcon size={48} strokeWidth={1.5} style={{ color: tone }} />
           </div>
         </motion.div>
 
@@ -77,7 +113,7 @@ export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) 
           transition={{ delay: 0.35 }}
           className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-2"
         >
-          {isAr ? "تم تأكيد طلبك!" : "Order Confirmed!"}
+          {heading}
         </motion.h1>
 
         <motion.p
@@ -86,9 +122,7 @@ export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) 
           transition={{ delay: 0.45 }}
           className="text-[var(--text-muted)] text-sm mb-6 max-w-sm mx-auto"
         >
-          {isAr
-            ? "شكراً لتسوقك من شيفت سوق. سنرسل لك تأكيداً بالبريد الإلكتروني قريباً."
-            : "Thank you for shopping at ShiftSouq. We'll send you a confirmation email shortly."}
+          {body}
         </motion.p>
 
         {/* Order Number Card */}
@@ -104,9 +138,36 @@ export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) 
               {isAr ? "رقم الطلب" : "Order Number"}
             </span>
           </div>
-          <p className="text-xl font-bold text-[var(--text-primary)] font-mono tracking-wider">
-            {orderNumber}
+          <p className="text-xl font-bold text-[var(--text-primary)] font-mono tracking-wider" dir="ltr">
+            {receipt?.orderNumber ?? (isAr ? "راجع صفحة طلباتي" : "See My Orders")}
           </p>
+          {receipt && (
+            <div className="mt-4 text-start space-y-2">
+              {receipt.items.map((it, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-[var(--text-secondary)] truncate">
+                    {it.quantity} × {it.name}
+                    {it.label ? <span className="text-[var(--text-muted)]"> · {it.label}</span> : null}
+                  </span>
+                  <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{formatPrice(it.unitPrice * it.quantity, loc)}</span>
+                </div>
+              ))}
+              {receipt.discount > 0 && (
+                <div className="flex justify-between text-sm text-[var(--success)]">
+                  <span>{isAr ? "الخصم" : "Discount"}</span>
+                  <span>-{formatPrice(receipt.discount, loc)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm text-[var(--text-secondary)]">
+                <span>{isAr ? "الشحن" : "Shipping"}</span>
+                <span>{receipt.shipping > 0 ? formatPrice(receipt.shipping, loc) : isAr ? "مجاني" : "Free"}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-[var(--border)] font-bold text-[var(--text-primary)]">
+                <span>{isAr ? "الإجمالي" : "Total"}</span>
+                <span>{formatPrice(receipt.total, loc)}</span>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Info Cards */}
@@ -123,11 +184,13 @@ export function CheckoutSuccessContent({ locale }: CheckoutSuccessContentProps) 
               border: "1px solid var(--border)",
             }}
           >
-            <Mail size={18} className="text-[var(--accent)] flex-shrink-0" />
+            <Truck size={18} className="text-[var(--accent)] flex-shrink-0" />
             <p className="text-xs text-[var(--text-secondary)]">
-              {isAr
-                ? "ستصلك رسالة تأكيد بالبريد الإلكتروني مع تفاصيل الطلب وتتبع الشحنة."
-                : "You'll receive a confirmation email with order details and shipment tracking."}
+              {isAr ? (
+                <>تابع حالة طلبك وتحديثات الشحن من صفحة <Link href="/orders" className="underline">طلباتي</Link>.</>
+              ) : (
+                <>Track your order and shipping updates in <Link href="/orders" className="underline">My Orders</Link>.</>
+              )}
             </p>
           </div>
         </motion.div>

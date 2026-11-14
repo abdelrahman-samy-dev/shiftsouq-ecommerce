@@ -8,7 +8,7 @@
 "use server";
 
 import { createServerClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { getServiceClient } from "@/lib/supabase/service";
 import { revalidatePath } from "next/cache";
 
 /* ── Types ───────────────────────────────────────────────────── */
@@ -23,16 +23,6 @@ export interface ProfileUpdateData {
 export interface ActionResult {
   success: boolean;
   message: string;
-}
-
-/* ── Service Role Client (for admin-level operations) ─────────── */
-
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
 }
 
 /* ── Update Profile ──────────────────────────────────────────── */

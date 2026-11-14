@@ -20,17 +20,16 @@ import Link from "next/link";
 import { toast } from "sonner";
 
 import { useCartStore, selectCartSubtotal } from "@/lib/store/useCartStore";
-import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
+import { shippingFee } from "@/lib/checkout/shipping";
 import {
   useCheckoutStore,
-  GOVERNORATE_SHIPPING,
   type CheckoutStep,
   type ContactInfo,
   type ShippingAddress,
   type PaymentMethod,
 } from "@/lib/store/useCheckoutStore";
 
-import { processPaymobPayment, type BillingData, type PaymobOrderItem } from "@/lib/actions/paymob";
+import { startPayment } from "@/lib/actions/paymob";
 import { createOrder } from "@/lib/actions/checkout";
 
 import { CheckoutSteps } from "./CheckoutSteps";
@@ -39,6 +38,7 @@ import { ShippingStep } from "./ShippingStep";
 import { PaymentMethodSelector } from "./PaymentMethodSelector";
 import { CheckoutSidebar } from "./CheckoutSidebar";
 import { PaymentIframe } from "./PaymentIframe";
+import { MockPaymentPanel } from "./MockPaymentPanel";
 import { cn } from "@/lib/utils";
 
 /* ── Step Transition Variants ────────────────────────────────── */
@@ -102,6 +102,8 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
   const [showIframe, setShowIframe] = useState(false);
   const [iframePaymentToken, setIframePaymentToken] = useState("");
   const [iframeId, setIframeId] = useState("");
+  /** Unpaid online order from this visit: retrying payment reuses it instead of reserving stock twice. */
+  const pendingOrderRef = useRef<{ key: string; orderId: string; accessToken: string; orderNumber: string } | null>(null);
 
   /* ── Step direction for animation ──────────────────────────── */
   const [direction, setDirection] = useState(1); // 1 = forward, -1 = back
@@ -120,13 +122,11 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
   const handleShippingSubmit = useCallback(
     (data: ShippingAddress) => {
       setShipping(data);
-      const baseCost = GOVERNORATE_SHIPPING[data.governorate] ?? 100;
-      const cost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : baseCost;
-      setShippingCost(cost);
+      setShippingCost(shippingFee(data.governorate, subtotal));
       setDirection(1);
       setStep(3);
     },
-    [setShipping, setShippingCost, setStep]
+    [setShipping, setShippingCost, setStep, subtotal]
   );
 
   const handleGoBack = useCallback(
@@ -143,11 +143,14 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
     if (isProcessing) return;
     setIsProcessing(true);
 
-    const total = subtotal + shippingCost;
-
     try {
-      /* ── Step 0: Create Order in Supabase ─────────────────── */
-      const orderResult = await createOrder({
+      const orderKey = JSON.stringify([contact, shipping, paymentMethod, items.map((i) => [i.productId, i.variantId, i.quantity])]);
+      const reuse = paymentMethod !== "cod" && pendingOrderRef.current?.key === orderKey ? pendingOrderRef.current : null;
+
+      /* ── 1. Create the order: the server prices it and reserves stock ── */
+      const orderResult = reuse
+        ? { success: true as const, ...reuse }
+        : await createOrder({
         firstName: contact.firstName,
         lastName: contact.lastName,
         email: contact.email,
@@ -157,134 +160,91 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
         address: shipping.address,
         apartment: shipping.apartment,
         postalCode: shipping.postalCode,
-        subtotal,
-        shippingCost,
-        total,
         paymentMethod,
         items: items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
-          name: item.name_en,
-          variantLabel: [item.size, item.color_en].filter(Boolean).join(" / ") || null,
-          price: item.price,
           quantity: item.quantity,
-          image: item.image || null,
         })),
       });
 
-      if (!orderResult.success || !orderResult.orderId) {
-        throw new Error(orderResult.error || "Failed to create order.");
-      }
-
-      const supabaseOrderId = orderResult.orderId;
-
-      if (paymentMethod === "cod") {
-        /* ── COD: Order already created — done ─────────────── */
-        clearCart();
-        resetCheckout();
-        router.push(`/checkout/success?order=${orderResult.orderNumber}`);
+      if (!orderResult.success || !orderResult.orderId || !orderResult.accessToken) {
+        const msg =
+          orderResult.code === "out_of_stock"
+            ? isAr
+              ? "بعض المنتجات لم تعد متوفرة بالكمية المطلوبة. عدّل السلة وحاول مرة أخرى."
+              : "Some items are no longer available in the quantity you chose. Please update your cart."
+            : orderResult.code === "product_unavailable"
+              ? isAr
+                ? "أحد المنتجات في سلتك لم يعد متاحاً."
+                : "A product in your cart is no longer available."
+              : orderResult.code === "choose_variant"
+                ? isAr
+                  ? "يرجى اختيار المقاس أو اللون لكل منتج."
+                  : "Please choose a size or colour for every product."
+                : isAr
+                  ? "تعذر إتمام الطلب. يرجى المحاولة مرة أخرى."
+                  : orderResult.error || "We couldn't place your order. Please try again.";
+        toast.error(msg);
+        setIsProcessing(false);
         return;
       }
 
-      /* ── Shared billing data ────────────────────────────────── */
-      const billingData: BillingData = {
-        first_name: contact.firstName,
-        last_name: contact.lastName,
-        email: contact.email,
-        phone_number: contact.phone,
-        city: shipping.city,
-        state: shipping.governorate,
-        street: shipping.address,
-        building: "NA",
-        apartment: shipping.apartment || "NA",
-        floor: "NA",
-        postal_code: shipping.postalCode || "NA",
-        country: "EG",
-      };
+      const { orderId, accessToken, orderNumber } = orderResult;
+      if (paymentMethod !== "cod") {
+        pendingOrderRef.current = { key: orderKey, orderId, accessToken, orderNumber: orderNumber ?? "" };
+      }
 
-      const paymobItems: PaymobOrderItem[] = items.map((item) => ({
-        name: item.name_en,
-        amount_cents: Math.round(item.price * 100),
-        quantity: item.quantity,
-        description: `${item.name_en} - ${item.size || ""} ${item.color_en || ""}`.trim(),
-      }));
-
-      const amountCents = Math.round(total * 100);
+      if (paymentMethod === "cod") {
+        clearCart();
+        resetCheckout();
+        router.push(`/checkout/success?order=${encodeURIComponent(orderNumber ?? "")}`);
+        return;
+      }
 
       if (paymentMethod === "wallet") {
-        /* ── Wallet: Pass supabaseOrderId to Paymob ───────── */
+        /* ── 2a. Wallet: redirect to the wallet provider ─────── */
         const res = await fetch("/api/checkout/paymob/wallet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amountCents,
-            items: paymobItems,
-            billingData,
-            walletPhone: contact.phone,
-            supabaseOrderId,
-          }),
+          body: JSON.stringify({ orderId, accessToken, walletPhone: contact.phone }),
         });
-
         const data = await res.json();
-
-        if (!res.ok || !data.success) {
+        if (!res.ok || !data.success || !data.redirectUrl) {
           throw new Error(data.error || "Wallet payment initiation failed");
         }
-
-        if (data.redirectUrl) {
-          clearCart();
-          resetCheckout();
-          window.location.href = data.redirectUrl;
-          return;
-        }
-
-        throw new Error("No redirect URL received from wallet API");
-      }
-
-      /* ── Card: Pass supabaseOrderId to Paymob ─────────────── */
-      const result = await processPaymobPayment(
-        "card",
-        amountCents,
-        paymobItems,
-        billingData,
-        undefined,
-        supabaseOrderId
-      );
-
-      if (!result.success) {
-        throw new Error(result.error || "Payment processing failed");
-      }
-
-      if (result.paymentToken && result.iframeId) {
-        setIframePaymentToken(result.paymentToken);
-        setIframeId(result.iframeId);
-        setShowIframe(true);
-        setIsProcessing(false);
-
-        requestAnimationFrame(() => {
-          iframeSectionRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-        });
+        clearCart();
+        resetCheckout();
+        window.location.href = data.redirectUrl;
         return;
       }
 
-      throw new Error("No payment token received for card payment.");
+      /* ── 2b. Card: embedded Paymob iframe ──────────────────── */
+      const result = await startPayment({ orderId, accessToken, method: "card" });
+      if (!result.success) throw new Error(result.error);
+      if (result.method !== "card") throw new Error("Unexpected payment response.");
+
+      setIframePaymentToken(result.paymentToken);
+      setIframeId(result.iframeId);
+      setShowIframe(true);
+      setIsProcessing(false);
+      requestAnimationFrame(() => {
+        iframeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (error) {
       console.error("[Checkout] Order processing error:", error);
       toast.error(
-        isAr
-          ? "حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى."
-          : "An error occurred while processing your order. Please try again."
+        error instanceof Error && error.message && !isAr
+          ? error.message
+          : isAr
+            ? "حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى."
+            : "An error occurred while processing your order. Please try again."
       );
       setIsProcessing(false);
     }
   }, [
     isProcessing,
     paymentMethod,
-    subtotal,
-    shippingCost,
     contact,
     shipping,
     items,
@@ -312,7 +272,9 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
       if (success) {
         clearCart();
         resetCheckout();
-        router.push("/checkout/success");
+        const orderNumber = pendingOrderRef.current?.orderNumber;
+        pendingOrderRef.current = null;
+        router.push(orderNumber ? `/checkout/success?order=${encodeURIComponent(orderNumber)}` : "/checkout/success");
       } else {
         toast.error(
           isAr
@@ -511,7 +473,14 @@ export function CheckoutPageContent({ locale }: CheckoutPageContentProps) {
 
           {/* ── Embedded Payment iFrame Modal ────────────────── */}
           <AnimatePresence>
-            {showIframe && (
+            {showIframe && iframeId === "MOCK" && (
+              <MockPaymentPanel
+                onClose={handleIframeClose}
+                onTransactionComplete={handleTransactionComplete}
+                locale={locale}
+              />
+            )}
+            {showIframe && iframeId !== "MOCK" && (
               <PaymentIframe
                 paymentToken={iframePaymentToken}
                 iframeId={iframeId}
