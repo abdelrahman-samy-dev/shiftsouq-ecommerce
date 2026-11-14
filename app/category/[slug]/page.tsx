@@ -16,7 +16,6 @@
    ══════════════════════════════════════════════════════════════ */
 
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
@@ -29,8 +28,13 @@ import {
   getAvailableFiltersForCategories,
 } from "@/lib/dal";
 import { getDictionary } from "@/lib/i18n/get-dictionary";
-import type { Locale } from "@/lib/types";
-import { APP_NAME, PRODUCTS_PER_PAGE } from "@/lib/constants";
+import type { ProductFilters } from "@/lib/types";
+import { PRODUCTS_PER_PAGE } from "@/lib/constants";
+import { getRequestLocale } from "@/lib/seo/locale";
+import { SEO_COPY } from "@/lib/seo/copy";
+import { buildPageMetadata } from "@/lib/seo/metadata";
+import { breadcrumbJsonLd } from "@/lib/seo/json-ld";
+import JsonLd from "@/lib/seo/JsonLd";
 import ProductCard from "@/components/product/ProductCard";
 import AnimatedProductCard from "@/components/product/AnimatedProductCard";
 import Pagination from "@/components/shared/Pagination";
@@ -63,44 +67,42 @@ export async function generateStaticParams() {
 
 /* ── Dynamic Metadata (SEO + OpenGraph) ───────────────────── */
 
+/** Grid: one column on phones, two on tablets, three beside the sidebar. */
+const CATEGORY_CARD_SIZES = "(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 330px";
+
 /**
- * Generates dynamic metadata for category pages.
- * Includes the category name and description in the title/description
- * tags, with OpenGraph support for social sharing.
+ * Title, description, canonical URL (keeps ?page=N, drops sort and
+ * filters) and share cards in the visitor's language.
  */
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }): Promise<Metadata> {
-  const { slug } = await params;
+  const [{ slug }, query, locale] = await Promise.all([params, searchParams, getRequestLocale()]);
+  const copy = SEO_COPY[locale];
   const result = await getCategoryWithDescendantIds(slug);
 
-  if (!result) {
-    return {
-      title: `Category Not Found | ${APP_NAME}`,
-      description: "The requested category could not be found.",
-    };
-  }
+  // Throwing here (not only in the page) lets crawlers, which get blocking
+  // metadata, receive a real 404 instead of a soft 404 behind the loading shell.
+  if (!result) notFound();
 
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const isAr = locale === "ar";
-  const name = isAr ? result.category.name_ar : result.category.name_en;
-  const description = isAr
-    ? result.category.description_ar ?? `تسوق ${name} في شيفت سوق`
-    : result.category.description_en ??
-      `Shop ${name} at ${APP_NAME} — premium quality, modern design.`;
+  const { category } = result;
+  const name = locale === "ar" ? category.name_ar : category.name_en;
+  const ownDescription = locale === "ar" ? category.description_ar : category.description_en;
+  const page = Number.parseInt(typeof query.page === "string" ? query.page : "1", 10);
+  const pageNumber = Number.isFinite(page) && page > 1 ? page : 1;
+  const path = `/category/${encodeURIComponent(category.slug)}`;
 
-  return {
-    title: `${name} | ${APP_NAME}`,
-    description,
-    openGraph: {
-      title: `${name} | ${APP_NAME}`,
-      description,
-      type: "website",
-    },
-  };
+  return buildPageMetadata({
+    locale,
+    title: pageNumber > 1 ? `${name} — ${copy.pageSuffix(pageNumber)}` : name,
+    description: ownDescription?.trim() ? ownDescription : copy.categoryDescription(name),
+    path: pageNumber > 1 ? `${path}?page=${pageNumber}` : path,
+    image: { url: category.image_url || getCategoryHeroImage(category.slug), alt: name },
+  });
 }
 
 /* ── Category Hero Image Fallback Map ─────────────────────── */
@@ -153,9 +155,9 @@ export default async function CategoryPage({
   const { slug } = await params;
   const resolvedParams = await searchParams;
 
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getRequestLocale();
   const isAr = locale === "ar";
+  const copy = SEO_COPY[locale];
 
   /* Parallel data fetching */
   const [categoryResult, dict, allCategories] = await Promise.all([
@@ -205,7 +207,7 @@ export default async function CategoryPage({
   const { products, count } = await getProducts(
     {
       categoryIds,
-      sortBy: sortBy as any,
+      sortBy: sortBy as ProductFilters["sortBy"],
       minPrice: minPrice && !isNaN(minPrice) ? minPrice : undefined,
       maxPrice: maxPrice && !isNaN(maxPrice) ? maxPrice : undefined,
       sizes: sizes && sizes.length > 0 ? sizes : undefined,
@@ -234,18 +236,27 @@ export default async function CategoryPage({
 
   const heroImage = category.image_url || getCategoryHeroImage(slug);
 
+  const breadcrumbs = breadcrumbJsonLd([
+    { name: copy.home, path: "/" },
+    { name: copy.shop, path: "/shop" },
+    { name: categoryName, path: basePath },
+  ]);
+
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
+      <JsonLd data={breadcrumbs} />
       {/* ── Category Hero Banner ────────────────────────────── */}
       <section
         className="relative w-full h-[240px] sm:h-[300px] overflow-hidden"
         aria-label={categoryName}
       >
+        {/* Decorative banner and the page's LCP: fetched eagerly, high priority. */}
         <Image
           src={heroImage}
-          alt={categoryName}
+          alt=""
           fill
-          priority
+          loading="eager"
+          fetchPriority="high"
           className="object-cover object-center"
           sizes="100vw"
         />
@@ -350,13 +361,14 @@ export default async function CategoryPage({
 
             {/* ── Products Grid ──────────────────────────── */}
             {products.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 animate-fade-in-up">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {products.map((product, index) => (
                   <AnimatedProductCard key={product.id} index={index}>
                     <ProductCard
                       product={product}
                       locale={locale}
-                      dict={dict as any}
+                      dict={dict}
+                      sizes={CATEGORY_CARD_SIZES}
                     />
                   </AnimatedProductCard>
                 ))}

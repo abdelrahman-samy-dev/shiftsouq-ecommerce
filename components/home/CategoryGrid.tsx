@@ -16,7 +16,7 @@ import type { CategoryWithChildren } from "@/lib/types";
 
 interface CategoryGridProps {
   categories: CategoryWithChildren[];
-  dict: any;
+  dict: { home?: { shopNow?: string } };
   locale: string;
 }
 
@@ -73,7 +73,7 @@ export function CategoryGrid({ categories, dict, locale }: CategoryGridProps) {
               <div className="absolute inset-0 w-full h-full">
                 <Image
                   src={imageUrl}
-                  alt={name}
+                  alt=""
                   fill
                   className="object-cover object-center transition-transform duration-700 ease-in-out group-hover:scale-110"
                   sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"

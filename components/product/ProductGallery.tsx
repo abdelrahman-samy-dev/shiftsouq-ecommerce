@@ -55,13 +55,7 @@ export default function ProductGallery({
   const isAr = locale === "ar";
   const [activeIndex, setActiveIndex] = useState(0);
   const [isZoomed, setIsZoomed] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const prefersReducedMotion = useReducedMotion();
-
-  /** Track client-side mount for portal rendering */
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const hasImages = images.length > 0;
   const activeImage = hasImages ? images[activeIndex] : null;
@@ -131,14 +125,16 @@ export default function ProductGallery({
         >
           {activeImage ? (
             <>
+              {/* The first image is the page's LCP: fetch it eagerly and first. */}
               <Image
                 key={activeImage.id}
                 src={activeImage.url}
                 alt={getAlt(activeImage)}
                 fill
-                priority
-                className="object-contain object-center transition-opacity duration-500 animate-fade-in"
-                sizes="(max-width: 768px) 100vw, 50vw"
+                loading={activeIndex === 0 ? "eager" : undefined}
+                fetchPriority={activeIndex === 0 ? "high" : undefined}
+                className={`object-contain object-center transition-opacity duration-500 ${activeIndex === 0 ? "" : "animate-fade-in"}`}
+                sizes="(max-width: 1023px) 100vw, 600px"
               />
 
               {/* Zoom trigger */}
@@ -261,9 +257,8 @@ export default function ProductGallery({
         )}
       </div>
 
-      {/* ── Zoom Overlay / Lightbox ───────────────────────────── */}
-      {mounted &&
-        isZoomed &&
+      {/* ── Zoom Overlay / Lightbox (opens only after a click) ─── */}
+      {isZoomed &&
         activeImage &&
         createPortal(
           <AnimatePresence>

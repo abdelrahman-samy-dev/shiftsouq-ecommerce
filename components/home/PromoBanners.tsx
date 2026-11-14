@@ -12,8 +12,17 @@ import "swiper/css/navigation";
 import "swiper/css/pagination";
 import "swiper/css/effect-fade";
 
+type BannerCopy = { title?: string; subtitle?: string };
+
 interface PromoBannersProps {
-  dict: any;
+  dict: {
+    promo?: {
+      left?: BannerCopy;
+      rightTop?: BannerCopy;
+      rightBottom?: BannerCopy;
+      discover?: string;
+    };
+  };
   locale: string;
 }
 
@@ -74,7 +83,7 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
               <div className="absolute inset-0 w-full h-full">
                 <Image
                   src={src}
-                  alt={`Promo Slide ${idx + 1}`}
+                  alt=""
                   fill
                   className="object-cover object-center scale-100 transition-transform duration-[10000ms] ease-out group-hover/slider:scale-105"
                   sizes="(max-width: 1024px) 100vw, 66vw"
@@ -106,10 +115,10 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
         </Swiper>
 
         {/* Navigation Arrows (Glassmorphism) */}
-        <div className="promo-prev absolute top-1/2 start-4 z-10 w-10 h-10 border border-white/20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-md transition-all duration-300 -translate-y-1/2 opacity-0 -translate-x-2 rtl:translate-x-2 group-hover/slider:opacity-100 group-hover/slider:translate-x-0 rtl:group-hover/slider:translate-x-0 hover:scale-110 hover:bg-white/30">
+        <div role="button" aria-label={isAr ? "الشريحة السابقة" : "Previous slide"} className="promo-prev absolute top-1/2 start-4 z-10 w-10 h-10 border border-white/20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-md transition-all duration-300 -translate-y-1/2 opacity-0 -translate-x-2 rtl:translate-x-2 group-hover/slider:opacity-100 group-hover/slider:translate-x-0 rtl:group-hover/slider:translate-x-0 hover:scale-110 hover:bg-white/30">
           <ChevronLeft size={20} className="rtl:rotate-180" />
         </div>
-        <div className="promo-next absolute top-1/2 end-4 z-10 w-10 h-10 border border-white/20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-md transition-all duration-300 -translate-y-1/2 opacity-0 translate-x-2 rtl:-translate-x-2 group-hover/slider:opacity-100 group-hover/slider:translate-x-0 rtl:group-hover/slider:translate-x-0 hover:scale-110 hover:bg-white/30">
+        <div role="button" aria-label={isAr ? "الشريحة التالية" : "Next slide"} className="promo-next absolute top-1/2 end-4 z-10 w-10 h-10 border border-white/20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-md transition-all duration-300 -translate-y-1/2 opacity-0 translate-x-2 rtl:-translate-x-2 group-hover/slider:opacity-100 group-hover/slider:translate-x-0 rtl:group-hover/slider:translate-x-0 hover:scale-110 hover:bg-white/30">
           <ChevronRight size={20} className="rtl:rotate-180" />
         </div>
 
@@ -127,7 +136,7 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
           <div className="absolute inset-0">
             <Image
               src="https://images.unsplash.com/photo-1523170335258-f5ed11844a49?q=80&w=1000&auto=format&fit=crop"
-              alt="Promo Banner Top"
+              alt=""
               fill
               className="object-cover object-center transition-transform duration-[8000ms] group-hover:scale-110"
               sizes="(max-width: 1024px) 100vw, 33vw"
@@ -153,7 +162,7 @@ export function PromoBanners({ dict, locale }: PromoBannersProps) {
           <div className="absolute inset-0">
             <Image
               src="https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?q=80&w=1000&auto=format&fit=crop"
-              alt="Promo Banner Bottom"
+              alt=""
               fill
               className="object-cover object-center transition-transform duration-[8000ms] group-hover:scale-110"
               sizes="(max-width: 1024px) 100vw, 33vw"
