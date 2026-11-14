@@ -83,14 +83,38 @@ export default async function RootLayout({
             <Header locale={locale} />
 
             {/* ── Page Content ──────────────────────────────── */}
-            <main className="flex-1">
+            <main id="main" tabIndex={-1} className="flex-1 outline-none">
               {children}
             </main>
 
             {/* ── Global Footer ─────────────────────────────── */}
             <Footer locale={locale} />
           </ThemeProvider>
-          <Toaster richColors position="top-center" dir={dir} />
+          {/* Toasts in the house style: ink panel, square corners, no colour washes. */}
+          <Toaster
+            position="top-center"
+            dir={dir}
+            gap={8}
+            style={
+              {
+                "--normal-bg": "var(--text-primary)",
+                "--normal-text": "var(--background)",
+                "--normal-border": "transparent",
+                "--border-radius": "var(--radius-sm)",
+                "--width": "380px",
+                fontFamily: "var(--font-sans)",
+              } as React.CSSProperties
+            }
+            toastOptions={{
+              style: { boxShadow: "var(--shadow-float)", padding: "14px 16px", fontSize: "0.875rem", gap: "10px" },
+              classNames: {
+                description: "opacity-75",
+                actionButton: "bg-background! text-text-primary! rounded-sm! h-8! px-3! text-[0.8125rem]! font-medium!",
+                cancelButton: "bg-transparent! text-background! underline! rounded-sm!",
+                closeButton: "bg-text-primary! text-background! border-0!",
+              },
+            }}
+          />
         </LocaleProvider>
       </body>
     </html>

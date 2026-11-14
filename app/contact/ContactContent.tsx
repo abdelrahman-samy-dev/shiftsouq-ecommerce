@@ -1,551 +1,183 @@
-/* ══════════════════════════════════════════════════════════════
-   ContactContent — Client Component
-   ──────────────────────────────────────────────────────────────
-   Premium contact form with:
-   - Name, email, subject dropdown, and message textarea
-   - Contact info sidebar (email, phone, hours, address)
-   - Real-time validation + animated feedback
-   ══════════════════════════════════════════════════════════════ */
-
 "use client";
 
-import { useState, useTransition, useRef, useEffect, useMemo } from "react";
-import {
-  MessageSquare,
-  Mail,
-  Phone,
-  MapPin,
-  Clock,
-  Send,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  ChevronDown,
-  Check,
-} from "lucide-react";
-import type { Locale } from "@/lib/types";
+/* ══════════════════════════════════════════════════════════════
+   Contact form (client)
+   ──────────────────────────────────────────────────────────────
+   ds fields with labels above and errors linked through
+   aria-describedby. Instant checks in the visitor's language;
+   the submitContactForm Server Function validates again,
+   throttles and stores the message. A hidden honeypot field
+   catches bots. On success the form gives way to a short
+   confirmation.
+   ══════════════════════════════════════════════════════════════ */
+
+import { useMemo, useRef, useState, useTransition } from "react";
 import type { Dictionary } from "@/lib/i18n/get-dictionary";
 import { submitContactForm } from "@/lib/actions/contact";
 import { createContactSchema, CONTACT_MESSAGE_MAX } from "@/lib/validations/contact";
-
-interface Props {
-  dict: Dictionary;
-  /** Kept for callers; the dictionary already carries the language. */
-  locale?: Locale;
-}
+import { Button } from "@/components/ds/Button";
+import { Input, Select, Textarea } from "@/components/ds/Field";
 
 type ContactField = "name" | "email" | "subject" | "message";
 
-export default function ContactContent({ dict }: Props) {
-  const ct = dict.contact;
-  const form = ct.form;
-  const info = ct.info;
-  const subjects = ct.subjects;
+interface Props {
+  dict: Dictionary;
+  labels: { required: string; another: string; sentTitle: string };
+}
 
-  /* Form state */
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  /** Honeypot — hidden from people, filled in by bots. */
-  const [website, setWebsite] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ContactField, string>>>({});
-
-  /* Validation messages follow the active language */
+export default function ContactContent({ dict, labels }: Props) {
+  const form = dict.contact.form;
+  const subjects = dict.contact.subjects;
   const schema = useMemo(() => createContactSchema(dict.validation), [dict.validation]);
 
-  const errorProps = (field: ContactField) => ({
-    "aria-invalid": !!fieldErrors[field],
-    "aria-describedby": fieldErrors[field] ? `contact-${field}-error` : undefined,
-  });
+  const [values, setValues] = useState({ name: "", email: "", subject: "", message: "" });
+  const [website, setWebsite] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<ContactField, string>>>({});
+  const [failure, setFailure] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
 
-  const fieldError = (field: ContactField) =>
-    fieldErrors[field] ? (
-      <p id={`contact-${field}-error`} className="text-xs font-medium mt-1.5 text-destructive" role="alert">
-        {fieldErrors[field]}
-      </p>
-    ) : null;
-
-  /* Feedback state */
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-
-  const [isPending, startTransition] = useTransition();
-
-  /* Subject options */
   const subjectOptions = [
-    { value: "general", label: subjects.general || "General Inquiry" },
-    { value: "order", label: subjects.order || "Order Issue" },
-    { value: "return", label: subjects.return || "Return / Refund" },
-    { value: "product", label: subjects.product || "Product Question" },
-    { value: "other", label: subjects.other || "Other" },
+    { value: "general", label: subjects.general },
+    { value: "order", label: subjects.order },
+    { value: "return", label: subjects.return },
+    { value: "product", label: subjects.product },
+    { value: "other", label: subjects.other },
   ];
 
-  /* Custom Dropdown State */
-  const [isSubjectOpen, setIsSubjectOpen] = useState(false);
-  const subjectContainerRef = useRef<HTMLDivElement>(null);
+  const set = (field: ContactField) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setValues((v) => ({ ...v, [field]: e.target.value }));
+    if (errors[field]) setErrors((x) => ({ ...x, [field]: undefined }));
+  };
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        subjectContainerRef.current &&
-        !subjectContainerRef.current.contains(e.target as Node)
-      ) {
-        setIsSubjectOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === "Escape") setIsSubjectOpen(false);
-    }
-    if (isSubjectOpen) {
-      document.addEventListener("keydown", handleEscape);
-      return () => document.removeEventListener("keydown", handleEscape);
-    }
-  }, [isSubjectOpen]);
-
-  /* ── Submit Handler ────────────────────────────────────────── */
+  function focusFirst(next: Partial<Record<ContactField, string>>) {
+    const first = (["name", "email", "subject", "message"] as const).find((f) => next[f]);
+    if (first) formRef.current?.querySelector<HTMLElement>(`[name="${first}"]`)?.focus();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setFeedback(null);
-
-    const selectedLabel = subjectOptions.find((o) => o.value === subject)?.label || "";
-
-    /* Instant feedback in the visitor's language (the server checks again) */
-    const parsed = schema.safeParse({ name, email, subject: selectedLabel, message });
+    setFailure(null);
+    const subjectLabel = subjectOptions.find((o) => o.value === values.subject)?.label ?? "";
+    const parsed = schema.safeParse({ ...values, subject: subjectLabel });
     if (!parsed.success) {
       const next: Partial<Record<ContactField, string>> = {};
       for (const issue of parsed.error.issues) {
         const field = issue.path[0] as ContactField;
         if (!next[field]) next[field] = issue.message;
       }
-      setFieldErrors(next);
+      setErrors(next);
+      focusFirst(next);
       return;
     }
-    setFieldErrors({});
+    setErrors({});
 
     startTransition(async () => {
-      const result = await submitContactForm({
-        name,
-        email,
-        subject: selectedLabel,
-        message,
-        website,
-      });
-
-      setFeedback({
-        type: result.success ? "success" : "error",
-        text: result.message,
-      });
-      if (!result.success && result.field) {
-        setFieldErrors({ [result.field]: result.message });
-      }
-
+      const result = await submitContactForm({ ...values, subject: subjectLabel, website });
       if (result.success) {
-        setName("");
-        setEmail("");
-        setSubject("");
-        setMessage("");
+        setSent(result.message);
+        setValues({ name: "", email: "", subject: "", message: "" });
+        return;
+      }
+      if (result.field) {
+        const next = { [result.field]: result.message };
+        setErrors(next);
+        focusFirst(next);
+      } else {
+        setFailure(result.message);
       }
     });
   }
 
+  if (sent) {
+    return (
+      <div role="status" className="flex flex-col items-start gap-4 border-t border-text-primary pt-8">
+        <h2 className="t-h2">{labels.sentTitle}</h2>
+        <p className="max-w-md text-text-secondary">{sent}</p>
+        <Button variant="secondary" onClick={() => setSent(null)} className="mt-2">
+          {labels.another}
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-[70vh] mx-auto max-w-6xl px-4 py-12 sm:py-20 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="mb-12 text-center">
-        <div
-          className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-5"
-          style={{ background: "var(--surface-elevated)" }}
-        >
-          <MessageSquare
-            size={28}
-            strokeWidth={1.5}
-            style={{ color: "var(--accent)" }}
-          />
-        </div>
-        <h1
-          className="text-3xl sm:text-4xl font-bold tracking-tight mb-3"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {ct.title || "Contact Us"}
-        </h1>
-        <p
-          className="text-sm max-w-xl mx-auto leading-relaxed"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {ct.subtitle ||
-            "We'd love to hear from you. Send us a message and we'll respond as soon as possible."}
+    <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col gap-5" aria-busy={pending || undefined}>
+      {/* Honeypot: invisible to people and screen readers; bots fill it in. */}
+      <div className="absolute -start-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
+        <label htmlFor="contact-website">Website</label>
+        <input id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
+      </div>
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Input
+          id="contact-name"
+          name="name"
+          label={form.name}
+          value={values.name}
+          onChange={set("name")}
+          autoComplete="name"
+          required
+          aria-required="true"
+          maxLength={120}
+          error={errors.name}
+        />
+        <Input
+          id="contact-email"
+          name="email"
+          type="email"
+          inputMode="email"
+          label={form.email}
+          value={values.email}
+          onChange={set("email")}
+          autoComplete="email"
+          required
+          aria-required="true"
+          maxLength={254}
+          dir="ltr"
+          className="rtl:text-right"
+          error={errors.email}
+        />
+      </div>
+
+      <Select id="contact-subject" name="subject" label={form.subject} value={values.subject} onChange={set("subject")} required aria-required="true" error={errors.subject}>
+        <option value="" disabled>
+          {form.subjectPlaceholder}
+        </option>
+        {subjectOptions.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </Select>
+
+      <Textarea
+        id="contact-message"
+        name="message"
+        label={form.message}
+        value={values.message}
+        onChange={set("message")}
+        rows={7}
+        required
+        aria-required="true"
+        maxLength={CONTACT_MESSAGE_MAX}
+        error={errors.message}
+        hint={`${values.message.length}/${CONTACT_MESSAGE_MAX}`}
+      />
+
+      {failure ? (
+        <p role="alert" className="border-s-2 border-destructive ps-3 text-[0.875rem] text-destructive">
+          {failure}
         </p>
+      ) : null}
+
+      <div className="flex flex-col-reverse items-start gap-4 pt-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-[0.8125rem] text-text-muted">{labels.required}</p>
+        <Button type="submit" size="lg" loading={pending} className="w-full sm:w-auto sm:min-w-48">
+          {pending ? form.sending : form.submit}
+        </Button>
       </div>
-
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-        {/* ── Form (3 cols) ────────────────────────────────── */}
-        <form
-          onSubmit={handleSubmit}
-          noValidate
-          className="lg:col-span-3 card-elevated p-6 sm:p-8"
-        >
-          {/* Honeypot: invisible to people and screen readers, bots fill it in */}
-          <div className="absolute -start-[9999px] w-px h-px overflow-hidden" aria-hidden="true">
-            <label htmlFor="contact-website">Website</label>
-            <input
-              id="contact-website"
-              name="website"
-              type="text"
-              tabIndex={-1}
-              autoComplete="off"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            {/* Name */}
-            <div>
-              <label
-                htmlFor="contact-name"
-                className="block text-sm font-medium mb-2"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {form.name} *
-              </label>
-              <input
-                id="contact-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="input-field"
-                required
-                autoComplete="name"
-                placeholder={form.namePlaceholder}
-                {...errorProps("name")}
-              />
-              {fieldError("name")}
-            </div>
-
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="contact-email"
-                className="block text-sm font-medium mb-2"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {form.email} *
-              </label>
-              <input
-                id="contact-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input-field"
-                required
-                autoComplete="email"
-                placeholder="you@example.com"
-                dir="ltr"
-                {...errorProps("email")}
-              />
-              {fieldError("email")}
-            </div>
-
-            {/* Subject */}
-            <div className="sm:col-span-2" ref={subjectContainerRef}>
-              <label
-                id="contact-subject-label"
-                htmlFor="contact-subject"
-                className="block text-sm font-medium mb-2"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {form.subject} *
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  id="contact-subject"
-                  onClick={() => setIsSubjectOpen((prev) => !prev)}
-                  className="input-field w-full flex items-center justify-between text-start cursor-pointer"
-                  aria-haspopup="listbox"
-                  aria-expanded={isSubjectOpen}
-                  aria-describedby={fieldErrors.subject ? "contact-subject-error" : undefined}
-                >
-                  <span
-                    style={{
-                      color: subject ? "var(--text-primary)" : "var(--text-faint)",
-                    }}
-                  >
-                    {subject
-                      ? subjectOptions.find((o) => o.value === subject)?.label
-                      : form.subjectPlaceholder}
-                  </span>
-                  <ChevronDown
-                    size={18}
-                    style={{
-                      color: "var(--text-muted)",
-                      transition: "transform var(--duration-fast) ease",
-                      transform: isSubjectOpen ? "rotate(180deg)" : "rotate(0deg)"
-                    }}
-                  />
-                </button>
-
-                {isSubjectOpen && (
-                  <div
-                    className="absolute z-50 w-full mt-2 p-1.5 dropdown-panel animate-scale-in origin-top"
-                    role="listbox"
-                    aria-labelledby="contact-subject-label"
-                  >
-                    {subjectOptions.map((opt) => {
-                      const isActive = opt.value === subject;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          role="option"
-                          aria-selected={isActive}
-                          onClick={() => {
-                            setSubject(opt.value);
-                            setIsSubjectOpen(false);
-                            setFieldErrors((prev) => ({ ...prev, subject: undefined }));
-                          }}
-                          className={`sort-select-option ${isActive ? "sort-select-option-active" : ""}`}
-                        >
-                          <span>{opt.label}</span>
-                          {isActive && (
-                            <Check size={16} strokeWidth={2.5} className="sort-select-check" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              {fieldError("subject")}
-            </div>
-
-            {/* Message */}
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="contact-message"
-                className="block text-sm font-medium mb-2"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {form.message} *
-              </label>
-              <textarea
-                id="contact-message"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                className="input-field resize-none"
-                rows={6}
-                required
-                maxLength={CONTACT_MESSAGE_MAX}
-                placeholder={form.messagePlaceholder}
-                {...errorProps("message")}
-              />
-              {fieldError("message")}
-              <p
-                className="text-xs mt-1.5 text-end"
-                style={{ color: "var(--text-faint)" }}
-                dir="ltr"
-              >
-                {message.length}/{CONTACT_MESSAGE_MAX}
-              </p>
-            </div>
-          </div>
-
-          {/* Feedback */}
-          {feedback && (
-            <div
-              className={`mt-5 flex items-start gap-2.5 px-4 py-3 rounded-xl text-sm font-medium border animate-fade-in-up ${
-                feedback.type === "success"
-                  ? "bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20 text-green-700 dark:text-green-400"
-                  : "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400"
-              }`}
-            >
-              {feedback.type === "success" ? (
-                <CheckCircle size={16} className="mt-0.5 flex-shrink-0" />
-              ) : (
-                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-              )}
-              {feedback.text}
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="mt-6">
-            <button
-              type="submit"
-              disabled={isPending}
-              className="btn-primary w-full sm:w-auto px-8"
-            >
-              {isPending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Send size={16} />
-              )}
-              {isPending
-                ? form.sending || "Sending..."
-                : form.submit || "Send Message"}
-            </button>
-          </div>
-        </form>
-
-        {/* ── Info Sidebar (2 cols) ────────────────────────── */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          {/* Get in Touch card */}
-          <div className="card-elevated p-6 sm:p-8">
-            <h2
-              className="text-base font-bold mb-6"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {info.title || "Get in Touch"}
-            </h2>
-
-            <div className="flex flex-col gap-5">
-              {/* Email */}
-              <div className="flex items-start gap-3.5">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: "var(--surface-elevated)" }}
-                >
-                  <Mail
-                    size={18}
-                    strokeWidth={1.5}
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-semibold mb-0.5"
-                    style={{ color: "var(--text-faint)" }}
-                  >
-                    {info.email || "Email"}
-                  </p>
-                  <a
-                    href="mailto:support@shiftsouq.com"
-                    className="text-sm font-medium hover:underline"
-                    style={{ color: "var(--text-primary)" }}
-                    dir="ltr"
-                  >
-                    support@shiftsouq.com
-                  </a>
-                </div>
-              </div>
-
-              {/* Phone */}
-              <div className="flex items-start gap-3.5">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: "var(--surface-elevated)" }}
-                >
-                  <Phone
-                    size={18}
-                    strokeWidth={1.5}
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-semibold mb-0.5"
-                    style={{ color: "var(--text-faint)" }}
-                  >
-                    {info.phone || "Phone"}
-                  </p>
-                  <a
-                    href="tel:+201234567890"
-                    className="text-sm font-medium hover:underline"
-                    style={{ color: "var(--text-primary)" }}
-                    dir="ltr"
-                  >
-                    +20 123 456 7890
-                  </a>
-                </div>
-              </div>
-
-              {/* Address */}
-              <div className="flex items-start gap-3.5">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: "var(--surface-elevated)" }}
-                >
-                  <MapPin
-                    size={18}
-                    strokeWidth={1.5}
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-semibold mb-0.5"
-                    style={{ color: "var(--text-faint)" }}
-                  >
-                    {info.address || "Address"}
-                  </p>
-                  <p
-                    className="text-sm font-medium"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {info.addressValue || "Cairo, Egypt"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Hours */}
-              <div className="flex items-start gap-3.5">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: "var(--surface-elevated)" }}
-                >
-                  <Clock
-                    size={18}
-                    strokeWidth={1.5}
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-semibold mb-0.5"
-                    style={{ color: "var(--text-faint)" }}
-                  >
-                    {info.hours || "Business Hours"}
-                  </p>
-                  <p
-                    className="text-sm font-medium whitespace-pre-line leading-relaxed"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {(info.hoursValue ||
-                      "Mon - Fri: 10:00 AM - 8:00 PM\nSat - Sun: 11:00 AM - 6:00 PM"
-                    ).replace(/\\n/g, "\n")}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Response Time Note */}
-          <div
-            className="rounded-xl px-5 py-4 border text-center"
-            style={{
-              background: "var(--surface-elevated)",
-              borderColor: "var(--border)",
-            }}
-          >
-            <p
-              className="text-xs leading-relaxed"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {ct.responseNote}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
+    </form>
   );
 }
