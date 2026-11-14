@@ -163,7 +163,8 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
               ? isAr ? `إزالة ${name} من المفضلة` : `Remove ${name} from wishlist`
               : isAr ? `إضافة ${name} إلى المفضلة` : `Add ${name} to wishlist`
           }
-          className="absolute end-2 top-2 inline-flex size-9 items-center justify-center rounded-full text-text-primary transition-colors hover:bg-background/80"
+          // A paper disc keeps the heart readable on light and dark photos, in both themes.
+          className="absolute end-2 top-2 inline-flex size-9 items-center justify-center rounded-full bg-background/75 text-text-primary transition-colors hover:bg-background"
         >
           <Heart className={cn("size-[18px]", wishlisted && "fill-current")} strokeWidth={1.5} />
         </button>
@@ -245,7 +246,7 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
                 <span
                   key={c.id}
                   title={(isAr ? c.color_ar : c.color_en) ?? undefined}
-                  className="size-2.5 rounded-full ring-1 ring-black/10"
+                  className="size-2.5 rounded-full ring-1 ring-border-hover"
                   style={{ backgroundColor: c.color_hex ?? "#ccc" }}
                 />
               ))}

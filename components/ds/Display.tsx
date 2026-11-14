@@ -214,7 +214,7 @@ export function SwatchDot({ color, selected, className }: { color: string; selec
     <span
       aria-hidden="true"
       className={cn(
-        "inline-block size-5 rounded-full ring-1 ring-black/10 dark:ring-white/15",
+        "inline-block size-5 rounded-full ring-1 ring-border-hover",
         selected && "outline outline-2 outline-offset-2 outline-text-primary",
         className,
       )}

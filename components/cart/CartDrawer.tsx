@@ -210,7 +210,7 @@ function CartLine({ item, locale, highlight, onNavigate }: { item: CartItem; loc
         {meta ? (
           <p className="mt-1 flex items-center gap-1.5 text-[0.8125rem] text-text-muted">
             {item.color_hex ? (
-              <span aria-hidden="true" className="inline-block size-2.5 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ backgroundColor: item.color_hex }} />
+              <span aria-hidden="true" className="inline-block size-2.5 rounded-full ring-1 ring-border-hover" style={{ backgroundColor: item.color_hex }} />
             ) : null}
             {meta}
           </p>

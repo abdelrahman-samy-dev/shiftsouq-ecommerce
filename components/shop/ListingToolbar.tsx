@@ -64,7 +64,7 @@ export function ListingToolbar({
             className="group inline-flex h-9 items-center gap-2 rounded-sm border border-border bg-surface-elevated ps-3 pe-2 text-[0.8125rem] text-text-primary transition-colors hover:border-text-primary"
           >
             {chip.swatch ? (
-              <span aria-hidden="true" className="size-3 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ backgroundColor: chip.swatch }} />
+              <span aria-hidden="true" className="size-3 rounded-full ring-1 ring-border-hover" style={{ backgroundColor: chip.swatch }} />
             ) : null}
             <span className="tabular-nums">{chip.label}</span>
             <X aria-hidden="true" className="size-3.5 text-text-muted group-hover:text-text-primary" strokeWidth={1.75} />

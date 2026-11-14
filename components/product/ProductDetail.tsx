@@ -238,7 +238,7 @@ export default function ProductDetail({ product, locale, initialColour, settings
                         aria-hidden="true"
                         className={cn(
                           "block size-7 rounded-full outline-1 outline-offset-[3px] transition-[outline-color] duration-150",
-                          "shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)]",
+                          "shadow-[inset_0_0_0_1px_var(--border-hover)]",
                           selected ? "outline-text-primary" : "outline-transparent",
                           !c.inStock && "opacity-40",
                         )}

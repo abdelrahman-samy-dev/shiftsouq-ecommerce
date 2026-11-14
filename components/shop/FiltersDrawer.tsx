@@ -194,7 +194,7 @@ export function FiltersDrawer({ open, onClose, facets: appliedFacets, categoryOp
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "relative inline-flex size-5 shrink-0 items-center justify-center rounded-full ring-1 ring-black/10 dark:ring-white/15",
+                          "relative inline-flex size-5 shrink-0 items-center justify-center rounded-full ring-1 ring-border-hover",
                           selected && "outline outline-2 outline-offset-2 outline-text-primary",
                           disabled && "opacity-40",
                         )}
