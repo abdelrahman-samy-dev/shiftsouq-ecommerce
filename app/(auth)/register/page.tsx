@@ -1,34 +1,34 @@
 /* ══════════════════════════════════════════════════════════════
-   Register Page
-   Route: /register
-   ──────────────────────────────────────────────────────────────
-   Server component that provides locale and dictionary to the
-   client-side RegisterForm component.
+   Create an account — /register
+   Split layout like sign in. Coming from a guest receipt
+   (?from=order), the email of the order this browser just placed
+   is filled in — read from the httpOnly receipt cookie on the
+   server, so it never travels in the URL.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { safeRedirectPath } from "@/lib/i18n/safe-redirect";
+import { getReceipt } from "@/lib/dal/receipt";
+import { AuthSplit } from "../_components/AuthSplit";
+import { authCopy } from "../_components/copy";
 import RegisterForm from "./RegisterForm";
 
-/* ── SEO Metadata ─────────────────────────────────────────── */
-
 export async function generateMetadata(): Promise<Metadata> {
-  const { dict } = await getLocaleAndDictionary();
-  // The root layout's title template appends " | ShiftSouq".
-  return { title: dict.meta.register.title, description: dict.meta.register.description };
+  const { locale } = await getLocaleAndDictionary();
+  const t = authCopy(locale);
+  return { title: t.registerTitle, description: t.registerIntro, robots: { index: false, follow: true } };
 }
 
-/* ── Page Component ────────────────────────────────────────── */
-
-export default async function RegisterPage() {
-  const { dict } = await getLocaleAndDictionary();
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ redirect?: string | string[]; from?: string }> }) {
+  const [{ locale, dict }, params] = await Promise.all([getLocaleAndDictionary(), searchParams]);
+  const raw = typeof params.redirect === "string" ? params.redirect : undefined;
+  const redirectTo = raw ? safeRedirectPath(raw, "") || undefined : undefined;
+  const receipt = params.from === "order" ? await getReceipt() : null;
 
   return (
-    <section
-      className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8"
-      aria-label={dict.meta.register.title}
-    >
-      <RegisterForm dict={dict} />
-    </section>
+    <AuthSplit locale={locale}>
+      <RegisterForm locale={locale} messages={dict.validation} redirectTo={redirectTo} initialEmail={receipt?.delivery.email ?? ""} />
+    </AuthSplit>
   );
 }

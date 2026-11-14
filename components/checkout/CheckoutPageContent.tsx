@@ -1,155 +1,184 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   CheckoutPageContent — Multi-Step Checkout Orchestrator
+   CheckoutPageContent — one-page checkout
    ──────────────────────────────────────────────────────────────
-   Client-side orchestrator for the 3-step checkout flow:
-   1. Contact → 2. Shipping → 3. Payment
+   Contact → Delivery → Payment on one page; finished sections
+   collapse to a summary with "Edit". Guests check out without an
+   account; signed-in buyers start from their profile and saved
+   addresses.
 
-   • Totals shown are the server's quote (quoteCheckout): server
-     prices, promo discount, shipping by governorate. Nothing the
-     browser computes is ever sent as a price.
-   • "Place Order": COD → receipt. Card → Paymob iframe (or the
-     local test panel). Wallet → wallet provider redirect.
+   • Every amount shown is the server's quote (quoteCheckout):
+     server prices, promo discount, delivery from the store
+     settings. Nothing the browser computes is sent as a price.
+   • "Place order": cash on delivery → receipt. Card → Paymob form
+     (or the local test panel). Wallet → wallet provider redirect.
    • An unpaid card / wallet order of this visit is remembered
      (session storage, no secrets): retrying the payment — also
      after coming back from a failed redirect — reuses it instead
-     of reserving stock twice. The cart is emptied only once the
-     payment is confirmed.
+     of reserving stock twice. If the buyer changes anything, the
+     old order is released first. The bag is emptied only once
+     the order is placed (cash) or the payment confirmed.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck, ArrowLeft, AlertTriangle, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronDown, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Breadcrumbs, ButtonLink, Skeleton } from "@/components/ds";
+import { useHydrated } from "@/components/shared/useHydrated";
 import { useCartStore, selectCartSubtotal } from "@/lib/store/useCartStore";
 import {
+  readSavedGovernorate,
   useCheckoutStore,
-  type CheckoutStep,
   type ContactInfo,
-  type ShippingAddress,
+  type DeliveryInfo,
   type PendingOrder,
 } from "@/lib/store/useCheckoutStore";
-
+import type { CheckoutPrefill, EtaByZone } from "@/lib/dal/orders";
+import type { ShippingSettings } from "@/lib/settings/types";
+import { governorateName } from "@/lib/checkout/shipping";
 import { startPayment } from "@/lib/actions/paymob";
-import { createOrder, previewPromoCode, quoteCheckout, type CheckoutQuote, type CreateOrderResult } from "@/lib/actions/checkout";
-import { cancelOrder } from "@/app/orders/actions";
+import {
+  createOrder,
+  previewPromoCode,
+  quoteCheckout,
+  releaseCheckoutOrder,
+  type CheckoutQuote,
+  type CreateOrderResult,
+} from "@/lib/actions/checkout";
+import { cn } from "@/lib/utils";
 
-import { CheckoutSteps } from "./CheckoutSteps";
-import { ContactStep } from "./ContactStep";
-import { ShippingStep } from "./ShippingStep";
-import { PaymentMethodSelector } from "./PaymentMethodSelector";
-import { CheckoutSidebar } from "./CheckoutSidebar";
-import { PaymentIframe } from "./PaymentIframe";
-import { MockPaymentPanel } from "./MockPaymentPanel";
-import { checkoutTotals, normalizeEgyptianMobile, promoErrorMessage, type Lang } from "./checkout-rules";
+import {
+  checkoutTotals,
+  contactSchema,
+  deliverySchema,
+  formatAddress,
+  formatEgyptianMobile,
+  formatMoney,
+  normalizeEgyptianMobile,
+  paymentOptions,
+  paymentUnavailableMessage,
+  promoErrorMessage,
+  type Lang,
+  type PaymentMethod,
+} from "./checkout-rules";
+import { checkoutCopy } from "./copy";
+import { CheckoutSection } from "./CheckoutSection";
+import { ContactSection } from "./ContactSection";
+import { DeliverySection } from "./DeliverySection";
+import { PaymentSection } from "./PaymentSection";
+import { OrderSummaryPanel } from "./OrderSummaryPanel";
+import { CardPaymentDialog, type CardSession } from "./CardPaymentDialog";
+import { noticeTone, textLink } from "./ui";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
-export interface CheckoutPrefillProps {
-  contact: ContactInfo;
-  shipping: Omit<ShippingAddress, "saveAddress"> | null;
-}
-
 interface CheckoutPageContentProps {
   locale: string;
-  /** Signed-in buyer's details / saved address, used when the form is still empty. */
-  prefill?: CheckoutPrefillProps | null;
-  /** Online methods the server can take right now. */
-  availability: { card: boolean; wallet: boolean };
+  /** Signed-in buyer's details and saved addresses; null for guests. */
+  prefill: CheckoutPrefill | null;
+  /** Delivery rates from the store settings (the server charges with the same). */
+  rates: ShippingSettings;
+  /** Delivery time per governorate (falls back to rates.etaDays). */
+  etaByZone: EtaByZone;
+  /** Methods the store owner offers. */
+  payments: Record<PaymentMethod, boolean>;
+  /** Online methods the gateway can take right now. */
+  gateway: { card: boolean; wallet: boolean };
 }
 
 type StartResult = "started" | "stale" | "failed";
+type Problem = { kind: "payment_failed" } | { kind: "stock" } | { kind: "error"; message: string };
 
-/* ── Helpers ─────────────────────────────────────────────────── */
-
-const subscribeNoop = () => () => {};
 const isBlank = (o: object) => Object.values(o).every((v) => v === "" || v === false || v == null);
-
-function orderErrorMessage(r: CreateOrderResult, lang: Lang): string {
-  const ar = lang === "ar";
-  switch (r.code) {
-    case "out_of_stock":
-      return ar
-        ? "بعض المنتجات لم تعد متوفرة بالكمية المطلوبة. عدّل السلة وحاول مرة أخرى."
-        : "Some items are no longer available in the quantity you chose. Please update your cart.";
-    case "product_unavailable":
-      return ar ? "أحد المنتجات في سلتك لم يعد متاحًا." : "A product in your cart is no longer available.";
-    case "choose_variant":
-      return ar ? "يرجى اختيار المقاس أو اللون لكل منتج." : "Please choose a size or colour for every product.";
-    case "invalid_promo":
-      return ar ? "رمز الخصم لم يعد صالحًا لهذا الطلب، وقد أزلناه." : "The promo code is no longer valid for this order, so we removed it.";
-    case "invalid_phone":
-      return ar ? "يرجى إدخال رقم محمول مصري صحيح (01XXXXXXXXX)." : "Please enter a valid Egyptian mobile number (01XXXXXXXXX).";
-    case "payment_unavailable":
-      return ar
-        ? "طريقة الدفع هذه غير متاحة مؤقتًا. يرجى اختيار الدفع عند الاستلام."
-        : "This payment method is temporarily unavailable. Please choose cash on delivery.";
-    case "cod_limit":
-      return ar
-        ? "الدفع عند الاستلام غير متاح لهذا المبلغ. يرجى اختيار الدفع الإلكتروني."
-        : "Cash on delivery isn't available for this amount. Please choose an online payment.";
-    default:
-      return ar ? "تعذر إتمام الطلب. يرجى المحاولة مرة أخرى." : "We couldn't place your order. Please try again.";
-  }
-}
 
 /* ── Component ───────────────────────────────────────────────── */
 
-export function CheckoutPageContent({ locale, prefill = null, availability }: CheckoutPageContentProps) {
-  const isAr = locale === "ar";
-  const lang: Lang = isAr ? "ar" : "en";
+export function CheckoutPageContent({ locale, prefill, rates, etaByZone, payments, gateway }: CheckoutPageContentProps) {
+  const lang: Lang = locale === "ar" ? "ar" : "en";
+  const t = checkoutCopy(lang);
   const router = useRouter();
+  const mounted = useHydrated();
+  const signedIn = !!prefill;
 
-  /* ── Cart State ────────────────────────────────────────────── */
+  /* ── Bag + checkout state ──────────────────────────────────── */
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
   const cartSubtotal = useCartStore(selectCartSubtotal);
 
-  /* ── Checkout State ────────────────────────────────────────── */
-  const step = useCheckoutStore((s) => s.step);
+  const section = useCheckoutStore((s) => s.section);
+  const done = useCheckoutStore((s) => s.done);
   const contact = useCheckoutStore((s) => s.contact);
-  const shipping = useCheckoutStore((s) => s.shipping);
-  const paymentMethod = useCheckoutStore((s) => s.paymentMethod);
+  const delivery = useCheckoutStore((s) => s.delivery);
+  const storedMethod = useCheckoutStore((s) => s.paymentMethod);
   const promoCode = useCheckoutStore((s) => s.promoCode);
+  const pendingOrder = useCheckoutStore((s) => s.pendingOrder);
   const isProcessing = useCheckoutStore((s) => s.isProcessing);
-  const setStep = useCheckoutStore((s) => s.setStep);
-  const setContact = useCheckoutStore((s) => s.setContact);
-  const setShipping = useCheckoutStore((s) => s.setShipping);
-  const setPaymentMethod = useCheckoutStore((s) => s.setPaymentMethod);
-  const setPromoCode = useCheckoutStore((s) => s.setPromoCode);
-  const setPendingOrder = useCheckoutStore((s) => s.setPendingOrder);
-  const setIsProcessing = useCheckoutStore((s) => s.setIsProcessing);
-  const resetCheckout = useCheckoutStore((s) => s.resetCheckout);
+  const seed = useCheckoutStore((s) => s.seed);
+  const store = useCheckoutStore.getState;
 
-  /* Empty form + signed-in buyer: start from their profile / saved address. */
-  const formContact = isBlank(contact) && prefill ? prefill.contact : contact;
-  const formShipping = useMemo(
-    () => (isBlank(shipping) && prefill?.shipping ? { ...prefill.shipping, saveAddress: false } : shipping),
-    [shipping, prefill]
-  );
+  /* ── First visit: start from the buyer's profile, saved address and bag estimate ── */
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!mounted || initialized.current) return;
+    initialized.current = true;
+    const s = store();
+    if (s.isProcessing) s.setIsProcessing(false);
+    if (!isBlank(s.contact) || !isBlank({ ...s.delivery, saveAddress: false })) return;
+    s.bumpSeed();
 
-  /* ── Hydration Guard (cart + checkout state live in browser storage) ── */
-  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
+    let nextContact: ContactInfo = s.contact;
+    let nextDelivery: DeliveryInfo = s.delivery;
+    const saved = prefill ? (prefill.addresses.find((a) => a.isDefault) ?? prefill.addresses[0]) : undefined;
+    if (prefill) {
+      // The profile's mobile, else the one on the default saved address.
+      nextContact = { email: prefill.contact.email, phone: prefill.contact.phone || normalizeEgyptianMobile(saved?.phone) || "" };
+      nextDelivery = { ...s.delivery, firstName: prefill.contact.firstName, lastName: prefill.contact.lastName };
+    }
+    if (saved) {
+      const [firstName, ...rest] = saved.fullName.trim().split(/\s+/);
+      nextDelivery = {
+        ...nextDelivery,
+        addressId: saved.id,
+        firstName: firstName ?? "",
+        lastName: rest.join(" "),
+        governorate: saved.governorate,
+        city: saved.city,
+        address: saved.address,
+        apartment: saved.apartment ?? "",
+        postalCode: saved.postalCode ?? "",
+        saveAddress: false,
+      };
+    }
+    const estimate = readSavedGovernorate();
+    if (estimate && !nextDelivery.governorate) nextDelivery = { ...nextDelivery, governorate: estimate };
+    s.setContact(nextContact);
+    s.setDelivery(nextDelivery);
+
+    // Returning buyers with complete details go straight to delivery (or to payment with a saved address).
+    if (prefill && contactSchema(lang).pick({ email: true, phone: true }).safeParse(nextContact).success) {
+      s.completeContact(nextContact);
+      if (saved && deliverySchema(lang).safeParse(nextDelivery).success) s.completeDelivery(nextDelivery);
+    }
+  }, [mounted, prefill, lang, store]);
 
   /* ── Coming back from a failed payment redirect ────────────── */
   const searchParams = useSearchParams();
-  const [paymentFailed, setPaymentFailed] = useState(() => searchParams.get("payment_error") === "true");
+  const [problem, setProblem] = useState<Problem | null>(() =>
+    searchParams.get("payment_error") === "true" ? { kind: "payment_failed" } : null,
+  );
   useEffect(() => {
-    if (searchParams.get("payment_error") === "true") {
-      // Clean the URL; the banner stays until dismissed or the next attempt.
-      window.history.replaceState(null, "", "/checkout");
-    }
+    if (searchParams.get("payment_error") === "true") window.history.replaceState(null, "", "/checkout");
   }, [searchParams]);
 
   /* ── Server quote: what the order will cost ────────────────── */
-  const quoteGovernorate = formShipping.governorate || undefined;
+  const governorate = delivery.governorate || "";
   const quoteKey = JSON.stringify({
     items: items.map((i) => ({ productId: i.productId, variantId: i.variantId, quantity: i.quantity })),
-    governorate: quoteGovernorate,
+    governorate: governorate || undefined,
     promoCode: promoCode ?? undefined,
   });
   const [quoteState, setQuoteState] = useState<{ key: string; quote: CheckoutQuote } | null>(null);
@@ -163,7 +192,7 @@ export function CheckoutPageContent({ locale, prefill = null, availability }: Ch
         .then((quote) => {
           if (cancelled) return;
           setQuoteState({ key: quoteKey, quote });
-          // The code stopped applying (cart changed, used up, expired…): drop it and say why.
+          // The code stopped applying (bag changed, used up, expired…): drop it and say why.
           if (quote.ok && quote.promo && !quote.promo.ok) {
             setPromoNotice(promoErrorMessage(quote.promo.reason, lang, quote.promo.minOrder));
             useCheckoutStore.getState().setPromoCode(null);
@@ -172,7 +201,7 @@ export function CheckoutPageContent({ locale, prefill = null, availability }: Ch
         .catch(() => {
           /* keep showing the estimate */
         });
-    }, 120);
+    }, 150);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -180,78 +209,72 @@ export function CheckoutPageContent({ locale, prefill = null, availability }: Ch
   }, [quoteKey, mounted, items.length, lang]);
 
   const freshQuote = quoteState?.key === quoteKey && quoteState.quote.ok ? quoteState.quote : null;
-  const lastDiscount = promoCode && quoteState?.quote.promo?.ok && quoteState.quote.promo.code === promoCode ? quoteState.quote.discount : 0;
-  const totals = freshQuote ?? checkoutTotals(cartSubtotal, lastDiscount, quoteGovernorate);
-  const quoteUpdating = !freshQuote;
+  const lastDiscount =
+    promoCode && quoteState?.quote.promo?.ok && quoteState.quote.promo.code === promoCode ? quoteState.quote.discount : 0;
+  const totals = freshQuote ?? checkoutTotals(cartSubtotal, lastDiscount, governorate, rates);
+  const unitPrices = freshQuote?.unitPrices ?? quoteState?.quote.unitPrices;
+  const unavailableLines = unitPrices ? items.filter((i) => unitPrices[`${i.productId}:${i.variantId}`] === null).length : 0;
 
-  /* ── Paymob Embedded iFrame State ──────────────────────────── */
-  const [showIframe, setShowIframe] = useState(false);
-  const [iframePaymentToken, setIframePaymentToken] = useState("");
-  const [iframeId, setIframeId] = useState("");
+  /* ── Payment methods on offer (owner switches, gateway, COD ceiling) ── */
+  const options = useMemo(() => paymentOptions({ enabled: payments, gateway, total: totals.total }), [payments, gateway, totals.total]);
+  const firstAvailable = (["cod", "card", "wallet"] as const).find((m) => options[m].available) ?? null;
+  const method: PaymentMethod | null = storedMethod && options[storedMethod].available ? storedMethod : firstAvailable;
+
+  /* ── Server-side field errors and payment errors ───────────── */
+  const [contactErrors, setContactErrors] = useState<Partial<Record<keyof ContactInfo, string>>>({});
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  /* ── Card payment window ───────────────────────────────────── */
+  const [card, setCard] = useState<CardSession | null>(null);
   /** Access token of the order created in this page view (the receipt cookie covers reloads). */
   const accessTokenRef = useRef<{ orderId: string; token: string } | null>(null);
 
-  /* ── Step direction for animation ──────────────────────────── */
-  const [direction, setDirection] = useState(1); // 1 = forward, -1 = back
+  /* ── Section handlers ──────────────────────────────────────── */
+  /** Focus follows the buyer's own steps only (not the automatic fill-in on load). */
+  const [interacted, setInteracted] = useState(false);
+  const openSection = useCallback((name: "contact" | "delivery") => {
+    setInteracted(true);
+    useCheckoutStore.getState().open(name);
+  }, []);
 
-  /* ── Step Handlers ─────────────────────────────────────────── */
+  const onContactDone = useCallback((c: ContactInfo) => {
+    setInteracted(true);
+    setContactErrors({});
+    useCheckoutStore.getState().completeContact(c);
+  }, []);
 
-  const handleContactSubmit = useCallback(
-    (data: ContactInfo) => {
-      setContact(data);
-      setDirection(1);
-      setStep(2);
-    },
-    [setContact, setStep]
-  );
+  const onDeliveryDone = useCallback((d: DeliveryInfo) => {
+    setInteracted(true);
+    useCheckoutStore.getState().completeDelivery(d);
+  }, []);
 
-  const handleShippingSubmit = useCallback(
-    (data: ShippingAddress) => {
-      setShipping(data);
-      setDirection(1);
-      setStep(3);
-    },
-    [setShipping, setStep]
-  );
-
-  const handleGovernorateChange = useCallback(
-    (governorate: string) => setShipping({ ...formShipping, governorate }),
-    [formShipping, setShipping]
-  );
-
-  const handleGoBack = useCallback(
-    (targetStep: CheckoutStep) => {
-      setDirection(-1);
-      setStep(targetStep);
-    },
-    [setStep]
-  );
+  const onGovernorateChange = useCallback((g: string) => {
+    const s = useCheckoutStore.getState();
+    s.setDelivery({ ...s.delivery, governorate: g });
+  }, []);
 
   /* ── Promo code ────────────────────────────────────────────── */
-
   const handleApplyPromo = useCallback(
     async (code: string): Promise<string | null> => {
       setPromoNotice(null);
       const res = await previewPromoCode(
         code,
-        items.map((i) => ({ productId: i.productId, variantId: i.variantId, quantity: i.quantity }))
+        items.map((i) => ({ productId: i.productId, variantId: i.variantId, quantity: i.quantity })),
       );
       if (!res.ok) return promoErrorMessage(res.reason, lang, res.minOrder);
-      setPromoCode(code.trim());
-      toast.success(isAr ? "تم تطبيق رمز الخصم." : "Promo code applied.");
+      useCheckoutStore.getState().setPromoCode(code.trim().toUpperCase());
       return null;
     },
-    [items, lang, isAr, setPromoCode]
+    [items, lang],
   );
 
   const handleRemovePromo = useCallback(() => {
     setPromoNotice(null);
-    setPromoCode(null);
-  }, [setPromoCode]);
+    useCheckoutStore.getState().setPromoCode(null);
+  }, []);
 
-  /* ── Online payment (card iframe / wallet redirect) ────────── */
-
-  const startOnlinePayment = useCallback(
+  /* ── Online payment (card form / wallet redirect) ──────────── */
+  const startOnline = useCallback(
     async (order: PendingOrder): Promise<StartResult> => {
       const token = accessTokenRef.current?.orderId === order.orderId ? accessTokenRef.current.token : undefined;
 
@@ -262,23 +285,22 @@ export function CheckoutPageContent({ locale, prefill = null, availability }: Ch
           body: JSON.stringify({
             orderId: order.orderId,
             accessToken: token,
-            walletPhone: normalizeEgyptianMobile(contact.phone) ?? undefined,
+            walletPhone: normalizeEgyptianMobile(useCheckoutStore.getState().contact.phone) ?? undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.status === 404 || res.status === 409) return "stale";
         if (!res.ok || !data.success || !data.redirectUrl) {
-          toast.error(
+          setPaymentError(
             res.status === 503
-              ? orderErrorMessage({ success: false, code: "payment_unavailable" }, lang)
-              : isAr
+              ? paymentUnavailableMessage("gateway", lang)
+              : lang === "ar"
                 ? "تعذر بدء الدفع بالمحفظة. يرجى المحاولة مرة أخرى."
-                : "We couldn't start the wallet payment. Please try again."
+                : "We couldn't start the wallet payment. Please try again.",
           );
           return "failed";
         }
-        // The cart stays until the payment is confirmed (receipt page), so a failed
-        // wallet payment brings the buyer back to a full cart.
+        // The bag stays until the payment is confirmed, so a failed wallet payment returns to a full bag.
         window.location.href = data.redirectUrl;
         return "started";
       }
@@ -286,388 +308,413 @@ export function CheckoutPageContent({ locale, prefill = null, availability }: Ch
       const result = await startPayment({ orderId: order.orderId, accessToken: token, method: "card" });
       if (!result.success) {
         if (result.code === "not_found" || result.code === "not_payable") return "stale";
-        toast.error(
+        setPaymentError(
           result.code === "unavailable"
-            ? orderErrorMessage({ success: false, code: "payment_unavailable" }, lang)
-            : isAr
+            ? paymentUnavailableMessage("gateway", lang)
+            : lang === "ar"
               ? "بوابة الدفع لا تستجيب حاليًا. يرجى المحاولة مرة أخرى."
-              : "The payment gateway is not responding. Please try again."
+              : "The payment gateway is not responding. Please try again.",
         );
         return "failed";
       }
       if (result.method !== "card") return "failed";
-      setIframePaymentToken(result.paymentToken);
-      setIframeId(result.iframeId);
-      setShowIframe(true);
+      setCard({ token: result.paymentToken, iframeId: result.iframeId });
       return "started";
     },
-    [contact.phone, isAr, lang]
+    [lang],
   );
 
-  /* ── Place Order Logic ─────────────────────────────────────── */
+  /* ── Order errors → the right place on the page ───────────── */
+  const showOrderError = useCallback(
+    (r: CreateOrderResult) => {
+      const s = useCheckoutStore.getState();
+      switch (r.code) {
+        case "invalid_phone":
+          setContactErrors({
+            phone: lang === "ar" ? "يرجى إدخال رقم محمول مصري صحيح (01XXXXXXXXX)." : "Please enter a valid Egyptian mobile number (01XXXXXXXXX).",
+          });
+          s.open("contact");
+          return;
+        case "invalid_promo":
+          s.setPromoCode(null);
+          setPromoNotice(promoErrorMessage(r.promoReason, lang, r.minOrder));
+          setPaymentError(lang === "ar" ? "أزلنا رمز الخصم لأنه لم يعد صالحًا. راجع الإجمالي ثم أكّد الطلب." : "We removed the promo code because it no longer applies. Check the total, then place your order.");
+          return;
+        case "payment_unavailable":
+          setPaymentError(paymentUnavailableMessage(r.paymentReason ?? "gateway", lang));
+          // The store's switches changed while the page was open: reload them.
+          router.refresh();
+          return;
+        case "cod_limit":
+          setPaymentError(paymentUnavailableMessage("cod_limit", lang));
+          return;
+        case "out_of_stock":
+        case "product_unavailable":
+        case "choose_variant":
+          setProblem({ kind: "stock" });
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        default:
+          setProblem({ kind: "error", message: t.genericError });
+      }
+    },
+    [lang, t.genericError, router],
+  );
 
+  /* ── Place order ───────────────────────────────────────────── */
   const handlePlaceOrder = useCallback(async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    setPaymentFailed(false);
+    const s = useCheckoutStore.getState();
+    if (s.isProcessing || !method) return;
+    if (!s.done.contact) return s.open("contact");
+    if (!s.done.delivery) return s.open("delivery");
+
+    s.setIsProcessing(true);
+    setPaymentError(null);
+    setProblem(null);
 
     try {
       const lines = items.map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity }));
-      const orderKey = JSON.stringify([contact, { ...shipping, saveAddress: undefined }, paymentMethod, promoCode, lines]);
+      const { addressId: _a, saveAddress: _s, ...deliveryKey } = s.delivery;
+      void _a;
+      void _s;
+      const orderKey = JSON.stringify([s.contact, deliveryKey, method, s.promoCode, lines]);
 
-      /* ── Retry: same details, same method → pay for the same order ── */
-      const previous = useCheckoutStore.getState().pendingOrder;
+      /* Retry: same details, same method → pay for the same order */
+      const previous = s.pendingOrder;
       if (previous) {
-        if (paymentMethod !== "cod" && previous.key === orderKey && previous.method === paymentMethod) {
-          const started = await startOnlinePayment(previous);
+        if (method !== "cod" && previous.key === orderKey && previous.method === method) {
+          const started = await startOnline(previous);
           if (started !== "stale") {
-            // A wallet redirect keeps the button busy while the browser leaves the page.
-            if (started === "failed" || previous.method === "card") setIsProcessing(false);
+            if (started === "failed" || previous.method === "card") s.setIsProcessing(false);
             return;
           }
           // The old order can no longer be paid (expired / cancelled): place a new one.
         } else {
-          // Details / method / cart changed: give the old unpaid order's stock back first.
-          await cancelOrder(previous.orderId).catch(() => null);
+          // Details / method / bag changed: give the old unpaid order's stock back first.
+          await releaseCheckoutOrder(previous.orderId).catch(() => null);
         }
-        setPendingOrder(null);
+        s.setPendingOrder(null);
       }
 
-      /* ── 1. Create the order: the server prices it and reserves stock ── */
-      const orderResult = await createOrder({
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        email: contact.email,
-        phone: contact.phone,
-        governorate: shipping.governorate,
-        city: shipping.city,
-        address: shipping.address,
-        apartment: shipping.apartment,
-        postalCode: shipping.postalCode,
-        paymentMethod,
-        promoCode: promoCode ?? undefined,
-        saveAddress: shipping.saveAddress,
+      /* 1. Create the order: the server prices it and reserves stock */
+      const result = await createOrder({
+        firstName: s.delivery.firstName,
+        lastName: s.delivery.lastName,
+        email: s.contact.email,
+        phone: s.contact.phone,
+        governorate: s.delivery.governorate,
+        city: s.delivery.city,
+        address: s.delivery.address,
+        apartment: s.delivery.apartment || undefined,
+        postalCode: s.delivery.postalCode || undefined,
+        notes: s.delivery.notes || undefined,
+        paymentMethod: method,
+        promoCode: s.promoCode ?? undefined,
+        saveAddress: signedIn && s.delivery.saveAddress,
         items: lines,
       });
 
-      if (!orderResult.success || !orderResult.orderId || !orderResult.accessToken) {
-        if (orderResult.code === "invalid_promo") setPromoCode(null);
-        if (orderResult.code === "invalid_phone") handleGoBack(1);
-        toast.error(orderErrorMessage(orderResult, lang));
-        setIsProcessing(false);
+      if (!result.success || !result.orderId || !result.accessToken) {
+        showOrderError(result);
+        s.setIsProcessing(false);
         return;
       }
 
-      const { orderId, accessToken, orderNumber = "" } = orderResult;
+      const { orderId, accessToken, orderNumber = "" } = result;
 
-      if (paymentMethod === "cod") {
+      if (method === "cod") {
         clearCart();
-        resetCheckout();
+        s.resetCheckout();
         router.push(`/checkout/success?order=${encodeURIComponent(orderNumber)}`);
         return;
       }
 
-      /* ── 2. Online payment ─────────────────────────────────── */
+      /* 2. Online payment */
       accessTokenRef.current = { orderId, token: accessToken };
-      const pending: PendingOrder = { key: orderKey, orderId, orderNumber, method: paymentMethod };
-      setPendingOrder(pending);
-      const started = await startOnlinePayment(pending);
+      const pending: PendingOrder = { key: orderKey, orderId, orderNumber, method };
+      s.setPendingOrder(pending);
+      const started = await startOnline(pending);
       if (started === "stale") {
-        toast.error(isAr ? "تعذر بدء الدفع. يرجى المحاولة مرة أخرى." : "We couldn't start the payment. Please try again.");
-        setPendingOrder(null);
+        setPaymentError(lang === "ar" ? "تعذر بدء الدفع. يرجى المحاولة مرة أخرى." : "We couldn't start the payment. Please try again.");
+        s.setPendingOrder(null);
       }
-      if (started !== "started" || paymentMethod === "card") setIsProcessing(false);
+      if (started !== "started" || method === "card") s.setIsProcessing(false);
     } catch (error) {
-      console.error("[Checkout] Order processing error:", error);
-      toast.error(
-        isAr
-          ? "حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى."
-          : "An error occurred while processing your order. Please try again."
-      );
-      setIsProcessing(false);
+      console.error("[Checkout] order failed:", error);
+      setProblem({ kind: "error", message: t.genericError });
+      s.setIsProcessing(false);
     }
-  }, [
-    isProcessing,
-    paymentMethod,
-    contact,
-    shipping,
-    promoCode,
-    items,
-    clearCart,
-    resetCheckout,
-    router,
-    isAr,
-    lang,
-    setIsProcessing,
-    setPendingOrder,
-    setPromoCode,
-    startOnlinePayment,
-    handleGoBack,
-  ]);
+  }, [method, items, signedIn, startOnline, showOrderError, clearCart, router, lang, t.genericError]);
 
-  /* ── iFrame Handlers ───────────────────────────────────────── */
+  /* ── Card window results ───────────────────────────────────── */
+  const handleCardClose = useCallback(() => setCard(null), []);
 
-  const handleIframeClose = useCallback(() => {
-    setShowIframe(false);
-    setIframePaymentToken("");
-    setIframeId("");
-  }, []);
-
-  const handleTransactionComplete = useCallback(
+  const handleCardComplete = useCallback(
     (success: boolean) => {
-      setShowIframe(false);
-      setIframePaymentToken("");
-      setIframeId("");
-
+      setCard(null);
       if (success) {
         const orderNumber = useCheckoutStore.getState().pendingOrder?.orderNumber;
         clearCart();
-        resetCheckout();
+        useCheckoutStore.getState().resetCheckout();
         router.push(orderNumber ? `/checkout/success?order=${encodeURIComponent(orderNumber)}` : "/checkout/success");
       } else {
-        setPaymentFailed(true);
-        toast.error(
-          isAr
-            ? "فشلت عملية الدفع. يرجى المحاولة مرة أخرى أو اختيار طريقة دفع أخرى."
-            : "Payment failed. Please try again or choose a different payment method."
-        );
+        setProblem({ kind: "payment_failed" });
+        toast.error(t.paymentFailed);
       }
     },
-    [clearCart, resetCheckout, router, isAr]
+    [clearCart, router, t.paymentFailed],
   );
 
-  /* ── Loading / Empty Guards ────────────────────────────────── */
+  /* ── Mobile summary toggle ─────────────────────────────────── */
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
-  if (!mounted) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
-          <div className="space-y-6">
-            {/* Step indicator skeleton */}
-            <div className="flex justify-between mb-8">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex flex-col items-center gap-2">
-                  <div className="skeleton-block w-10 h-10 rounded-full" />
-                  <div className="skeleton-block w-16 h-3 rounded-lg" />
-                </div>
-              ))}
-            </div>
-            {/* Form skeleton */}
-            <div className="card-elevated p-6 space-y-4">
-              <div className="skeleton-block h-6 w-48 rounded-lg" />
-              <div className="skeleton-block h-4 w-72 rounded-lg" />
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <div className="skeleton-block h-12 rounded-xl" />
-                <div className="skeleton-block h-12 rounded-xl" />
-              </div>
-              <div className="skeleton-block h-12 rounded-xl" />
-              <div className="skeleton-block h-12 rounded-xl" />
-            </div>
-          </div>
-          <div className="skeleton-block h-96 rounded-2xl" />
-        </div>
-      </div>
-    );
-  }
+  /* ── Loading / empty ───────────────────────────────────────── */
+  if (!mounted) return <CheckoutSkeleton label={t.loading} />;
 
   if (items.length === 0) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-lg mx-auto px-4 py-20 text-center"
-      >
-        <div
-          className="w-24 h-24 mx-auto rounded-3xl flex items-center justify-center mb-6"
-          style={{
-            background: "var(--surface-elevated)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <ShieldCheck size={40} strokeWidth={1.2} className="text-[var(--text-faint)]" />
+      <div className="container-x py-24 md:py-32">
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4 text-center">
+          <h1 className="t-h1">{t.emptyTitle}</h1>
+          <p className="text-text-secondary">{t.emptyBody}</p>
+          <ButtonLink href="/shop" size="lg" className="mt-4">
+            {t.browse}
+          </ButtonLink>
         </div>
-        <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-2">
-          {isAr ? "لا توجد منتجات للدفع" : "No items to checkout"}
-        </h2>
-        <p className="text-[var(--text-muted)] text-sm mb-8 max-w-sm mx-auto">
-          {isAr
-            ? "سلة التسوق فارغة. أضف بعض المنتجات قبل المتابعة."
-            : "Your cart is empty. Add some products before proceeding."}
-        </p>
-        <Link
-          href="/shop"
-          className="btn-primary h-12 px-8 text-base font-bold gap-2 inline-flex"
-        >
-          <ArrowLeft size={18} className="rtl:rotate-180" />
-          {isAr ? "تصفح المنتجات" : "Browse Products"}
-        </Link>
-      </motion.div>
+      </div>
     );
   }
 
-  /* ── Main Checkout Layout ──────────────────────────────────── */
+  const locked = isProcessing || !!card;
+  const retry = !!pendingOrder && method !== "cod" && pendingOrder.method === method && problem?.kind === "payment_failed";
+  const deliveryPlace = governorate ? governorateName(governorate, lang) : undefined;
+
+  const summaryProps = {
+    locale,
+    items,
+    unitPrices,
+    totals,
+    freeThreshold: rates.freeThreshold,
+    deliveryTo: deliveryPlace,
+    updating: !freshQuote,
+    promoCode,
+    promoNotice,
+    onApplyPromo: handleApplyPromo,
+    onRemovePromo: handleRemovePromo,
+    locked,
+  };
+
+  const contactSummary = (
+    <>
+      <span className="block text-start rtl:text-end" dir="ltr">
+        {contact.email}
+      </span>
+      <span className="block text-start rtl:text-end" dir="ltr">
+        {formatEgyptianMobile(contact.phone)}
+      </span>
+    </>
+  );
+  const deliverySummary = (
+    <>
+      <span className="block text-text-primary">{`${delivery.firstName} ${delivery.lastName}`.trim()}</span>
+      <span className="block">{formatAddress(delivery, lang)}</span>
+      <span className="block text-text-muted">
+        {t.deliveryLine}: {totals.shipping === null ? "—" : totals.shipping === 0 ? t.free : formatMoney(totals.shipping, lang)}
+      </span>
+    </>
+  );
+
+  const stateOf = (name: "contact" | "delivery" | "payment") =>
+    section === name ? "open" : name === "payment" ? "upcoming" : done[name] ? "done" : "upcoming";
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 lg:py-10">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-6 text-sm">
-        <Link
-          href="/cart"
-          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          {isAr ? "السلة" : "Cart"}
-        </Link>
-        <span className="text-[var(--text-faint)]">/</span>
-        <span className="text-[var(--text-primary)] font-semibold">
-          {isAr ? "الدفع" : "Checkout"}
-        </span>
-      </div>
+    <div className="container-x pb-20 pt-6 md:pt-10">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="flex items-center justify-between gap-4">
+          <Breadcrumbs items={[{ label: t.bag, href: "/cart" }, { label: t.title }]} />
+          <p className="flex items-center gap-1.5 text-[0.8125rem] text-text-muted">
+            <Lock className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+            {t.secure}
+          </p>
+        </div>
 
-      {/* Payment did not go through (failed card / wallet redirect) */}
-      {paymentFailed && (
-        <div
-          role="alert"
-          className="mb-6 flex items-start gap-3 rounded-xl px-4 py-3"
-          style={{ background: "var(--warning-bg)", border: "1px solid var(--warning)" }}
-        >
-          <AlertTriangle size={18} className="text-[var(--warning)] flex-shrink-0 mt-0.5" />
-          <div className="flex-1 text-sm">
-            <p className="font-semibold text-[var(--text-primary)]">
-              {isAr ? "لم تكتمل عملية الدفع" : "Your payment was not completed"}
-            </p>
-            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-              {isAr
-                ? "سلتك وبياناتك ما زالت محفوظة. يمكنك المحاولة مرة أخرى أو اختيار طريقة دفع أخرى."
-                : "Your cart and details are still here. You can try again or choose another payment method."}
-            </p>
-          </div>
+        <h1 className="t-h1 mt-6 md:mt-8">{t.title}</h1>
+
+        {/* Mobile: collapsible order summary at the top */}
+        <div className="-mx-5 mt-6 border-y border-border bg-surface md:-mx-8 lg:hidden">
           <button
             type="button"
-            onClick={() => setPaymentFailed(false)}
-            className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-            aria-label={isAr ? "إغلاق" : "Dismiss"}
+            onClick={() => setSummaryOpen((v) => !v)}
+            aria-expanded={summaryOpen}
+            aria-controls="checkout-summary-mobile"
+            className="flex min-h-14 w-full items-center justify-between gap-4 px-5 text-sm md:px-8"
           >
-            <X size={16} />
+            <span className="flex items-center gap-2 text-text-primary">
+              {summaryOpen ? t.hideSummary : t.showSummary}
+              <ChevronDown className={cn("size-4 transition-transform duration-200", summaryOpen && "rotate-180")} strokeWidth={1.5} aria-hidden="true" />
+            </span>
+            <span className={cn("t-price text-base text-text-primary transition-opacity", !freshQuote && "opacity-60")}>
+              {formatMoney(totals.total, lang)}
+            </span>
           </button>
+          <div id="checkout-summary-mobile" hidden={!summaryOpen} className="border-t border-border px-5 pb-8 pt-6 md:px-8">
+            <OrderSummaryPanel {...summaryProps} hideTitle idPrefix="m" />
+          </div>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 lg:gap-10 items-start">
-        {/* Left: Checkout Steps + Form */}
-        <div>
-          {/* Step Progress */}
-          <CheckoutSteps
-            currentStep={step}
-            onStepClick={(s) => handleGoBack(s)}
-            locale={locale}
-          />
-
-          {/* Step Content with Animation */}
-          <div className="card-elevated p-5 sm:p-7 !overflow-visible">
-            <AnimatePresence mode="wait" custom={direction}>
-              {step === 1 && (
-                <motion.div
-                  key="contact"
-                  custom={direction}
-                  initial={{ opacity: 0, x: direction > 0 ? 24 : -24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
-                  transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
-                >
-                  <ContactStep
-                    defaultValues={formContact}
-                    onSubmit={handleContactSubmit}
-                    locale={locale}
-                  />
-                </motion.div>
+        <div className="mt-8 grid gap-x-16 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_400px] xl:gap-x-24">
+          <div className="min-w-0">
+            {/* Account prompt */}
+            <div className="mb-10 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+              {signedIn ? (
+                <span className="text-text-secondary">{t.signedInAs(prefill?.contact.email ?? "")}</span>
+              ) : (
+                <>
+                  <span className="text-text-secondary">{t.haveAccount}</span>
+                  <Link href="/login?redirect=%2Fcheckout" className={cn("text-text-primary", textLink)}>
+                    {t.signInFaster}
+                  </Link>
+                </>
               )}
+            </div>
 
-              {step === 2 && (
-                <motion.div
-                  key="shipping"
-                  custom={direction}
-                  initial={{ opacity: 0, x: direction > 0 ? 24 : -24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
-                  transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
-                >
-                  <ShippingStep
-                    defaultValues={formShipping}
-                    onSubmit={handleShippingSubmit}
-                    onBack={() => handleGoBack(1)}
-                    onGovernorateChange={handleGovernorateChange}
-                    subtotalAfterDiscount={totals.afterDiscount}
-                    locale={locale}
-                  />
-                </motion.div>
-              )}
+            {problem && problem.kind !== "payment_failed" ? <ProblemBanner problem={problem} t={t} onDismiss={() => setProblem(null)} /> : null}
 
-              {step === 3 && (
-                <motion.div
-                  key="payment"
-                  custom={direction}
-                  initial={{ opacity: 0, x: direction > 0 ? 24 : -24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: direction > 0 ? -24 : 24 }}
-                  transition={{ duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
-                >
-                  <PaymentMethodSelector
-                    selectedMethod={paymentMethod}
-                    onSelect={(m) => {
-                      setPaymentMethod(m);
-                      // Close iFrame if user switches payment method
-                      if (showIframe) handleIframeClose();
-                    }}
-                    onBack={() => {
-                      if (showIframe) handleIframeClose();
-                      handleGoBack(2);
-                    }}
-                    onPlaceOrder={handlePlaceOrder}
-                    isProcessing={isProcessing}
-                    cartTotal={totals.total}
-                    locale={locale}
-                    iframeActive={showIframe}
-                    availability={availability}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div>
+            <CheckoutSection
+              id="checkout-contact"
+              index={1}
+              title={t.contact}
+              state={stateOf("contact")}
+              summary={contactSummary}
+              editLabel={t.edit}
+              editAria={t.editSection(t.contact)}
+              onEdit={locked ? undefined : () => openSection("contact")}
+              focusOnOpen={interacted}
+            >
+              <ContactSection key={seed} locale={locale} initial={contact} serverErrors={contactErrors} onDone={onContactDone} />
+            </CheckoutSection>
+
+            <CheckoutSection
+              id="checkout-delivery"
+              index={2}
+              title={t.delivery}
+              state={stateOf("delivery")}
+              summary={deliverySummary}
+              editLabel={t.edit}
+              editAria={t.editSection(t.delivery)}
+              onEdit={locked ? undefined : () => openSection("delivery")}
+              focusOnOpen={interacted}
+            >
+              <DeliverySection
+                key={seed}
+                locale={locale}
+                initial={delivery}
+                addresses={prefill?.addresses ?? []}
+                signedIn={signedIn}
+                rates={rates}
+                etaByZone={etaByZone}
+                afterDiscount={totals.afterDiscount}
+                onGovernorateChange={onGovernorateChange}
+                onDone={onDeliveryDone}
+              />
+            </CheckoutSection>
+
+            <CheckoutSection
+              id="checkout-payment"
+              index={3}
+              title={t.payment}
+              state={stateOf("payment")}
+              editLabel={t.edit}
+              editAria={t.editSection(t.payment)}
+              focusOnOpen={interacted}
+            >
+              <PaymentSection
+                locale={locale}
+                method={method}
+                options={options}
+                onSelect={(m) => {
+                  setPaymentError(null);
+                  useCheckoutStore.getState().setPaymentMethod(m);
+                }}
+                phone={contact.phone}
+                total={totals.total}
+                error={paymentError}
+                processing={isProcessing}
+                retry={retry}
+                blocked={unavailableLines > 0}
+                locked={locked}
+                notice={problem?.kind === "payment_failed" ? <ProblemBanner problem={problem} t={t} onDismiss={() => setProblem(null)} /> : null}
+                onPlaceOrder={handlePlaceOrder}
+              />
+            </CheckoutSection>
+            </div>
           </div>
 
-          {/* ── Embedded Payment iFrame Modal ────────────────── */}
-          <AnimatePresence>
-            {showIframe && iframeId === "MOCK" && (
-              <MockPaymentPanel
-                onClose={handleIframeClose}
-                onTransactionComplete={handleTransactionComplete}
-                locale={locale}
-              />
-            )}
-            {showIframe && iframeId !== "MOCK" && (
-              <PaymentIframe
-                paymentToken={iframePaymentToken}
-                iframeId={iframeId}
-                onClose={handleIframeClose}
-                onTransactionComplete={handleTransactionComplete}
-                locale={locale}
-              />
-            )}
-          </AnimatePresence>
+          {/* Desktop: sticky summary */}
+          <aside aria-label={t.summary} className="hidden lg:block">
+            <div className="sticky top-[calc(var(--header-height)+1.5rem)] bg-surface p-8">
+              <OrderSummaryPanel {...summaryProps} idPrefix="d" />
+            </div>
+          </aside>
         </div>
+      </div>
 
-        {/* Right: Order Summary Sidebar */}
-        <CheckoutSidebar
-          locale={locale}
-          totals={totals}
-          unitPrices={freshQuote?.unitPrices ?? quoteState?.quote.unitPrices}
-          updating={quoteUpdating}
-          promoCode={promoCode}
-          promoNotice={promoNotice}
-          onApplyPromo={handleApplyPromo}
-          onRemovePromo={handleRemovePromo}
-          locked={isProcessing || showIframe}
-        />
+      <CardPaymentDialog session={card} locale={locale} onClose={handleCardClose} onComplete={handleCardComplete} />
+    </div>
+  );
+}
+
+/* ── Pieces ──────────────────────────────────────────────────── */
+
+function ProblemBanner({ problem, t, onDismiss }: { problem: Problem; t: ReturnType<typeof checkoutCopy>; onDismiss: () => void }) {
+  const tone = problem.kind === "error" ? noticeTone.danger : noticeTone.warning;
+  const title = problem.kind === "payment_failed" ? t.paymentFailed : problem.kind === "stock" ? t.stockProblem : problem.message;
+  const body = problem.kind === "payment_failed" ? t.paymentFailedBody : problem.kind === "stock" ? t.stockProblemBody : null;
+  return (
+    <div role="alert" className={cn("flex items-start gap-4 border px-4 py-3.5 rounded-sm", problem.kind !== "payment_failed" && "mb-8", tone)}>
+      <div className="flex-1 text-sm">
+        <p className="font-medium">{title}</p>
+        {body ? <p className="mt-0.5 text-text-secondary">{body}</p> : null}
+        {problem.kind === "stock" ? (
+          <Link href="/cart" className={cn("mt-2 inline-block text-text-primary", textLink)}>
+            {t.reviewBag}
+          </Link>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={t.dismiss}
+        className="-me-2 -mt-1 inline-flex size-10 shrink-0 items-center justify-center rounded-sm text-text-muted hover:text-text-primary"
+      >
+        <X className="size-4" strokeWidth={1.5} />
+      </button>
+    </div>
+  );
+}
+
+export function CheckoutSkeleton({ label }: { label: string }) {
+  return (
+    <div className="container-x pb-20 pt-6 md:pt-10" aria-busy="true" aria-label={label}>
+      <div className="mx-auto max-w-[1200px]">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="mt-8 h-12 w-56" />
+        <Skeleton className="-mx-5 mt-6 h-14 md:-mx-8 lg:hidden" />
+        <div className="mt-8 grid gap-x-16 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_400px] xl:gap-x-24">
+          <div className="flex flex-col gap-8">
+            <Skeleton className="h-5 w-72" />
+            <Skeleton className="h-8 w-40" />
+            <div className="grid gap-5 md:grid-cols-2">
+              <Skeleton className="h-[4.5rem]" />
+              <Skeleton className="h-[4.5rem]" />
+            </div>
+            <Skeleton className="h-13 w-48" />
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-8 w-40" />
+          </div>
+          <Skeleton className="hidden h-[28rem] lg:block" />
+        </div>
       </div>
     </div>
   );

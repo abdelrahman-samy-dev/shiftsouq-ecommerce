@@ -1,34 +1,31 @@
 /* ══════════════════════════════════════════════════════════════
-   Login Page
-   Route: /login
-   ──────────────────────────────────────────────────────────────
-   Server component that provides locale and dictionary to the
-   client-side LoginForm component.
+   Sign in — /login
+   Split layout: the form, and an editorial panel on desktop.
+   ?redirect= brings the buyer back (e.g. to checkout with their
+   bag intact); only same-site paths are honoured (server-side).
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { safeRedirectPath } from "@/lib/i18n/safe-redirect";
+import { AuthSplit } from "../_components/AuthSplit";
+import { authCopy } from "../_components/copy";
 import LoginForm from "./LoginForm";
 
-/* ── SEO Metadata ─────────────────────────────────────────── */
-
 export async function generateMetadata(): Promise<Metadata> {
-  const { dict } = await getLocaleAndDictionary();
-  // The root layout's title template appends " | ShiftSouq".
-  return { title: dict.meta.login.title, description: dict.meta.login.description };
+  const { locale } = await getLocaleAndDictionary();
+  const t = authCopy(locale);
+  return { title: t.signInTitle, description: t.signInIntro, robots: { index: false, follow: true } };
 }
 
-/* ── Page Component ────────────────────────────────────────── */
-
-export default async function LoginPage() {
-  const { dict } = await getLocaleAndDictionary();
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ redirect?: string | string[]; link?: string }> }) {
+  const [{ locale, dict }, params] = await Promise.all([getLocaleAndDictionary(), searchParams]);
+  const raw = typeof params.redirect === "string" ? params.redirect : undefined;
+  const redirectTo = raw ? safeRedirectPath(raw, "") || undefined : undefined;
 
   return (
-    <section
-      className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8"
-      aria-label={dict.meta.login.title}
-    >
-      <LoginForm dict={dict} />
-    </section>
+    <AuthSplit locale={locale}>
+      <LoginForm locale={locale} messages={dict.validation} redirectTo={redirectTo} linkExpired={params.link === "expired"} />
+    </AuthSplit>
   );
 }

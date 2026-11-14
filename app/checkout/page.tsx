@@ -1,44 +1,39 @@
 /* ══════════════════════════════════════════════════════════════
-   Checkout Page — /checkout
+   Checkout — /checkout (guests welcome)
    ──────────────────────────────────────────────────────────────
-   Server component wrapper for the multi-step checkout flow.
-   Passes down the locale, the signed-in buyer's saved details
-   (to prefill the form) and which online payment methods the
-   server can take right now (unavailable ones are disabled).
-
-   Uses generateMetadata for locale-aware SEO (N4).
+   Passes the client checkout what it needs to show the same
+   numbers the server will charge: the store's delivery rates and
+   payment switches, which online methods the gateway can take
+   right now, and — for signed-in buyers — their details and
+   saved addresses. Private page: never indexed.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import type { Locale } from "@/lib/types";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import { getCheckoutPrefill, getPaymentAvailability } from "@/lib/dal/orders";
+import { Suspense } from "react";
+import { getLocale } from "@/lib/i18n/server";
+import { getStoreSettings } from "@/lib/settings";
+import { getCheckoutPrefill, getPaymentAvailability, getZoneEtas } from "@/lib/dal/orders";
 import { CheckoutPageContent } from "@/components/checkout/CheckoutPageContent";
-import { APP_NAME } from "@/lib/constants";
+import { checkoutCopy } from "@/components/checkout/copy";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
-
-  const title = dict.checkout?.title || "Checkout";
-  const description =
-    locale === "ar"
-      ? `أكمل عملية الشراء بأمان في ${APP_NAME}. خيارات دفع متعددة تشمل البطاقات والمحافظ الإلكترونية.`
-      : `Complete your purchase securely at ${APP_NAME}. Multiple payment options including credit cards, mobile wallets, and cash on delivery.`;
-
-  return {
-    title: `${title} | ${APP_NAME}`,
-    description,
-    robots: { index: false, follow: false },
-  };
+  const t = checkoutCopy(await getLocale());
+  return { title: t.title, robots: { index: false, follow: false } };
 }
 
 export default async function CheckoutPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const prefill = await getCheckoutPrefill();
+  const [locale, settings, prefill, etaByZone] = await Promise.all([getLocale(), getStoreSettings(), getCheckoutPrefill(), getZoneEtas()]);
 
-  return <CheckoutPageContent locale={locale} prefill={prefill} availability={getPaymentAvailability()} />;
+  return (
+    <Suspense>
+      <CheckoutPageContent
+        locale={locale}
+        prefill={prefill}
+        rates={settings.shipping}
+        etaByZone={etaByZone}
+        payments={settings.payments}
+        gateway={getPaymentAvailability()}
+      />
+    </Suspense>
+  );
 }

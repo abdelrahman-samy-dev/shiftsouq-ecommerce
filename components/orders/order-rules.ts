@@ -49,3 +49,30 @@ export function orderCapabilities(o: OrderRuleInput, now: number = Date.now()): 
     payBy: online && pending && unpaid && deadline !== null && !expired ? new Date(deadline).toISOString() : null,
   };
 }
+
+/* ── Status timeline ─────────────────────────────────────────── */
+
+/** The road an order travels, in order. */
+export const TIMELINE_STEPS = ["pending", "confirmed", "processing", "shipped", "delivered"] as const;
+export type TimelineStep = (typeof TIMELINE_STEPS)[number];
+
+export interface Timeline {
+  steps: { key: TimelineStep; state: "done" | "current" | "upcoming" }[];
+  /** Cancelled / refunded orders leave the road: shown as their own state. */
+  ended: "cancelled" | "refunded" | null;
+}
+
+/** Where an order is on its way: steps before the status are done, the status itself is current. */
+export function orderTimeline(status: OrderStatusValue): Timeline {
+  if (status === "cancelled" || status === "refunded") {
+    return { steps: TIMELINE_STEPS.map((key) => ({ key, state: key === "pending" ? "done" : "upcoming" })), ended: status };
+  }
+  const at = Math.max(0, TIMELINE_STEPS.indexOf(status as TimelineStep));
+  return {
+    steps: TIMELINE_STEPS.map((key, i) => ({
+      key,
+      state: i < at || (status === "delivered" && i === at) ? "done" : i === at ? "current" : "upcoming",
+    })),
+    ended: null,
+  };
+}

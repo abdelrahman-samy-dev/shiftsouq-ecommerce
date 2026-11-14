@@ -1,31 +1,30 @@
 /* ══════════════════════════════════════════════════════════════
-   Checkout Success Page — /checkout/success
-   Shows the real order (number, items, payment status) to the
-   browser that placed it. Online payments are confirmed by the
-   Paymob webhook; until then the page shows "confirming payment".
+   Receipt — /checkout/success?order=SS-…
+   Shows the real order to the browser that placed it (httpOnly
+   receipt cookie) or to its signed-in owner. Online payments are
+   confirmed by the Paymob webhook; until then the page shows
+   "confirming" and refreshes. Private page: never indexed.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import type { Locale } from "@/lib/types";
+import { getLocale } from "@/lib/i18n/server";
 import { getReceipt } from "@/lib/dal/receipt";
+import { getAccountUser } from "@/lib/dal/account";
 import { CheckoutSuccessContent } from "@/components/checkout/CheckoutSuccessContent";
+import { checkoutCopy } from "@/components/checkout/copy";
 
-export const metadata: Metadata = {
-  title: "Order Placed",
-  description: "Your ShiftSouq order has been placed.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = checkoutCopy(await getLocale());
+  return { title: t.receiptEyebrow, robots: { index: false, follow: false } };
+}
 
-export default async function CheckoutSuccessPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ order?: string }>;
-}) {
+export default async function CheckoutSuccessPage({ searchParams }: { searchParams: Promise<{ order?: string | string[] }> }) {
   const { order } = await searchParams;
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const receipt = await getReceipt(typeof order === "string" ? order.slice(0, 40) : undefined);
+  const [locale, receipt, user] = await Promise.all([
+    getLocale(),
+    getReceipt(typeof order === "string" ? order.trim().slice(0, 40) : undefined),
+    getAccountUser(),
+  ]);
 
-  return <CheckoutSuccessContent locale={locale} receipt={receipt} />;
+  return <CheckoutSuccessContent locale={locale} receipt={receipt} signedIn={!!user} />;
 }
