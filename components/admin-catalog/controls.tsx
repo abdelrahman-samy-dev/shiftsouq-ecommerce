@@ -267,7 +267,7 @@ export function ListToolbar({
               value={s.value}
               onChange={(e) => navigate({ [s.name]: e.target.value })}
               className={cn(
-                "h-10 cursor-pointer appearance-none rounded-sm border bg-surface-elevated ps-3 pe-8 text-[0.8125rem] outline-none hover:border-border-hover focus:border-text-primary",
+                "h-10 cursor-pointer appearance-none rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11",
                 s.value ? "border-text-primary text-text-primary" : "border-border text-text-secondary",
               )}
             >
@@ -277,7 +277,7 @@ export function ListToolbar({
                 </option>
               ))}
             </select>
-            <svg aria-hidden="true" viewBox="0 0 16 16" className="pointer-events-none absolute end-2.5 top-1/2 size-3 -translate-y-1/2 text-text-muted" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="pointer-events-none absolute end-3 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M3.5 6l4.5 4.5L12.5 6" />
             </svg>
           </label>

@@ -7,7 +7,7 @@ import { useId, useTransition } from "react";
 import { cn } from "@/lib/utils";
 
 const dateClass =
-  "h-9 rounded-[3px] border border-border bg-surface-elevated px-2.5 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11 [color-scheme:light] dark:[color-scheme:dark]";
+  "h-9 rounded-sm border border-border bg-surface-elevated px-2.5 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11 [color-scheme:light] dark:[color-scheme:dark]";
 
 export function DateRangeFilter({ fromLabel, toLabel, className }: { fromLabel: string; toLabel: string; className?: string }) {
   const router = useRouter();

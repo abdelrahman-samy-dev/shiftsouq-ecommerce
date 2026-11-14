@@ -22,7 +22,8 @@ interface UploadItem {
   file: File;
 }
 
-const small = "h-10 w-full rounded-sm border border-border bg-surface-elevated px-2.5 text-[0.8125rem] text-text-primary outline-none hover:border-border-hover focus:border-text-primary";
+const small =
+  "h-10 w-full rounded-sm border border-border bg-surface-elevated px-2.5 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)]";
 
 export function MediaSection({
   state,
@@ -249,15 +250,24 @@ export function MediaSection({
                 <div className="flex min-w-0 flex-1 flex-col gap-2">
                   <label className="flex flex-col gap-1">
                     <span className="text-[0.75rem] text-text-muted">{tm.colour}</span>
-                    <select value={img.color_en ?? ""} onChange={(e) => edit(img.key, { color_en: e.target.value || null })} className={small}>
-                      <option value="">{tm.allColours}</option>
-                      {colourOptions.map((c) => (
-                        <option key={c.key} value={c.name_en}>
-                          {ar ? c.name_ar || c.name_en : c.name_en}
-                        </option>
-                      ))}
-                      {img.color_en && !colourOptions.some((c) => c.name_en === img.color_en) ? <option value={img.color_en}>{img.color_en}</option> : null}
-                    </select>
+                    <span className="relative">
+                      <select
+                        value={img.color_en ?? ""}
+                        onChange={(e) => edit(img.key, { color_en: e.target.value || null })}
+                        className={cn(small, "cursor-pointer appearance-none pe-9")}
+                      >
+                        <option value="">{tm.allColours}</option>
+                        {colourOptions.map((c) => (
+                          <option key={c.key} value={c.name_en}>
+                            {ar ? c.name_ar || c.name_en : c.name_en}
+                          </option>
+                        ))}
+                        {img.color_en && !colourOptions.some((c) => c.name_en === img.color_en) ? <option value={img.color_en}>{img.color_en}</option> : null}
+                      </select>
+                      <svg aria-hidden="true" viewBox="0 0 16 16" className="pointer-events-none absolute end-3 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M3.5 6l4.5 4.5L12.5 6" />
+                      </svg>
+                    </span>
                   </label>
                   <input aria-label={tm.altEn} placeholder={tm.altEn} value={img.alt_text_en} maxLength={200} dir="ltr" onChange={(e) => edit(img.key, { alt_text_en: e.target.value })} className={small} />
                   <input aria-label={tm.altAr} placeholder={tm.altAr} value={img.alt_text_ar} maxLength={200} dir="rtl" lang="ar" onChange={(e) => edit(img.key, { alt_text_ar: e.target.value })} className={small} />

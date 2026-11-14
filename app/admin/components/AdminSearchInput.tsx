@@ -44,7 +44,7 @@ export function AdminSearchInput({ placeholder, className, param = "search" }: {
         value={searchTerm}
         maxLength={80}
         onChange={(e) => setSearchTerm(e.target.value)}
-        className="h-9 w-full rounded-[3px] border border-border bg-surface-elevated ps-9 pe-9 text-[0.8125rem] text-text-primary placeholder:text-text-faint outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11 [&::-webkit-search-cancel-button]:hidden"
+        className="h-9 w-full rounded-sm border border-border bg-surface-elevated ps-9 pe-9 text-[0.8125rem] text-text-primary placeholder:text-text-faint outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11 [&::-webkit-search-cancel-button]:hidden"
       />
       <span className="absolute end-2 top-1/2 flex -translate-y-1/2 items-center">
         {isPending ? (
