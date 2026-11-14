@@ -346,6 +346,8 @@ END;
 $$;
 
 -- ── 3c. Owner only: find an account by e-mail (Team → add) ────
+-- Its return columns grow in a later migration (20261114080000), so drop first: re-running stays safe.
+DROP FUNCTION IF EXISTS public.admin_profile_by_email(TEXT);
 CREATE OR REPLACE FUNCTION public.admin_profile_by_email(p_email TEXT)
 RETURNS TABLE (profile_id UUID, full_name TEXT, role TEXT)
 LANGUAGE plpgsql
