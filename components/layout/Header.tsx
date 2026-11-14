@@ -17,6 +17,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { getNavigation, getViewer } from "@/lib/dal/navigation";
+import { getSettingsExtras } from "@/lib/dal/home";
 import { getStoreSettings } from "@/lib/settings";
 import type { Locale } from "@/lib/types";
 import { Logo } from "@/components/ui/Logo";
@@ -45,14 +46,22 @@ const HIDE_AT: Record<NavBreakpoint, string> = { lg: "lg:hidden", xl: "xl:hidden
 
 export default async function Header({ locale = "en" }: { locale?: Locale }) {
   const copy = shellCopy(locale);
-  const [nav, settings, cookieStore] = await Promise.all([getNavigation(), getStoreSettings(), cookies()]);
+  const [nav, settings, cookieStore, extras] = await Promise.all([getNavigation(), getStoreSettings(), cookies(), getSettingsExtras()]);
+  // The home hero sets the transparent header's type colour (ink over a light photo).
+  const heroTone = settings.home.hero?.image ? extras.hero.tone : "light";
   const viewer = getViewer();
 
   const messages = announcementMessages(settings.announcement, locale);
   const dismissKey = announcementKey(messages);
   const showBar = messages.length > 0 && cookieStore.get(ANNOUNCEMENT_COOKIE)?.value !== dismissKey;
 
-  const items = buildMenuItems(nav, locale, { newIn: copy.newIn, collections: copy.collections, shopAll: copy.shopAll });
+  const items = buildMenuItems(nav, locale, {
+    newIn: copy.newIn,
+    collections: copy.collections,
+    shopAll: copy.shopAll,
+    discover: copy.discover,
+    bestSellers: copy.bestSellers,
+  });
   // Long category names: the inline navigation waits for a wider screen.
   const breakpoint = navBreakpoint(items);
   const topCategories = nav.categories.map((c) => ({
@@ -77,7 +86,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         />
       ) : null}
 
-      <HeaderFrame>
+      <HeaderFrame heroTone={heroTone}>
         <div className="container-x grid h-full grid-cols-[1fr_auto_1fr] items-center gap-4">
           <div className="flex h-full min-w-0 items-center">
             <MobileMenu items={items} locale={locale} viewer={viewer} className={HIDE_AT[breakpoint]} />
@@ -90,7 +99,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
           </Link>
 
           <div className="flex items-center justify-end gap-0.5 -me-2 lg:me-0">
-            <SearchOverlayTrigger locale={locale} className="text-current! group-data-[overlay=true]/header:hover:bg-white/10" />
+            <SearchOverlayTrigger locale={locale} className="text-current! group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5" />
             <div className="hidden lg:flex">
               <Suspense fallback={<AccountLink locale={locale} />}>
                 <AccountMenu viewer={viewer} locale={locale} />

@@ -143,42 +143,43 @@ export function DesktopNav({
 
 function MegaPanel({ item, onNavigate }: { item: MenuItem; onNavigate: () => void }) {
   const panel = item.panel!;
-  const columns = chunk(panel.links, 6).slice(0, 3);
+  // Main links first (long lists split), then collections / discover, three columns at most.
+  const main = chunk(panel.links, 7).map((links, i) => ({ heading: panel.heading, links, first: i === 0 }));
+  const columns = [...main, ...panel.extras.map((c) => ({ ...c, first: false }))].slice(0, 3);
+  const link = "inline-block py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary";
   return (
     <div className="container-x grid grid-cols-12 gap-8 py-10 animate-[fade-in_240ms_ease-out_both] motion-reduce:animate-none">
       <div className="col-span-8 grid grid-cols-3 gap-8">
-        {columns.map((links, col) => (
-          <div key={col} className="flex flex-col gap-4">
-            <p className={cn("t-eyebrow", col > 0 && "invisible")} aria-hidden={col > 0 || undefined}>
-              {panel.heading}
-            </p>
-            <ul className="flex flex-col gap-0.5">
-              {col === 0 && panel.shopAll ? (
-                <li>
-                  <Link
-                    href={panel.shopAll.href}
-                    onClick={onNavigate}
-                    className="inline-block py-1.5 text-[0.9375rem] font-medium underline decoration-border-hover underline-offset-4 hover:decoration-text-primary"
-                  >
-                    {panel.shopAll.label}
-                  </Link>
-                </li>
-              ) : null}
-              {links.map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    prefetch={link.prefetch === false ? false : undefined}
-                    onClick={onNavigate}
-                    className="inline-block py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary"
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        {columns.map((column, col) => {
+          const repeat = col > 0 && column.heading === panel.heading;
+          return (
+            <div key={col} className="flex flex-col gap-4">
+              <p className={cn("t-eyebrow", repeat && "invisible")} aria-hidden={repeat || undefined}>
+                {column.heading}
+              </p>
+              <ul className="flex flex-col gap-0.5">
+                {column.first && panel.shopAll ? (
+                  <li>
+                    <Link
+                      href={panel.shopAll.href}
+                      onClick={onNavigate}
+                      className="inline-block py-1.5 text-[0.9375rem] font-medium underline decoration-border-hover underline-offset-4 hover:decoration-text-primary"
+                    >
+                      {panel.shopAll.label}
+                    </Link>
+                  </li>
+                ) : null}
+                {column.links.map((l) => (
+                  <li key={l.href}>
+                    <Link href={l.href} prefetch={l.prefetch === false ? false : undefined} onClick={onNavigate} className={link}>
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
       </div>
 
       {panel.image ? (

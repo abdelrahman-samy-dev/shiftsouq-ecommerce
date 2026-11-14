@@ -102,11 +102,18 @@ export interface MenuLink {
   prefetch?: boolean;
 }
 
+export interface MenuColumn {
+  heading: string;
+  links: MenuLink[];
+}
+
 export interface MenuPanel {
   heading: string;
   shopAll: MenuLink | null;
   links: MenuLink[];
   image: string | null;
+  /** Extra columns beside the main links (collections, discover). */
+  extras: MenuColumn[];
 }
 
 export interface MenuItem {
@@ -118,6 +125,7 @@ export interface MenuItem {
 }
 
 export const NEW_IN_HREF = "/shop?sort=newest";
+export const BEST_SELLERS_HREF = "/shop?sort=popular";
 
 export function categoryHref(slug: string): string {
   return `/category/${encodeURIComponent(slug)}`;
@@ -131,9 +139,21 @@ export function collectionHref(slug: string): string {
 export function buildMenuItems(
   nav: Navigation,
   locale: string,
-  labels: { newIn: string; collections: string; shopAll: string },
+  labels: { newIn: string; collections: string; shopAll: string; discover?: string; bestSellers?: string },
 ): MenuItem[] {
   const pick = (v: LocalizedText) => (locale === "ar" ? v.ar || v.en : v.en || v.ar);
+
+  const collectionLinks: MenuLink[] = nav.collections.map((c) => ({ href: collectionHref(c.slug), label: pick(c.title), prefetch: false }));
+  const discover: MenuColumn | null = labels.discover
+    ? {
+        heading: labels.discover,
+        links: [
+          { href: NEW_IN_HREF, label: labels.newIn },
+          ...(labels.bestSellers ? [{ href: BEST_SELLERS_HREF, label: labels.bestSellers }] : []),
+        ],
+      }
+    : null;
+  const collectionsColumn: MenuColumn | null = collectionLinks.length ? { heading: labels.collections, links: collectionLinks } : null;
 
   const categories: MenuItem[] = nav.categories.map((c) => {
     const href = categoryHref(c.slug);
@@ -147,6 +167,7 @@ export function buildMenuItems(
             shopAll: { href, label: labels.shopAll },
             links: c.children.map((s) => ({ href: categoryHref(s.slug), label: pick(s.name) })),
             image: c.image,
+            extras: [collectionsColumn, discover].filter((x): x is MenuColumn => !!x),
           }
         : null,
     };
@@ -164,8 +185,9 @@ export function buildMenuItems(
       panel: {
         heading: labels.collections,
         shopAll: null,
-        links: nav.collections.map((c) => ({ href: collectionHref(c.slug), label: pick(c.title), prefetch: false })),
+        links: collectionLinks,
         image: nav.collections.find((c) => c.image)?.image ?? null,
+        extras: discover ? [discover] : [],
       },
     });
   }

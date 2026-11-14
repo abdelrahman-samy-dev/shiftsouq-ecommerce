@@ -83,6 +83,16 @@ describe("menu items", () => {
     expect(items[3].href).toBeNull();
     expect(items[3].panel?.links[0]).toEqual({ href: "/collections/summer%20edit", label: "Summer", prefetch: false });
   });
+  it("adds collections and discover columns to category panels", () => {
+    const items = buildMenuItems(nav, "en", { ...labels, discover: "Discover", bestSellers: "Best sellers" });
+    expect(items[0].panel?.extras.map((c) => c.heading)).toEqual(["Collections", "Discover"]);
+    expect(items[0].panel?.extras[1].links).toEqual([
+      { href: "/shop?sort=newest", label: "New in" },
+      { href: "/shop?sort=popular", label: "Best sellers" },
+    ]);
+    // The collections panel itself only adds Discover.
+    expect(items[3].panel?.extras.map((c) => c.heading)).toEqual(["Discover"]);
+  });
   it("speaks Arabic and avoids two items with the same label", () => {
     const ar = buildMenuItems(nav, "ar", { ...labels, collections: "حقائب" });
     expect(ar.map((i) => i.label)).toEqual(["ملابس", "حقائب", "New in"]);
@@ -193,6 +203,19 @@ describe("policy facts come from settings", () => {
     expect(facts.feeRows.at(-2)).toEqual(["All other governorates", "EGP 100"]);
     expect(facts.feeRows.at(-1)?.[1]).toBe("Free");
     expect(facts.paymentList).toBe("cash on delivery, bank cards (Visa, Mastercard and Meeza) and mobile wallets");
+  });
+  it("groups delivery times by range, fastest first, in checkout order", () => {
+    const facts = legalFacts(DEFAULT_SETTINGS, "en", {
+      aswan: { min: 4, max: 6 },
+      giza: { min: 1, max: 2 },
+      cairo: { min: 1, max: 2 },
+      luxor: { min: 4, max: 6 },
+    });
+    expect(facts.etaRows).toEqual([
+      ["Cairo and Giza", "1–2"],
+      ["Luxor and Aswan", "4–6"],
+    ]);
+    expect(legalFacts(DEFAULT_SETTINGS, "en").etaRows).toEqual([]);
   });
   it("follows edited settings (return days, threshold, payment methods)", () => {
     const s = normalizeSettings({

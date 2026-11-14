@@ -27,6 +27,7 @@ export function shippingDocument(f: LegalFacts, locale: Locale): LegalDocument {
           heading: "مواعيد التوصيل",
           blocks: [
             { type: "p", text: `يصل معظم الطلبات خلال **${f.etaMin} إلى ${f.etaMax} أيام عمل** حسب المحافظة.` },
+            ...(f.etaRows.length ? [{ type: "table" as const, caption: "مدة التوصيل بأيام العمل حسب المحافظة", rows: f.etaRows }] : []),
             {
               type: "list",
               items: [
@@ -109,6 +110,7 @@ export function shippingDocument(f: LegalFacts, locale: Locale): LegalDocument {
         heading: "Delivery times",
         blocks: [
           { type: "p", text: `Most orders arrive within **${f.etaMin} to ${f.etaMax} working days**, depending on the governorate.` },
+          ...(f.etaRows.length ? [{ type: "table" as const, caption: "Delivery time in working days, by governorate", rows: f.etaRows }] : []),
           {
             type: "list",
             items: [

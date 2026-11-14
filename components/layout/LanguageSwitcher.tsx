@@ -51,7 +51,7 @@ export function LanguageSwitcher({
       className={cn(
         "inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors duration-150",
         variant === "text"
-          ? "h-10 rounded-sm px-2 text-[0.8125rem] font-medium hover:bg-surface group-data-[overlay=true]/header:hover:bg-white/10"
+          ? "h-10 rounded-sm px-2 text-[0.8125rem] font-medium hover:bg-surface group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5"
           : "h-11 rounded-sm border border-border px-4 text-sm hover:border-text-primary",
         className,
       )}

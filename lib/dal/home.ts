@@ -148,3 +148,65 @@ export async function getCollectionCover(slug: string): Promise<string | null> {
     return null;
   }
 }
+
+/* ── Settings keys the shared settings reader doesn't expose yet ── */
+
+export interface HeroExtras {
+  alt: { en: string; ar: string } | null;
+  credit: { name: string; href: string | null } | null;
+  /** Text colour over the photo: "dark" (ink, for light photos) or "light" (white, with scrims). */
+  tone: "light" | "dark";
+  /** Physical side with free space for the headline on wide screens (same in both languages). */
+  align: "left" | "right";
+}
+
+export interface SettingsExtras {
+  hero: HeroExtras;
+  /** Delivery time per governorate key, in working days. */
+  etaByZone: Record<string, { min: number; max: number }>;
+}
+
+const DEFAULT_EXTRAS: SettingsExtras = {
+  hero: { alt: null, credit: null, tone: "light", align: "left" },
+  etaByZone: {},
+};
+
+const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const txt = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+/**
+ * home.hero.{alt_en, alt_ar, credit, tone, align} and shipping.eta_days_by_zone,
+ * read from the same store_settings row (one cached query per request).
+ */
+export const getSettingsExtras = cache(async (): Promise<SettingsExtras> => {
+  try {
+    const { data, error } = await getPublicClient().from("store_settings").select("home, shipping").eq("id", 1).maybeSingle();
+    if (error) throw error;
+    if (!data) return DEFAULT_EXTRAS;
+    const hero = rec(rec(data.home).hero);
+    const credit = rec(hero.credit);
+    const creditName = txt(credit.photographer) || txt(credit.name);
+    const creditHref = txt(credit.source);
+
+    const etaByZone: SettingsExtras["etaByZone"] = {};
+    for (const [zone, value] of Object.entries(rec(rec(data.shipping).eta_days_by_zone))) {
+      const v = rec(value);
+      const min = Number(v.min);
+      const max = Number(v.max);
+      if (Number.isFinite(min) && Number.isFinite(max) && min >= 0 && max >= min) etaByZone[zone] = { min, max };
+    }
+
+    return {
+      hero: {
+        alt: txt(hero.alt_en) || txt(hero.alt_ar) ? { en: txt(hero.alt_en), ar: txt(hero.alt_ar) } : null,
+        credit: creditName ? { name: creditName, href: /^https:\/\//.test(creditHref) ? creditHref : null } : null,
+        tone: txt(hero.tone) === "dark" ? "dark" : "light",
+        align: txt(hero.align) === "right" ? "right" : "left",
+      },
+      etaByZone,
+    };
+  } catch (err) {
+    console.error("[DAL:getSettingsExtras]", err instanceof Error ? err.message : err);
+    return DEFAULT_EXTRAS;
+  }
+});

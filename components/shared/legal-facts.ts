@@ -28,6 +28,8 @@ export interface LegalFacts {
   etaMax: number;
   /** Delivery fee table rows: [governorates, fee]. */
   feeRows: [string, string][];
+  /** Delivery time rows: [governorates, "min–max"] in working days (empty when not configured). */
+  etaRows: [string, string][];
   payments: StoreSettings["payments"];
   /** "cash on delivery, bank cards (…) and mobile wallets". */
   paymentList: string;
@@ -39,7 +41,11 @@ function joinList(items: string[], locale: Locale): string {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-export function legalFacts(settings: StoreSettings, locale: Locale): LegalFacts {
+export function legalFacts(
+  settings: StoreSettings,
+  locale: Locale,
+  etaByZone: Record<string, { min: number; max: number }> = {},
+): LegalFacts {
   const ar = locale === "ar";
   const { shipping, payments, contact, policies } = settings;
   const price = (n: number) => formatPrice(n, locale);
@@ -49,8 +55,14 @@ export function legalFacts(settings: StoreSettings, locale: Locale): LegalFacts 
     const g = GOVERNORATES.find((x) => x.value === key);
     return g ? (ar ? g.ar : g.en) : key;
   };
+  // Governorates in the checkout list's order (Cairo, Giza, Alexandria…), unknown keys last.
+  const order = (key: string) => {
+    const i = GOVERNORATES.findIndex((x) => x.value === key);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const inOrder = <T,>(obj: Record<string, T>) => Object.entries(obj).sort(([a], [b]) => order(a) - order(b));
   const groups = new Map<number, string[]>();
-  for (const [key, fee] of Object.entries(shipping.zones)) {
+  for (const [key, fee] of inOrder(shipping.zones)) {
     if (fee === shipping.defaultFee) continue;
     groups.set(fee, [...(groups.get(fee) ?? []), label(key)]);
   }
@@ -71,6 +83,18 @@ export function legalFacts(settings: StoreSettings, locale: Locale): LegalFacts 
     payments.wallet ? (ar ? "المحافظ الإلكترونية" : "mobile wallets") : null,
   ].filter((m): m is string => !!m);
 
+  // Delivery times grouped by range, fastest first.
+  const etaGroups = new Map<string, { min: number; max: number; names: string[] }>();
+  for (const [key, eta] of inOrder(etaByZone)) {
+    const id = `${eta.min}-${eta.max}`;
+    const group = etaGroups.get(id) ?? { ...eta, names: [] };
+    group.names.push(label(key));
+    etaGroups.set(id, group);
+  }
+  const etaRows: [string, string][] = [...etaGroups.values()]
+    .sort((a, b) => a.min - b.min || a.max - b.max)
+    .map((g) => [joinList(g.names, locale), g.min === g.max ? `${g.min}` : `${g.min}–${g.max}`]);
+
   const tel = phoneHref(contact.phone);
 
   return {
@@ -85,6 +109,7 @@ export function legalFacts(settings: StoreSettings, locale: Locale): LegalFacts 
     etaMin: shipping.etaDays.min,
     etaMax: shipping.etaDays.max,
     feeRows,
+    etaRows,
     payments,
     paymentList: joinList(methods, locale),
   };

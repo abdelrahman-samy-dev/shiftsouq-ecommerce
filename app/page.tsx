@@ -17,9 +17,9 @@ import { ProductRail } from "@/components/home/ProductRail";
 import { EditorialSplit } from "@/components/home/EditorialSplit";
 import { ValuesStrip, type ValueItem } from "@/components/home/ValuesStrip";
 import { homeCopy } from "@/components/home/copy";
-import { categoryHref, collectionHref, dayCount, NEW_IN_HREF, safeHref } from "@/components/layout/shell-rules";
+import { BEST_SELLERS_HREF, categoryHref, collectionHref, dayCount, NEW_IN_HREF, safeHref } from "@/components/layout/shell-rules";
 import { getNavigation } from "@/lib/dal/navigation";
-import { getBestSellers, getCollectionCover, getFeaturedCollection, getNewArrivals } from "@/lib/dal/home";
+import { getBestSellers, getCollectionCover, getFeaturedCollection, getNewArrivals, getSettingsExtras } from "@/lib/dal/home";
 import { getStoreSettings } from "@/lib/settings";
 import { brand, t } from "@/lib/brand/config";
 import { formatPrice } from "@/lib/utils";
@@ -54,11 +54,12 @@ export default async function Home() {
   const seo = SEO_COPY[locale];
   const pick = (v: { en: string; ar: string }) => (isAr ? v.ar || v.en : v.en || v.ar);
 
-  const [settings, nav, newArrivals, collection] = await Promise.all([
+  const [settings, nav, newArrivals, collection, extras] = await Promise.all([
     getStoreSettings(),
     getNavigation(),
     getNewArrivals(8),
     getFeaturedCollection(),
+    getSettingsExtras(),
   ]);
   const [bestSellers, collectionCover] = await Promise.all([
     getBestSellers(8, newArrivals.map((p) => p.id)),
@@ -73,9 +74,16 @@ export default async function Home() {
     newArrivals.find((p) => p.primary_image)?.primary_image?.url ??
     null;
   const heroSettings = settings.home.hero;
+  const heroExtras = heroSettings ? extras.hero : null;
   const hero: HeroContent = {
     image: heroSettings?.image || fallbackImage,
-    imageAlt: "",
+    // The headline carries the message; the photo is described when the store wrote alt text.
+    imageAlt: heroExtras?.alt ? pick(heroExtras.alt) : "",
+    tone: heroExtras?.tone ?? "light",
+    align: heroExtras?.align ?? "left",
+    credit: heroExtras?.credit
+      ? { label: `${isAr ? "تصوير" : "Photo"}: ${heroExtras.credit.name}`, href: heroExtras.credit.href }
+      : null,
     title: (heroSettings && pick(heroSettings.title)) || t(brand.tagline, locale),
     srPrefix: seo.siteName,
     subtitle: heroSettings ? pick(heroSettings.subtitle) : t(brand.description, locale),
@@ -156,7 +164,7 @@ export default async function Home() {
             <SectionHeader
               eyebrow={copy.bestEyebrow}
               title={<span id="home-best">{copy.bestTitle}</span>}
-              action={{ href: "/shop?sort=popular", label: copy.bestAction }}
+              action={{ href: BEST_SELLERS_HREF, label: copy.bestAction }}
             />
             <ul className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-4 xl:grid-cols-4 xl:gap-x-5 max-xl:[&>li:nth-child(n+7)]:hidden">
               {bestSellers.map((product) => (

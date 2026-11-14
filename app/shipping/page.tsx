@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { getStoreSettings } from "@/lib/settings";
+import { getSettingsExtras } from "@/lib/dal/home";
 import { LegalArticle } from "@/components/shared/LegalArticle";
 import { LEGAL_LABELS, legalFacts } from "@/components/shared/legal-facts";
 import { shippingDocument } from "./content";
@@ -12,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function ShippingPage() {
-  const [{ locale }, settings] = await Promise.all([getLocaleAndDictionary(), getStoreSettings()]);
-  const doc = shippingDocument(legalFacts(settings, locale), locale);
+  const [{ locale }, settings, extras] = await Promise.all([getLocaleAndDictionary(), getStoreSettings(), getSettingsExtras()]);
+  const doc = shippingDocument(legalFacts(settings, locale, extras.etaByZone), locale);
   return <LegalArticle doc={doc} locale={locale} labels={LEGAL_LABELS[locale]} />;
 }

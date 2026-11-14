@@ -4,11 +4,12 @@
    HeaderFrame — the sticky <header> and its two looks
    ──────────────────────────────────────────────────────────────
    On the home page the header sits transparently over the hero
-   (white text). It turns into solid paper with a hairline as
+   photo, in white type ("light") or ink type ("dark") to match
+   the photo's tone. It turns into solid paper with a hairline as
    soon as the page scrolls, or while it is hovered or holds
-   keyboard focus (menus, focus rings stay readable). Every other
-   page gets the solid header. Children style themselves with
-   `group-data-[overlay=true]/header:*`.
+   focus (menus, focus rings stay readable). Every other page
+   gets the solid header. Children style themselves with
+   `group-data-[overlay=light|dark]/header:*`.
    Height is fixed by --header-height: no layout shift.
    ══════════════════════════════════════════════════════════════ */
 
@@ -16,7 +17,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-export function HeaderFrame({ children }: { children: ReactNode }) {
+export function HeaderFrame({ children, heroTone = "light" }: { children: ReactNode; heroTone?: "light" | "dark" }) {
   const pathname = usePathname();
   const isHome = pathname === "/";
   const [scrolled, setScrolled] = useState(false);
@@ -31,7 +32,7 @@ export function HeaderFrame({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("scroll", update);
   }, [isHome]);
 
-  const overlay = isHome && !scrolled && !hovered && !focused;
+  const overlay = isHome && !scrolled && !hovered && !focused ? heroTone : undefined;
 
   return (
     <header
@@ -45,7 +46,11 @@ export function HeaderFrame({ children }: { children: ReactNode }) {
       className={cn(
         "group/header sticky top-0 z-40 h-[var(--header-height)] border-b",
         "transition-[background-color,color,border-color] duration-300 ease-out motion-reduce:transition-none",
-        overlay ? "border-transparent bg-transparent text-white" : "border-border bg-background text-text-primary",
+        overlay === "light"
+          ? "border-transparent bg-transparent text-white"
+          : overlay === "dark"
+            ? "border-transparent bg-transparent text-black/90"
+            : "border-border bg-background text-text-primary",
       )}
     >
       {children}

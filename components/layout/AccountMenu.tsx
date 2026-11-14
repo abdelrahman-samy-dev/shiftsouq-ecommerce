@@ -96,7 +96,7 @@ function SignedInMenu({ user, locale, className }: { user: Viewer; locale: strin
         <UserRound className="size-5" strokeWidth={1.5} />
         <span
           aria-hidden="true"
-          className="absolute bottom-2 end-2 size-1.5 rounded-full bg-current ring-2 ring-background group-data-[overlay=true]/header:ring-transparent"
+          className="absolute bottom-2 end-2 size-1.5 rounded-full bg-current ring-2 ring-background group-data-[overlay=light]/header:ring-transparent group-data-[overlay=dark]/header:ring-transparent"
         />
       </button>
 

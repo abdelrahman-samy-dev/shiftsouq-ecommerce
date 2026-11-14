@@ -19,7 +19,7 @@ import { shellCopy } from "./copy";
 import { cn } from "@/lib/utils";
 
 export const headerIcon =
-  "relative inline-flex size-10 items-center justify-center rounded-sm transition-colors duration-150 hover:bg-surface group-data-[overlay=true]/header:hover:bg-white/10";
+  "relative inline-flex size-10 items-center justify-center rounded-sm transition-colors duration-150 hover:bg-surface group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5";
 
 function Count({ value }: { value: number }) {
   if (value <= 0) return null;
@@ -28,7 +28,8 @@ function Count({ value }: { value: number }) {
       aria-hidden="true"
       className={cn(
         "absolute top-1 end-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[0.625rem] font-medium leading-none tabular-nums",
-        "bg-text-primary text-background group-data-[overlay=true]/header:bg-white group-data-[overlay=true]/header:text-black",
+        "bg-text-primary text-background",
+        "group-data-[overlay=light]/header:bg-white group-data-[overlay=light]/header:text-black group-data-[overlay=dark]/header:bg-black group-data-[overlay=dark]/header:text-white",
       )}
     >
       {value > 99 ? "99+" : value}
