@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Input, Price, Select, Textarea } from "@/components/ds";
-import { deleteProduct, saveProduct } from "@/lib/actions/admin-catalog";
+import { deleteProduct, discardUploadedImage, saveProduct } from "@/lib/actions/admin-catalog";
 import { editorFingerprint, initialEditorState, sectionForError, toProductInput, type EditorSection, type EditorState } from "@/lib/admin/catalog-editor";
 import { catalogErrorKey, productInputSchema } from "@/lib/admin/catalog-schema";
 import type { CatalogCategory, ProductEditorData } from "@/lib/admin/catalog-types";
@@ -62,6 +62,9 @@ export function ProductEditor({
     leave: t.common.leave,
     stay: t.common.stay,
     close: t.common.close,
+  }, () => {
+    // Photos uploaded in this visit but never saved: delete the files again.
+    for (const img of state.images) if (img.fresh) void discardUploadedImage(img.url);
   });
 
   const tree = useMemo(() => flattenTree(buildTree(categories)), [categories]);
@@ -237,7 +240,7 @@ export function ProductEditor({
               free: t.editor.basics.slugFree,
               checking: t.editor.basics.slugChecking,
               invalid: t.error.slug,
-              useSuggestion: (s) => (ar ? `استخدم ${s}` : `Use ${s}`),
+              useSuggestion: (s) => fmt(t.editor.basics.useSlug, { slug: s }),
             }}
           />
           <div className="grid gap-5 md:grid-cols-2">

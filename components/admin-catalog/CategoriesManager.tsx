@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog, Switch } from "./controls";
 import { ImageField } from "./ImageField";
 import { SlugField } from "./product-editor/fields";
-import { EmptyPanel, PageHeader, StatusLabel, Thumb, tdClass, thClass } from "./ui";
+import { EmptyPanel, PageHeader, StatusLabel, Thumb, tdStack, thClass } from "./ui";
 
 interface Draft {
   id: string | null;
@@ -154,8 +154,8 @@ export function CategoriesManager({ categories, locale, meta }: { categories: Ca
               const index = sibs.findIndex((s) => s.id === c.id);
               const name = ar ? c.name_ar : c.name_en;
               return (
-                <tr key={c.id} className="flex flex-wrap items-center border-b border-border py-2 md:table-row md:py-0">
-                  <td className={cn(tdClass, "w-full md:w-auto")}>
+                <tr key={c.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-border py-2 md:table-row md:py-0">
+                  <td className={tdStack}>
                     <div className="flex items-center gap-3" style={{ paddingInlineStart: `${c.depth * 1.75}rem` }}>
                       {c.depth > 0 ? (
                         <span aria-hidden="true" className="-ms-4 h-5 w-3 shrink-0 border-b border-s border-border-hover rtl:rounded-none" />
@@ -166,26 +166,28 @@ export function CategoriesManager({ categories, locale, meta }: { categories: Ca
                         <span className="block truncate text-[0.75rem] text-text-muted" dir="ltr">
                           /{c.slug}
                         </span>
+                        <span className="mt-0.5 block text-[0.75rem] text-text-muted md:hidden">
+                          {fmt(t.categories.products, { count: formatCount(c.product_count, locale) })} · {c.is_active ? t.status.active : t.status.hidden}
+                        </span>
                       </button>
                     </div>
                   </td>
-                  <td className={cn(tdClass, "text-text-secondary tabular-nums")}>
+                  <td className={cn(tdStack, "hidden text-text-secondary tabular-nums md:table-cell")}>
                     <Link href={`/admin/products?category=${c.id}`} className="hover:text-text-primary hover:underline hover:underline-offset-4">
-                      <span className="md:hidden">{fmt(t.categories.products, { count: formatCount(c.product_count, locale) })}</span>
-                      <span className="hidden md:inline">{formatCount(c.product_count, locale)}</span>
+                      {formatCount(c.product_count, locale)}
                     </Link>
                   </td>
-                  <td className={tdClass}>
+                  <td className={cn(tdStack, "hidden md:table-cell")}>
                     <StatusLabel active={c.is_active} label={c.is_active ? t.status.active : t.status.hidden} />
                     {c.is_featured ? <span className="mt-0.5 block text-[0.75rem] text-text-muted">{t.status.featured}</span> : null}
                   </td>
-                  <td className={tdClass}>
+                  <td className={tdStack}>
                     <div className="flex items-center">
                       <OrderButton label={`${t.common.moveUp}: ${name}`} disabled={index <= 0 || pending} busy={busyId === c.id} onClick={() => move(c.id, "up")} up />
                       <OrderButton label={`${t.common.moveDown}: ${name}`} disabled={index === sibs.length - 1 || pending} busy={busyId === c.id} onClick={() => move(c.id, "down")} />
                     </div>
                   </td>
-                  <td className={cn(tdClass, "ms-auto text-end")}>
+                  <td className={cn(tdStack, "col-span-2 -mt-1 md:mt-0")}>
                     <div className="flex items-center justify-end gap-1">
                       <button type="button" onClick={() => open(blank(c.id))} className="h-9 whitespace-nowrap rounded-sm px-2 text-[0.8125rem] text-text-secondary hover:bg-surface hover:text-text-primary">
                         + {t.categories.addChild}
@@ -376,7 +378,7 @@ function CategoryDrawer({
             free: t.editor.basics.slugFree,
             checking: t.editor.basics.slugChecking,
             invalid: t.error.slug,
-            useSuggestion: (s) => (ar ? `استخدم ${s}` : `Use ${s}`),
+            useSuggestion: (s) => fmt(t.editor.basics.useSlug, { slug: s }),
           }}
         />
         <Select label={tc.parent} value={d.parent_id} onChange={(e) => set({ parent_id: e.target.value })} error={err("category_parent")}>

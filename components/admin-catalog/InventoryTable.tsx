@@ -12,13 +12,7 @@ import type { InventoryRow } from "@/lib/admin/catalog-types";
 import { stockState } from "@/lib/admin/catalog-utils";
 import { catalogError, fmt, getCatalogText } from "@/lib/admin/i18n-catalog";
 import { cn } from "@/lib/utils";
-import { StockFigure, Thumb, tdClass, tdStack, thClass } from "./ui";
-
-const checkboxClass =
-  "size-[18px] cursor-pointer appearance-none rounded-[2px] border border-border-hover bg-surface-elevated align-middle transition-colors checked:border-text-primary checked:bg-text-primary " +
-  "bg-center bg-no-repeat checked:bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22 fill=%22none%22 stroke=%22%23f6f4ef%22 stroke-width=%222%22><path d=%22M3.5 8.5l3 3 6-7%22/></svg>')] " +
-  "dark:checked:bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22 fill=%22none%22 stroke=%22%23121110%22 stroke-width=%222%22><path d=%22M3.5 8.5l3 3 6-7%22/></svg>')] " +
-  "indeterminate:border-text-primary indeterminate:bg-text-primary";
+import { checkboxClass, Thumb, tdClass, tdStack, thClass } from "./ui";
 
 type RowState = { base: number; draft: string; saving: boolean; flash: "saved" | "error" | null };
 
@@ -213,13 +207,19 @@ export function InventoryTable({ rows, locale, threshold }: { rows: InventoryRow
                         st === "out" ? "text-destructive" : st === "low" ? "text-warning" : "text-text-primary",
                       )}
                     />
-                    <span className="w-20 text-[0.75rem]" aria-live="polite">
+                    <span className="w-4 text-[0.75rem] sm:w-20" aria-live="polite">
                       {s.saving ? (
                         <Spinner className="text-text-muted" />
                       ) : s.flash === "saved" ? (
-                        <span className="text-success">{ti.saved}</span>
+                        <span className="inline-flex items-center gap-1 text-success">
+                          <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M3.5 8.5l3 3 6-7" /></svg>
+                          <span className="sr-only sm:not-sr-only">{ti.saved}</span>
+                        </span>
                       ) : st !== "in" ? (
-                        <StockFigure value="" state={st} label={st === "low" ? t.stock.low : t.stock.out} className="text-[0.75rem]" />
+                        <span className={cn("inline-flex items-center gap-2", st === "low" ? "text-warning" : "text-destructive")}>
+                          <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", st === "low" ? "bg-warning" : "bg-destructive")} />
+                          <span className="sr-only sm:not-sr-only">{st === "low" ? t.stock.low : t.stock.out}</span>
+                        </span>
                       ) : null}
                     </span>
                   </div>

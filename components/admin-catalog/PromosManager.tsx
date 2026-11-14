@@ -108,7 +108,7 @@ export function PromosManager({ promos, locale, meta }: { promos: PromoRow[]; lo
                   </td>
                   <td className={tdStack}>
                     <span className="t-price text-text-primary">
-                      {p.discount_type === "percentage" ? `${nf(p.discount_value)}%` : formatPrice(p.discount_value, loc)} {tp.off}
+                      {fmt(tp.off, { value: p.discount_type === "percentage" ? `${nf(p.discount_value)}%` : formatPrice(p.discount_value, loc) })}
                     </span>
                     {p.min_order_amount ? (
                       <span className="block text-[0.75rem] text-text-muted">{fmt(tp.minShort, { amount: formatPrice(p.min_order_amount, loc) })}</span>
@@ -133,8 +133,8 @@ export function PromosManager({ promos, locale, meta }: { promos: PromoRow[]; lo
                       {tp.state[state]}
                     </span>
                   </td>
-                  <td className={cn(tdStack, "col-span-2")}>
-                    <div className="flex items-center gap-1 md:justify-end">
+                  <td className={tdStack}>
+                    <div className="-me-2.5 flex items-center justify-end gap-1 md:me-0">
                       <button
                         type="button"
                         disabled={busyId === p.id}

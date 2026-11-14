@@ -66,7 +66,13 @@ export function CollectionEditor({ data, locale, nextSort }: { data: CollectionE
   const [deleting, startDelete] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const dirty = fingerprint(d) !== baseline;
-  const guard = useUnsavedGuard(dirty, { title: t.common.unsavedTitle, body: t.common.unsavedBody, leave: t.common.leave, stay: t.common.stay, close: t.common.close });
+  const guard = useUnsavedGuard(
+    dirty,
+    { title: t.common.unsavedTitle, body: t.common.unsavedBody, leave: t.common.leave, stay: t.common.stay, close: t.common.close },
+    () => {
+      for (const url of uploads) if (url !== data?.image_url) void discardUploadedImage(url);
+    },
+  );
   const set = (patch: Partial<Draft>) => setD((s) => ({ ...s, ...patch }));
   const err = (key: string) => (error === key ? catalogError(t, key) : null);
 
@@ -183,7 +189,7 @@ export function CollectionEditor({ data, locale, nextSort }: { data: CollectionE
               free: t.editor.basics.slugFree,
               checking: t.editor.basics.slugChecking,
               invalid: t.error.slug,
-              useSuggestion: (s) => (ar ? `استخدم ${s}` : `Use ${s}`),
+              useSuggestion: (s) => fmt(t.editor.basics.useSlug, { slug: s }),
             }}
           />
           <div className="grid gap-5 md:grid-cols-2">

@@ -128,7 +128,7 @@ export function SlugField({
   const invalid = value.length > 0 && !isValidSlug(value);
   const message = error ?? (invalid ? labels.invalid : current.state === "taken" ? labels.taken : null);
 
-  return (
+  const field = (
     <FieldShell id={id} label={labels.label} error={message} hint={labels.hint}>
       <div
         className={cn(controlClasses, "flex items-center gap-0 px-0 focus-within:border-text-primary", message && "border-destructive")}
@@ -155,16 +155,17 @@ export function SlugField({
           ) : null}
         </span>
       </div>
-      {current.state === "taken" && current.suggestion ? (
-        <button
-          type="button"
-          onClick={() => onChange(current.suggestion!, true)}
-          className="self-start text-[0.8125rem] text-text-primary underline underline-offset-4"
-        >
-          {labels.useSuggestion(current.suggestion)}
-        </button>
-      ) : null}
     </FieldShell>
+  );
+  if (current.state !== "taken" || !current.suggestion) return field;
+  const suggestion = current.suggestion;
+  return (
+    <div className="flex flex-col gap-1.5">
+      {field}
+      <button type="button" onClick={() => onChange(suggestion, true)} className="self-start text-[0.8125rem] text-text-primary underline underline-offset-4">
+        {labels.useSuggestion(suggestion)}
+      </button>
+    </div>
   );
 }
 

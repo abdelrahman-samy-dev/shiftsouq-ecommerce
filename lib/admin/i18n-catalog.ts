@@ -123,6 +123,7 @@ const en = {
       slugTaken: "This URL is already used by another product.",
       slugFree: "Available",
       slugChecking: "Checking…",
+      useSlug: "Use {slug}",
       category: "Category",
       categoryPlaceholder: "Choose a category",
       brand: "Brand",
@@ -348,7 +349,7 @@ const en = {
     deactivated: "Promo code deactivated",
     emptyTitle: "No promo codes yet",
     emptyBody: "Create a code to offer a percentage or fixed discount at checkout.",
-    off: "off",
+    off: "{value} off",
     minShort: "Min. order {amount}",
     columns: { code: "Code", discount: "Discount", uses: "Uses", expires: "Expires", status: "Status" },
     error: {
@@ -555,6 +556,7 @@ const ar: CatalogText = {
       slugTaken: "هذا الرابط مستخدم لمنتج آخر.",
       slugFree: "متاح",
       slugChecking: "جارٍ التحقق…",
+      useSlug: "استخدم {slug}",
       category: "الفئة",
       categoryPlaceholder: "اختر فئة",
       brand: "العلامة التجارية",
@@ -780,7 +782,7 @@ const ar: CatalogText = {
     deactivated: "عُطِّل رمز الخصم",
     emptyTitle: "لا توجد رموز خصم بعد",
     emptyBody: "أنشئ رمزًا لتقديم خصم بنسبة مئوية أو بمبلغ ثابت عند إتمام الشراء.",
-    off: "خصم",
+    off: "خصم {value}",
     minShort: "الحد الأدنى للطلب {amount}",
     columns: { code: "الرمز", discount: "الخصم", uses: "مرات الاستخدام", expires: "الانتهاء", status: "الحالة" },
     error: {

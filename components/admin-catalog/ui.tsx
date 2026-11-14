@@ -208,3 +208,6 @@ export function CoverThumb({ src, className }: { src: string | null | undefined;
 
 /** Body cell for tables that turn into stacked rows on phones (no padding there). */
 export const tdStack = "align-middle md:px-3 md:py-3";
+
+/** Native checkbox in ink (paper in dark mode): the browser draws a contrasting tick in both themes. */
+export const checkboxClass = "size-[18px] shrink-0 cursor-pointer align-middle accent-[var(--text-primary)]";

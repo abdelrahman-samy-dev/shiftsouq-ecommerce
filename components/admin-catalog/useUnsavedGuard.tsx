@@ -13,13 +13,20 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "./controls";
 
-export function useUnsavedGuard(dirty: boolean, labels: { title: string; body: string; leave: string; stay: string; close: string }) {
+export function useUnsavedGuard(
+  dirty: boolean,
+  labels: { title: string; body: string; leave: string; stay: string; close: string },
+  /** Runs when the admin chooses to leave (e.g. delete photos uploaded but never saved). */
+  onLeave?: () => void,
+) {
   const router = useRouter();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const dirtyRef = useRef(dirty);
+  const onLeaveRef = useRef(onLeave);
   useEffect(() => {
     dirtyRef.current = dirty;
-  }, [dirty]);
+    onLeaveRef.current = onLeave;
+  });
 
   useEffect(() => {
     if (!dirty) return;
@@ -60,6 +67,7 @@ export function useUnsavedGuard(dirty: boolean, labels: { title: string; body: s
         const href = pendingHref;
         dirtyRef.current = false;
         setPendingHref(null);
+        onLeaveRef.current?.();
         if (href) router.push(href);
       }}
       onClose={() => setPendingHref(null)}
