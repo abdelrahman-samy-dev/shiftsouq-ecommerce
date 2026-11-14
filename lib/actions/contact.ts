@@ -6,11 +6,15 @@
    key needs an INSERT policy (which we've created), but we use
    the admin client here for reliability and to avoid any RLS
    edge cases.
+
+   Replies are written in the visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */
 
 "use server";
 
 import { getServiceClient } from "@/lib/supabase/service";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { createContactSchema } from "@/lib/validations/contact";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -26,6 +30,8 @@ export interface ContactFormData {
 export interface ContactResult {
   success: boolean;
   message: string;
+  /** Field the message refers to, when it is a validation error. */
+  field?: "name" | "email" | "subject" | "message";
 }
 
 /* ── Submit Contact Form ─────────────────────────────────────── */
@@ -35,40 +41,33 @@ export interface ContactResult {
  * No authentication required — public visitors can submit.
  */
 export async function submitContactForm(data: ContactFormData): Promise<ContactResult> {
+  const { dict } = await getLocaleAndDictionary();
+  const t = dict.contact;
+
   try {
-    /* 1. Server-side validation */
-    const name = data.name?.trim();
-    const email = data.email?.trim().toLowerCase();
-    const subject = data.subject?.trim();
-    const message = data.message?.trim();
-
     // Bots fill every field, including the hidden one: pretend success.
-    if (data.website) {
-      return { success: true, message: "Your message has been sent successfully! We'll get back to you within 24-48 hours." };
+    if (data?.website) {
+      return { success: true, message: t.form.success };
     }
 
-    if (!name || name.length < 2 || name.length > 120) {
-      return { success: false, message: "Please enter a valid name (at least 2 characters)." };
+    /* 1. Server-side validation */
+    const parsed = createContactSchema(dict.validation).safeParse({
+      name: data?.name ?? "",
+      email: data?.email ?? "",
+      subject: data?.subject ?? "",
+      message: data?.message ?? "",
+    });
+
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return {
+        success: false,
+        message: issue?.message ?? t.form.error,
+        field: issue?.path[0] as ContactResult["field"],
+      };
     }
 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { success: false, message: "Please enter a valid email address." };
-    }
-
-    if (email.length > 254) {
-      return { success: false, message: "Please enter a valid email address." };
-    }
-    if (!subject || subject.length < 3 || subject.length > 200) {
-      return { success: false, message: "Please select or enter a subject." };
-    }
-
-    if (!message || message.length < 10) {
-      return { success: false, message: "Message must be at least 10 characters long." };
-    }
-
-    if (message.length > 5000) {
-      return { success: false, message: "Message must be under 5000 characters." };
-    }
+    const { name, email, subject, message } = parsed.data;
 
     /* 2. Throttle: at most 3 messages per email address every 10 minutes */
     const db = getServiceClient();
@@ -79,7 +78,7 @@ export async function submitContactForm(data: ContactFormData): Promise<ContactR
       .eq("email", email)
       .gte("created_at", since);
     if ((count ?? 0) >= 3) {
-      return { success: false, message: "You've sent several messages already. Please wait a few minutes and try again." };
+      return { success: false, message: t.errors.tooMany };
     }
 
     /* 3. Insert into database */
@@ -95,15 +94,12 @@ export async function submitContactForm(data: ContactFormData): Promise<ContactR
 
     if (error) {
       console.error("[submitContactForm]", error.message);
-      return { success: false, message: "Failed to send message. Please try again later." };
+      return { success: false, message: t.errors.sendFailed };
     }
 
-    return {
-      success: true,
-      message: "Your message has been sent successfully! We'll get back to you within 24-48 hours.",
-    };
+    return { success: true, message: t.form.success };
   } catch (err) {
     console.error("[submitContactForm] unexpected:", err);
-    return { success: false, message: "An unexpected error occurred. Please try again." };
+    return { success: false, message: t.errors.unexpected };
   }
 }

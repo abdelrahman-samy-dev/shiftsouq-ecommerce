@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono, Alexandria } from "next/font/google";
 import ThemeProvider from "@/components/providers/ThemeProvider";
+import { LocaleProvider } from "@/components/providers/LocaleProvider";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import "./globals.css";
 import { Toaster } from "sonner";
-import { cookies } from "next/headers";
-import { Locale } from "@/lib/types";
+import { getDirection } from "@/lib/i18n/config";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
 
 /* ── Fonts ─────────────────────────────────────────────────── */
 
@@ -16,6 +17,12 @@ const inter = Inter({
   display: "swap",
 });
 
+/**
+ * Arabic UI font. Its CSS also ships the Latin faces, so mixed
+ * Arabic/Latin lines (emails, prices, brand names) stay in one
+ * family when the page is RTL — see the [dir="rtl"] body rule in
+ * globals.css. Only the Arabic subset is preloaded.
+ */
 const alexandria = Alexandria({
   variable: "--font-alexandria",
   subsets: ["arabic"],
@@ -31,22 +38,25 @@ const geistMono = Geist_Mono({
 
 /* ── Metadata ──────────────────────────────────────────────── */
 
-export const metadata: Metadata = {
-  title: {
-    default: "ShiftSouq — Premium Fashion & Lifestyle Store",
-    template: "%s | ShiftSouq",
-  },
-  description:
-    "Discover curated collections of menswear, kids fashion, sneakers & accessories at ShiftSouq. Premium quality, modern design, worldwide delivery.",
-  keywords: [
-    "ShiftSouq",
-    "e-commerce",
-    "fashion",
-    "sneakers",
-    "accessories",
-    "online store",
-  ],
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale, dict } = await getLocaleAndDictionary();
+
+  return {
+    title: {
+      default: dict.meta.siteTitle,
+      template: `%s | ${dict.common.appName}`,
+    },
+    description: dict.meta.siteDescription,
+    keywords:
+      locale === "ar"
+        ? ["شيفت سوق", "تسوق أونلاين", "أزياء", "أحذية رياضية", "إكسسوارات", "مصر"]
+        : ["ShiftSouq", "e-commerce", "fashion", "sneakers", "accessories", "online store", "Egypt"],
+    openGraph: {
+      siteName: dict.common.appName,
+      locale: locale === "ar" ? "ar_EG" : "en_US",
+    },
+  };
+}
 
 /* ── Root Layout ───────────────────────────────────────────── */
 
@@ -55,9 +65,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dir = locale === "ar" ? "rtl" : "ltr";
+  const locale = await getLocale();
+  const dir = getDirection(locale);
 
   return (
     <html
@@ -67,19 +76,21 @@ export default async function RootLayout({
       className={`${inter.variable} ${alexandria.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ThemeProvider>
-          {/* ── Global Header ─────────────────────────────── */}
-          <Header locale={locale} />
+        <LocaleProvider locale={locale}>
+          <ThemeProvider>
+            {/* ── Global Header ─────────────────────────────── */}
+            <Header locale={locale} />
 
-          {/* ── Page Content ──────────────────────────────── */}
-          <main className="flex-1">
-            {children}
-          </main>
+            {/* ── Page Content ──────────────────────────────── */}
+            <main className="flex-1">
+              {children}
+            </main>
 
-          {/* ── Global Footer ─────────────────────────────── */}
-          <Footer locale={locale} />
-        </ThemeProvider>
-        <Toaster richColors position="top-center" dir={dir} />
+            {/* ── Global Footer ─────────────────────────────── */}
+            <Footer locale={locale} />
+          </ThemeProvider>
+          <Toaster richColors position="top-center" dir={dir} />
+        </LocaleProvider>
       </body>
     </html>
   );

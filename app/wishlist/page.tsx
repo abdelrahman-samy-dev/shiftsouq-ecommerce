@@ -12,32 +12,18 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import type { Locale } from "@/lib/types";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { WishlistPageContent } from "@/components/wishlist/WishlistPageContent";
-import { APP_NAME } from "@/lib/constants";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
-
-  const title = dict.common?.wishlist || "Wishlist";
-  const description =
-    locale === "ar"
-      ? `منتجاتك المحفوظة في ${APP_NAME}. أضفها إلى السلة عندما تكون جاهزاً.`
-      : `Your saved products at ${APP_NAME}. Add them to your cart when you're ready.`;
-
-  return {
-    title: `${title} | ${APP_NAME}`,
-    description,
-  };
+  const { dict } = await getLocaleAndDictionary();
+  // The root layout's title template appends " | ShiftSouq".
+  return { title: dict.meta.wishlist.title, description: dict.meta.wishlist.description };
 }
 
 export default async function WishlistPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const { locale, dict } = await getLocaleAndDictionary();
 
-  return <WishlistPageContent locale={locale} />;
+  // Product cards only need the "products" strings.
+  return <WishlistPageContent locale={locale} cardDict={{ products: dict.products }} />;
 }

@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerAction } from "@/lib/actions/auth";
-import { registerSchema, type RegisterInput } from "@/lib/validations/auth";
+import { createRegisterSchema, type RegisterInput } from "@/lib/validations/auth";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2, ArrowRight, ArrowLeft, ChevronDown } from "lucide-react";
 import type { Dictionary } from "@/lib/i18n/get-dictionary";
 import { motion, useReducedMotion, useAnimate, AnimatePresence } from "framer-motion";
 import { formEntrance, formItem, shakeAnimation } from "@/lib/motion";
+import { useLocale } from "@/components/providers/LocaleProvider";
 
 export default function RegisterForm({ dict }: { dict: Dictionary }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -17,6 +18,7 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [scope, animate] = useAnimate();
+  const isAr = useLocale() === "ar";
 
   const [isCountryOpen, setIsCountryOpen] = useState(false);
   const countryRef = useRef<HTMLDivElement>(null);
@@ -31,20 +33,23 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  /* Validation messages follow the active language */
+  const schema = useMemo(() => createRegisterSchema(dict.validation), [dict.validation]);
+
   const {
     register,
     handleSubmit,
     setValue,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<RegisterInput>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       gender: "female",
     },
   });
 
-  const selectedCountry = watch("country");
+  const selectedCountry = useWatch({ control, name: "country" });
 
   const onSubmit = async (data: RegisterInput) => {
     setServerError(null);
@@ -76,7 +81,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
         </p>
       </motion.div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* noValidate: show our localized messages instead of the browser's */}
+      <form onSubmit={(e) => handleSubmit(onSubmit)(e)} noValidate className="space-y-6">
         {serverError && (
           <motion.div
             variants={formItem}
@@ -98,7 +104,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
               {...register("firstName")}
               id="reg-firstName"
               type="text"
-              placeholder="John"
+              placeholder={dict.auth.firstNamePlaceholder}
+              autoComplete="given-name"
               className="input-field text-start"
               aria-describedby={errors.firstName ? "reg-firstName-error" : undefined}
               aria-invalid={!!errors.firstName}
@@ -115,7 +122,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
               {...register("lastName")}
               id="reg-lastName"
               type="text"
-              placeholder="Doe"
+              placeholder={dict.auth.lastNamePlaceholder}
+              autoComplete="family-name"
               className="input-field text-start"
               aria-describedby={errors.lastName ? "reg-lastName-error" : undefined}
               aria-invalid={!!errors.lastName}
@@ -134,7 +142,9 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
             {...register("email")}
             id="reg-email"
             type="email"
-            placeholder="john.doe@example.com"
+            placeholder="name@example.com"
+            autoComplete="email"
+            dir="ltr"
             className="input-field text-start"
             aria-describedby={errors.email ? "reg-email-error" : undefined}
             aria-invalid={!!errors.email}
@@ -145,7 +155,7 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
         </motion.div>
 
         <motion.div variants={formItem} className="flex flex-wrap items-center gap-6 py-2">
-          <label className="flex items-center space-x-3 cursor-pointer group">
+          <label className="flex items-center gap-3 cursor-pointer group">
             <div className="relative flex items-center justify-center">
               <input
                 {...register("gender")}
@@ -160,7 +170,7 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
             </span>
           </label>
 
-          <label className="flex items-center space-x-3 cursor-pointer group">
+          <label className="flex items-center gap-3 cursor-pointer group">
             <div className="relative flex items-center justify-center">
               <input
                 {...register("gender")}
@@ -176,20 +186,25 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
           </label>
 
           {errors.gender && (
-            <p className="text-xs font-medium text-destructive mt-1.5 ms-1 w-full">{errors.gender.message}</p>
+            <p className="text-xs font-medium text-destructive mt-1.5 ms-1 w-full" role="alert">{errors.gender.message}</p>
           )}
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <motion.div variants={formItem} className="space-y-1.5" ref={countryRef}>
-            <label className="text-sm font-semibold text-text-primary/90 block ms-1">
+            <label id="reg-country-label" htmlFor="reg-country" className="text-sm font-semibold text-text-primary/90 block ms-1">
               {dict.auth?.country || "Country"}
             </label>
             <div className="relative">
-              <div
+              <button
+                type="button"
+                id="reg-country"
                 onClick={() => setIsCountryOpen(!isCountryOpen)}
-                className={`flex items-center justify-between input-field cursor-pointer transition-all ${errors.country ? 'border-destructive' : ''}`}
-                aria-invalid={!!errors.country}
+                onKeyDown={(e) => { if (e.key === "Escape") setIsCountryOpen(false); }}
+                className={`w-full text-start flex items-center justify-between input-field cursor-pointer transition-all ${errors.country ? 'border-destructive' : ''}`}
+                aria-haspopup="listbox"
+                aria-expanded={isCountryOpen}
+                aria-describedby={errors.country ? "reg-country-error" : undefined}
               >
                 <span className={`text-sm ${selectedCountry ? 'text-text-primary' : 'text-text-muted'}`}>
                   {selectedCountry === "EGY" ? (dict.auth?.egy || "Egypt") :
@@ -200,7 +215,7 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
                    (dict.auth?.selectCountry || "Select Country")}
                 </span>
                 <ChevronDown size={16} className={`text-text-muted transition-transform duration-200 ${isCountryOpen ? 'rotate-180' : ''}`} />
-              </div>
+              </button>
 
               <AnimatePresence>
                 {isCountryOpen && (
@@ -209,9 +224,9 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute top-full left-0 right-0 mt-1 bg-surface-elevated border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col max-h-[240px]"
+                    className="absolute top-full inset-x-0 mt-1 bg-surface-elevated border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col max-h-[240px]"
                   >
-                    <div className="overflow-y-auto py-1">
+                    <div className="overflow-y-auto py-1" role="listbox" aria-labelledby="reg-country-label">
                       {[
                         { val: "EGY", label: dict.auth?.egy || "Egypt" },
                         { val: "KSA", label: dict.auth?.ksa || "Saudi Arabia" },
@@ -222,8 +237,10 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
                         <button
                           key={item.val}
                           type="button"
+                          role="option"
+                          aria-selected={selectedCountry === item.val}
                           onClick={() => {
-                            setValue("country", item.val as any, { shouldValidate: true });
+                            setValue("country", item.val, { shouldValidate: true });
                             setIsCountryOpen(false);
                           }}
                           className={`w-full text-start px-4 py-2.5 text-sm transition-colors hover:bg-surface ${
@@ -241,21 +258,25 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
               </AnimatePresence>
             </div>
             {errors.country && (
-              <p className="text-xs font-medium text-destructive mt-1.5 ms-1">{errors.country.message}</p>
+              <p id="reg-country-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.country.message}</p>
             )}
           </motion.div>
           <motion.div variants={formItem} className="space-y-1.5">
-            <label className="text-sm font-semibold text-text-primary/90 block ms-1">
+            <label htmlFor="reg-city" className="text-sm font-semibold text-text-primary/90 block ms-1">
               {dict.auth?.city || "City"}
             </label>
             <input
               {...register("city")}
+              id="reg-city"
+              aria-invalid={!!errors.city}
+              aria-describedby={errors.city ? "reg-city-error" : undefined}
               type="text"
-              placeholder="E.g. Dubai"
+              placeholder={dict.auth.cityPlaceholder}
+              autoComplete="address-level2"
               className="input-field text-start"
             />
             {errors.city && (
-              <p className="text-xs font-medium text-destructive mt-1.5 ms-1">{errors.city.message}</p>
+              <p id="reg-city-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.city.message}</p>
             )}
           </motion.div>
         </div>
@@ -279,7 +300,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute end-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? dict.auth.hidePassword : dict.auth.showPassword}
+                aria-pressed={showPassword}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -307,7 +329,8 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute end-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
-                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                aria-label={showConfirmPassword ? dict.auth.hidePassword : dict.auth.showPassword}
+                aria-pressed={showConfirmPassword}
               >
                 {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -319,7 +342,7 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
         </div>
 
         <motion.div variants={formItem} className="pt-2">
-          <label className="flex items-start space-x-3 cursor-pointer group">
+          <label className="flex items-start gap-3 cursor-pointer group">
             <div className="relative flex items-center justify-center mt-0.5">
               <input
                 {...register("terms")}
@@ -337,17 +360,17 @@ export default function RegisterForm({ dict }: { dict: Dictionary }) {
             </div>
             <span className="text-sm font-medium text-text-muted leading-snug">
               {dict.auth?.agreeTerms || "Agree with our"}{" "}
-              <Link href="#" className="font-bold text-text-primary hover:underline transition-all">
+              <Link href="/terms" target="_blank" rel="noopener" className="font-bold text-text-primary hover:underline transition-all">
                 {dict.auth?.terms || "terms"}
               </Link>{" "}
-              {dict.auth?.and || "and"}{" "}
-              <Link href="#" className="font-bold text-text-primary hover:underline transition-all">
+              {dict.auth?.and || "and"}{isAr ? "" : " "}
+              <Link href="/privacy-policy" target="_blank" rel="noopener" className="font-bold text-text-primary hover:underline transition-all">
                 {dict.auth?.privacyPolicy || "privacy policy"}
               </Link>.
             </span>
           </label>
           {errors.terms && (
-            <p className="text-xs font-medium text-destructive mt-2 ms-1">{errors.terms.message}</p>
+            <p className="text-xs font-medium text-destructive mt-2 ms-1" role="alert">{errors.terms.message}</p>
           )}
         </motion.div>
 

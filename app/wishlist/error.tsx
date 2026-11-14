@@ -11,13 +11,16 @@ export default function WishlistError({
 }) {
   return (
     <ErrorState
-      title="Wishlist Error"
-      message="We couldn't load your wishlist. Please try again or browse our collection."
+      title={{ en: "Wishlist Error", ar: "تعذّر عرض المفضلة" }}
+      message={{
+        en: "We couldn't load your wishlist. Please try again or browse our collection.",
+        ar: "لم نتمكن من تحميل قائمة المفضلة. يرجى المحاولة مرة أخرى أو تصفح تشكيلتنا.",
+      }}
       digest={error.digest}
       onReset={reset}
-      retryLabel="Reload Wishlist"
+      retryLabel={{ en: "Reload Wishlist", ar: "إعادة تحميل المفضلة" }}
       secondaryHref="/shop"
-      secondaryLabel="Browse Shop"
+      secondaryLabel={{ en: "Browse Shop", ar: "تصفح المتجر" }}
       secondaryIcon="shop"
     />
   );

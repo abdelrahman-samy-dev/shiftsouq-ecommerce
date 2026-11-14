@@ -11,13 +11,16 @@ export default function CartError({
 }) {
   return (
     <ErrorState
-      title="Cart Error"
-      message="We couldn't load your cart. Please try again or continue browsing."
+      title={{ en: "Cart Error", ar: "تعذّر عرض السلة" }}
+      message={{
+        en: "We couldn't load your cart. Please try again or continue browsing.",
+        ar: "لم نتمكن من تحميل سلتك. يرجى المحاولة مرة أخرى أو متابعة التصفح.",
+      }}
       digest={error.digest}
       onReset={reset}
-      retryLabel="Reload Cart"
+      retryLabel={{ en: "Reload Cart", ar: "إعادة تحميل السلة" }}
       secondaryHref="/shop"
-      secondaryLabel="Continue Shopping"
+      secondaryLabel={{ en: "Continue Shopping", ar: "متابعة التسوق" }}
       secondaryIcon="shop"
     />
   );

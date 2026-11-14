@@ -16,14 +16,14 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getDictionary, type Dictionary } from "@/lib/i18n/get-dictionary";
 import { getNavCategories } from "@/lib/dal/categories";
 import { ThemeToggle } from "./ThemeToggle";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { UserProfileDropdown } from "./UserProfileDropdown";
 import { SearchBar } from "./SearchBar";
 import { HeaderActions } from "./HeaderActions";
-import { Locale } from "@/lib/types";
+import type { CategoryWithChildren, Locale } from "@/lib/types";
 import { MobileMenuDrawer } from "./MobileMenuDrawer";
 import { createServerClient } from "@/lib/supabase/server";
 import { Logo } from "@/components/ui/Logo";
@@ -37,19 +37,11 @@ import { Logo } from "@/components/ui/Logo";
  * Wrapped in Suspense at the call site so the rest of the
  * header renders immediately while auth resolves.
  */
-async function AuthSection({
-  locale,
-  dict,
-}: {
-  locale: Locale;
-  dict: any;
-}) {
+async function AuthSection({ dict }: { dict: Dictionary }) {
   const supabase = await createServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const loginStr = dict.common?.login || "Login";
 
   const userData = user
     ? {
@@ -61,11 +53,11 @@ async function AuthSection({
     : null;
 
   const profileDict = {
-    profile: dict.common?.profile || "My Profile",
-    orders: dict.common?.ordersAndReturns || "My Orders",
-    settings: dict.common?.settings || "Settings",
-    logout: dict.common?.logout || "Logout",
-    myAccount: dict.common?.myAccount || "My Account",
+    profile: dict.common.profile,
+    orders: dict.common.ordersAndReturns,
+    settings: dict.common.settings,
+    logout: dict.common.logout,
+    myAccount: dict.common.myAccount,
   };
 
   if (userData) {
@@ -78,7 +70,7 @@ async function AuthSection({
 
   return (
     <Link href="/login" className="btn-secondary hidden lg:flex h-[46px]">
-      <span>{loginStr}</span>
+      <span>{dict.common.login}</span>
     </Link>
   );
 }
@@ -87,10 +79,10 @@ async function AuthSection({
  * Skeleton fallback shown while the auth section loads.
  * Renders a login button placeholder to prevent layout shift.
  */
-function AuthFallback({ locale }: { locale: Locale }) {
+function AuthFallback({ dict }: { dict: Dictionary }) {
   return (
     <Link href="/login" className="btn-secondary hidden lg:flex h-[46px]">
-      <span>{locale === "ar" ? "تسجيل الدخول" : "Login"}</span>
+      <span>{dict.common.login}</span>
     </Link>
   );
 }
@@ -105,8 +97,8 @@ async function MobileMenuWithAuth({
   categories,
 }: {
   locale: Locale;
-  dict: any;
-  categories: any[];
+  dict: Dictionary;
+  categories: CategoryWithChildren[];
 }) {
   const supabase = await createServerClient();
   const {
@@ -151,19 +143,22 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
 
   /** Search bar dictionary — extracted for SRP */
   const searchDict = {
-    searchPlaceholder: dict.common?.search || "Type product name",
-    searchAll: dict.common?.searchAll || "All",
-    noResults: dict.search?.noResults || "No results found",
-    products: dict.search?.products || "Products",
-    categoriesLabel: dict.search?.categories || "Categories",
-    viewAllResults: dict.search?.viewAllResults || "View all results for",
-    trending: dict.search?.trending || "Trending",
-    recentSearches: dict.search?.recentSearches || "Recent Searches",
-    clearRecent: dict.search?.clearRecent || "Clear",
+    searchPlaceholder: dict.common.search,
+    searchAll: dict.common.searchAll,
+    noResults: dict.search.noResults,
+    products: dict.search.products,
+    categoriesLabel: dict.search.categories,
+    viewAllResults: dict.search.viewAllResults,
+    trending: dict.search.trending,
+    recentSearches: dict.search.recentSearches,
+    clearRecent: dict.search.clearRecent,
+    clearSearch: dict.search.clearSearch,
+    submit: dict.search.submit,
+    categoryFilter: dict.search.categoryFilter,
   };
 
   /** Flat categories for mobile menu (no sub-tree needed) */
-  const flatCategories = navCategories.map((c) => ({ ...c, children: [] }));
+  const flatCategories: CategoryWithChildren[] = navCategories.map((c) => ({ ...c, children: [] }));
 
   return (
     <header
@@ -176,7 +171,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         <Link
           href="/"
           className="flex-shrink-0 flex items-center group transition-transform group-hover:scale-[1.02]"
-          aria-label="ShiftSouq Home"
+          aria-label={dict.common.homeLink}
         >
           <Logo locale={locale} size="md" hideTextOnMobile={true} />
         </Link>
@@ -184,14 +179,14 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         {/* Professional Search Bar — Client Component */}
         <SearchBar
           locale={locale}
-          categories={flatCategories as any}
+          categories={flatCategories}
           dict={searchDict}
         />
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 text-text-primary">
           {/* Language & Theme Toggles */}
-          <div className="hidden lg:flex items-center gap-2.5 mr-1 border-r border-border pr-3">
+          <div className="hidden lg:flex items-center gap-2.5 me-1 border-e border-border pe-3">
             <LanguageSwitcher currentLocale={locale} />
             <ThemeToggle />
           </div>
@@ -199,8 +194,8 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
           <HeaderActions locale={locale} />
 
           {/* Auth: Login or Profile Dropdown — Streamed */}
-          <Suspense fallback={<AuthFallback locale={locale} />}>
-            <AuthSection locale={locale} dict={dict} />
+          <Suspense fallback={<AuthFallback dict={dict} />}>
+            <AuthSection dict={dict} />
           </Suspense>
 
           {/* Mobile Drawer */}
@@ -209,7 +204,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
               <MobileMenuDrawer
                 dict={dict}
                 locale={locale}
-                categories={flatCategories as any}
+                categories={flatCategories}
                 isLoggedIn={false}
                 userName=""
                 userEmail=""
@@ -219,7 +214,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
             <MobileMenuWithAuth
               dict={dict}
               locale={locale}
-              categories={flatCategories as any}
+              categories={flatCategories}
             />
           </Suspense>
         </div>
@@ -228,7 +223,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
       {/* Categories Navigation Bar — dynamic from DB */}
       <nav
         className="w-full border-t border-border bg-background hidden lg:block"
-        aria-label={isAr ? "فئات المنتجات" : "Product categories"}
+        aria-label={dict.common.productCategories}
       >
         <div className="max-w-7xl mx-auto px-4 flex items-center gap-10 h-12 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {navCategories.map((cat) => (
@@ -241,7 +236,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
                 className="text-[14px] font-semibold flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors whitespace-nowrap h-full relative"
               >
                 {isAr ? cat.name_ar : cat.name_en}
-                <span className="absolute bottom-0 left-0 w-full h-[2px] bg-primary scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
+                <span className="absolute bottom-0 start-0 w-full h-[2px] bg-primary scale-x-0 group-hover:scale-x-100 transition-transform ltr:origin-left rtl:origin-right"></span>
               </Link>
             </div>
           ))}

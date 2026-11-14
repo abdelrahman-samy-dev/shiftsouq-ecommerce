@@ -6,16 +6,16 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { ScrollText } from "lucide-react";
 import type { Locale } from "@/lib/types";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
 import { APP_NAME } from "@/lib/constants";
 
-export const metadata: Metadata = {
-  title: `Terms & Conditions | ${APP_NAME}`,
-  description:
-    "Read the terms and conditions governing your use of ShiftSouq. By using our services, you agree to these terms.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getLocaleAndDictionary();
+  // The root layout's title template appends " | ShiftSouq".
+  return { title: dict.legal.terms.title, description: dict.legal.terms.description };
+}
 
 const LAST_UPDATED = "2025-05-01";
 
@@ -27,7 +27,7 @@ function getContent(locale: Locale) {
       sections: [
         {
           heading: "1. القبول بالشروط",
-          body: `باستخدامك لموقع ${APP_NAME} الإلكتروني أو أي من خدماتنا، فإنك توافق على الالتزام بهذه الشروط والأحكام. إذا كنت لا توافق على أي جزء من هذه الشروط، يرجى عدم استخدام الموقع. يحتفظ ${APP_NAME} بالحق في تعديل هذه الشروط في أي وقت، وستكون التعديلات سارية المفعول فور نشرها.`,
+          body: `باستخدامك لموقع شيفت سوق الإلكتروني أو أي من خدماتنا، فإنك توافق على الالتزام بهذه الشروط والأحكام. إذا كنت لا توافق على أي جزء من هذه الشروط، يرجى عدم استخدام الموقع. يحتفظ شيفت سوق بالحق في تعديل هذه الشروط في أي وقت، وستكون التعديلات سارية المفعول فور نشرها.`,
         },
         {
           heading: "2. الحسابات والتسجيل",
@@ -47,7 +47,7 @@ function getContent(locale: Locale) {
         },
         {
           heading: "6. الملكية الفكرية",
-          body: `• جميع المحتويات على هذا الموقع — بما في ذلك النصوص والصور والشعارات والتصاميم — هي ملكية فكرية لـ ${APP_NAME} أو مرخصيها.\n• يُحظر نسخ أو إعادة إنتاج أو توزيع أي محتوى من الموقع دون إذن كتابي مسبق.\n• العلامات التجارية والشعارات المعروضة هي ملك لأصحابها المعنيين.`,
+          body: `• جميع المحتويات على هذا الموقع — بما في ذلك النصوص والصور والشعارات والتصاميم — هي ملكية فكرية لـ شيفت سوق أو مرخصيها.\n• يُحظر نسخ أو إعادة إنتاج أو توزيع أي محتوى من الموقع دون إذن كتابي مسبق.\n• العلامات التجارية والشعارات المعروضة هي ملك لأصحابها المعنيين.`,
         },
         {
           heading: "7. حدود المسؤولية",
@@ -110,8 +110,7 @@ function getContent(locale: Locale) {
 }
 
 export default async function TermsPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getLocale();
   const content = getContent(locale);
 
   return (
@@ -150,7 +149,9 @@ export default async function TermsPage() {
               style={{ color: "var(--text-secondary)" }}
               dangerouslySetInnerHTML={{
                 __html: section.body
-                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>'),
+                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>')
+                  .replace(/support@shiftsouq\.com/g, '<a href="mailto:support@shiftsouq.com" dir="ltr" class="underline">support@shiftsouq.com</a>')
+                  .replace(/: \/contact/g, ': <a href="/contact" dir="ltr" class="underline">/contact</a>'),
               }}
             />
           </section>

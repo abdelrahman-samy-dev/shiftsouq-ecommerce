@@ -20,9 +20,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useCartStore, selectCartTotalItems } from "@/lib/store/useCartStore";
 import { useWishlistStore, selectWishlistCount } from "@/lib/store/useWishlistStore";
 import { MiniCart } from "./MiniCart";
+import { useHydrated } from "@/components/shared/useHydrated";
+import type { Locale } from "@/lib/types";
 
 interface HeaderActionsProps {
-  locale: string;
+  locale: Locale;
 }
 
 /**
@@ -38,8 +40,7 @@ export function HeaderActions({ locale }: HeaderActionsProps) {
   const wishCount = useWishlistStore(selectWishlistCount);
 
   /* ── Hydration guard for SSR ─────────────────────────────── */
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useHydrated();
 
   /* ── MiniCart hover/click logic ──────────────────────────── */
   const [miniCartOpen, setMiniCartOpen] = useState(false);
@@ -78,7 +79,7 @@ export function HeaderActions({ locale }: HeaderActionsProps) {
       <Link
         href="/wishlist"
         className="h-[40px] sm:h-[46px] px-2 sm:px-3.5 flex items-center gap-1.5 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        aria-label={isAr ? `قائمة الرغبات (${displayWishCount})` : `Wishlist (${displayWishCount})`}
+        aria-label={isAr ? `المفضلة (${displayWishCount})` : `Wishlist (${displayWishCount})`}
       >
         <Heart size={18} strokeWidth={1.8} className="flex-shrink-0 sm:w-5 sm:h-5" />
         <span className="text-sm font-bold hidden sm:block">{displayWishCount}</span>

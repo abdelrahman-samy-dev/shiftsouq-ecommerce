@@ -11,13 +11,16 @@ export default function ProfileError({
 }) {
   return (
     <ErrorState
-      title="Profile Error"
-      message="We couldn't load your profile. Please try again."
+      title={{ en: "Profile Error", ar: "تعذّر عرض الملف الشخصي" }}
+      message={{
+        en: "We couldn't load your profile. Please try again.",
+        ar: "لم نتمكن من تحميل ملفك الشخصي. يرجى المحاولة مرة أخرى.",
+      }}
       digest={error.digest}
       onReset={reset}
-      retryLabel="Reload Profile"
+      retryLabel={{ en: "Reload Profile", ar: "إعادة تحميل الملف الشخصي" }}
       secondaryHref="/"
-      secondaryLabel="Go Home"
+      secondaryLabel={{ en: "Go Home", ar: "العودة إلى الرئيسية" }}
       secondaryIcon="home"
     />
   );

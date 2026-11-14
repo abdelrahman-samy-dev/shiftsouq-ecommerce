@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
+import { useState, useTransition, useRef, useEffect, useMemo } from "react";
 import {
   MessageSquare,
   Mail,
@@ -24,24 +24,47 @@ import {
   Check,
 } from "lucide-react";
 import type { Locale } from "@/lib/types";
+import type { Dictionary } from "@/lib/i18n/get-dictionary";
 import { submitContactForm } from "@/lib/actions/contact";
+import { createContactSchema, CONTACT_MESSAGE_MAX } from "@/lib/validations/contact";
 
 interface Props {
-  dict: Record<string, any>;
-  locale: Locale;
+  dict: Dictionary;
+  /** Kept for callers; the dictionary already carries the language. */
+  locale?: Locale;
 }
 
-export default function ContactContent({ dict, locale }: Props) {
-  const ct = dict.contact || ({} as Record<string, any>);
-  const form = ct.form || {};
-  const info = ct.info || {};
-  const subjects = ct.subjects || {};
+type ContactField = "name" | "email" | "subject" | "message";
+
+export default function ContactContent({ dict }: Props) {
+  const ct = dict.contact;
+  const form = ct.form;
+  const info = ct.info;
+  const subjects = ct.subjects;
 
   /* Form state */
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  /** Honeypot — hidden from people, filled in by bots. */
+  const [website, setWebsite] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ContactField, string>>>({});
+
+  /* Validation messages follow the active language */
+  const schema = useMemo(() => createContactSchema(dict.validation), [dict.validation]);
+
+  const errorProps = (field: ContactField) => ({
+    "aria-invalid": !!fieldErrors[field],
+    "aria-describedby": fieldErrors[field] ? `contact-${field}-error` : undefined,
+  });
+
+  const fieldError = (field: ContactField) =>
+    fieldErrors[field] ? (
+      <p id={`contact-${field}-error`} className="text-xs font-medium mt-1.5 text-destructive" role="alert">
+        {fieldErrors[field]}
+      </p>
+    ) : null;
 
   /* Feedback state */
   const [feedback, setFeedback] = useState<{
@@ -93,29 +116,37 @@ export default function ContactContent({ dict, locale }: Props) {
     e.preventDefault();
     setFeedback(null);
 
-    if (!subject) {
-      setFeedback({
-        type: "error",
-        text: locale === "ar" ? "يرجى اختيار موضوع الرسالة." : "Please select a subject.",
-      });
+    const selectedLabel = subjectOptions.find((o) => o.value === subject)?.label || "";
+
+    /* Instant feedback in the visitor's language (the server checks again) */
+    const parsed = schema.safeParse({ name, email, subject: selectedLabel, message });
+    if (!parsed.success) {
+      const next: Partial<Record<ContactField, string>> = {};
+      for (const issue of parsed.error.issues) {
+        const field = issue.path[0] as ContactField;
+        if (!next[field]) next[field] = issue.message;
+      }
+      setFieldErrors(next);
       return;
     }
+    setFieldErrors({});
 
     startTransition(async () => {
-      const selectedLabel =
-        subjectOptions.find((o) => o.value === subject)?.label || subject;
-
       const result = await submitContactForm({
         name,
         email,
         subject: selectedLabel,
         message,
+        website,
       });
 
       setFeedback({
         type: result.success ? "success" : "error",
-        text: result.success ? form.success || result.message : result.message,
+        text: result.message,
       });
+      if (!result.success && result.field) {
+        setFieldErrors({ [result.field]: result.message });
+      }
 
       if (result.success) {
         setName("");
@@ -160,8 +191,23 @@ export default function ContactContent({ dict, locale }: Props) {
         {/* ── Form (3 cols) ────────────────────────────────── */}
         <form
           onSubmit={handleSubmit}
+          noValidate
           className="lg:col-span-3 card-elevated p-6 sm:p-8"
         >
+          {/* Honeypot: invisible to people and screen readers, bots fill it in */}
+          <div className="absolute -start-[9999px] w-px h-px overflow-hidden" aria-hidden="true">
+            <label htmlFor="contact-website">Website</label>
+            <input
+              id="contact-website"
+              name="website"
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+            />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Name */}
             <div>
@@ -170,7 +216,7 @@ export default function ContactContent({ dict, locale }: Props) {
                 className="block text-sm font-medium mb-2"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {form.name || "Your Name"} *
+                {form.name} *
               </label>
               <input
                 id="contact-name"
@@ -179,11 +225,11 @@ export default function ContactContent({ dict, locale }: Props) {
                 onChange={(e) => setName(e.target.value)}
                 className="input-field"
                 required
-                minLength={2}
-                placeholder={
-                  locale === "ar" ? "أدخل اسمك" : "Enter your name"
-                }
+                autoComplete="name"
+                placeholder={form.namePlaceholder}
+                {...errorProps("name")}
               />
+              {fieldError("name")}
             </div>
 
             {/* Email */}
@@ -193,7 +239,7 @@ export default function ContactContent({ dict, locale }: Props) {
                 className="block text-sm font-medium mb-2"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {form.email || "Email Address"} *
+                {form.email} *
               </label>
               <input
                 id="contact-email"
@@ -202,19 +248,23 @@ export default function ContactContent({ dict, locale }: Props) {
                 onChange={(e) => setEmail(e.target.value)}
                 className="input-field"
                 required
+                autoComplete="email"
                 placeholder="you@example.com"
                 dir="ltr"
+                {...errorProps("email")}
               />
+              {fieldError("email")}
             </div>
 
             {/* Subject */}
             <div className="sm:col-span-2" ref={subjectContainerRef}>
               <label
+                id="contact-subject-label"
                 htmlFor="contact-subject"
                 className="block text-sm font-medium mb-2"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {form.subject || "Subject"} *
+                {form.subject} *
               </label>
               <div className="relative">
                 <button
@@ -224,6 +274,7 @@ export default function ContactContent({ dict, locale }: Props) {
                   className="input-field w-full flex items-center justify-between text-start cursor-pointer"
                   aria-haspopup="listbox"
                   aria-expanded={isSubjectOpen}
+                  aria-describedby={fieldErrors.subject ? "contact-subject-error" : undefined}
                 >
                   <span
                     style={{
@@ -232,16 +283,14 @@ export default function ContactContent({ dict, locale }: Props) {
                   >
                     {subject
                       ? subjectOptions.find((o) => o.value === subject)?.label
-                      : locale === "ar"
-                      ? "اختر الموضوع..."
-                      : "Select a subject..."}
+                      : form.subjectPlaceholder}
                   </span>
                   <ChevronDown
                     size={18}
-                    style={{ 
-                      color: "var(--text-muted)", 
-                      transition: "transform var(--duration-fast) ease", 
-                      transform: isSubjectOpen ? "rotate(180deg)" : "rotate(0deg)" 
+                    style={{
+                      color: "var(--text-muted)",
+                      transition: "transform var(--duration-fast) ease",
+                      transform: isSubjectOpen ? "rotate(180deg)" : "rotate(0deg)"
                     }}
                   />
                 </button>
@@ -250,6 +299,7 @@ export default function ContactContent({ dict, locale }: Props) {
                   <div
                     className="absolute z-50 w-full mt-2 p-1.5 dropdown-panel animate-scale-in origin-top"
                     role="listbox"
+                    aria-labelledby="contact-subject-label"
                   >
                     {subjectOptions.map((opt) => {
                       const isActive = opt.value === subject;
@@ -262,6 +312,7 @@ export default function ContactContent({ dict, locale }: Props) {
                           onClick={() => {
                             setSubject(opt.value);
                             setIsSubjectOpen(false);
+                            setFieldErrors((prev) => ({ ...prev, subject: undefined }));
                           }}
                           className={`sort-select-option ${isActive ? "sort-select-option-active" : ""}`}
                         >
@@ -275,6 +326,7 @@ export default function ContactContent({ dict, locale }: Props) {
                   </div>
                 )}
               </div>
+              {fieldError("subject")}
             </div>
 
             {/* Message */}
@@ -284,7 +336,7 @@ export default function ContactContent({ dict, locale }: Props) {
                 className="block text-sm font-medium mb-2"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {form.message || "Your Message"} *
+                {form.message} *
               </label>
               <textarea
                 id="contact-message"
@@ -293,19 +345,17 @@ export default function ContactContent({ dict, locale }: Props) {
                 className="input-field resize-none"
                 rows={6}
                 required
-                minLength={10}
-                maxLength={5000}
-                placeholder={
-                  locale === "ar"
-                    ? "اكتب رسالتك هنا..."
-                    : "Write your message here..."
-                }
+                maxLength={CONTACT_MESSAGE_MAX}
+                placeholder={form.messagePlaceholder}
+                {...errorProps("message")}
               />
+              {fieldError("message")}
               <p
                 className="text-xs mt-1.5 text-end"
                 style={{ color: "var(--text-faint)" }}
+                dir="ltr"
               >
-                {message.length}/5000
+                {message.length}/{CONTACT_MESSAGE_MAX}
               </p>
             </div>
           </div>
@@ -491,9 +541,7 @@ export default function ContactContent({ dict, locale }: Props) {
               className="text-xs leading-relaxed"
               style={{ color: "var(--text-muted)" }}
             >
-              {locale === "ar"
-                ? "نسعى للرد على جميع الاستفسارات خلال 24-48 ساعة عمل. للمسائل العاجلة، يرجى الاتصال بنا هاتفيًا."
-                : "We aim to respond to all inquiries within 24-48 business hours. For urgent matters, please call us directly."}
+              {ct.responseNote}
             </p>
           </div>
         </div>

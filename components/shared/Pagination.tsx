@@ -11,7 +11,8 @@
 
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
+import { useLocale } from "@/components/providers/LocaleProvider";
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -98,50 +99,51 @@ export default function Pagination({
   basePath = "/shop",
   siblingCount = 1,
 }: PaginationProps) {
-  if (totalPages <= 1) return null;
-
-  const buildHref = useCallback(
-    (page: number): string => {
-      const params = new URLSearchParams();
-      // Preserve all existing search params except 'page'
-      for (const [key, value] of Object.entries(searchParams)) {
-        if (key !== "page" && value) {
-          params.set(key, value);
-        }
-      }
-      if (page > 1) {
-        params.set("page", String(page));
-      }
-      const qs = params.toString();
-      return qs ? `${basePath}?${qs}` : basePath;
-    },
-    [searchParams, basePath]
-  );
+  const isAr = useLocale() === "ar";
 
   const items = useMemo(
     () => generatePaginationRange(currentPage, totalPages, siblingCount),
     [currentPage, totalPages, siblingCount]
   );
 
+  if (totalPages <= 1) return null;
+
+  const buildHref = (page: number): string => {
+    const params = new URLSearchParams();
+    // Preserve all existing search params except 'page'
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (key !== "page" && value) {
+        params.set(key, value);
+      }
+    }
+    if (page > 1) {
+      params.set("page", String(page));
+    }
+    const qs = params.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  };
+
   const hasPrev = currentPage > 1;
   const hasNext = currentPage < totalPages;
+  const prevLabel = isAr ? "الصفحة السابقة" : "Previous page";
+  const nextLabel = isAr ? "الصفحة التالية" : "Next page";
 
   return (
     <nav
       className="flex items-center justify-center gap-1.5 sm:gap-2 mt-12 animate-fade-in"
-      aria-label="Pagination"
+      aria-label={isAr ? "التنقل بين الصفحات" : "Pagination"}
     >
       {/* ── Previous Button ──────────────────────────── */}
       {hasPrev ? (
         <Link
           href={buildHref(currentPage - 1)}
           className="pagination-btn"
-          aria-label="Previous page"
+          aria-label={prevLabel}
         >
           <ChevronLeft size={16} strokeWidth={2} className="rtl:rotate-180" />
         </Link>
       ) : (
-        <span className="pagination-btn pagination-btn-disabled" aria-disabled="true">
+        <span className="pagination-btn pagination-btn-disabled" aria-disabled="true" aria-label={prevLabel}>
           <ChevronLeft size={16} strokeWidth={2} className="rtl:rotate-180" />
         </span>
       )}
@@ -167,7 +169,7 @@ export default function Pagination({
             href={buildHref(item.value)}
             className={`pagination-btn ${isActive ? "pagination-btn-active" : ""}`}
             aria-current={isActive ? "page" : undefined}
-            aria-label={`Page ${item.value}`}
+            aria-label={isAr ? `الصفحة ${item.value}` : `Page ${item.value}`}
           >
             {item.value}
           </Link>
@@ -179,12 +181,12 @@ export default function Pagination({
         <Link
           href={buildHref(currentPage + 1)}
           className="pagination-btn"
-          aria-label="Next page"
+          aria-label={nextLabel}
         >
           <ChevronRight size={16} strokeWidth={2} className="rtl:rotate-180" />
         </Link>
       ) : (
-        <span className="pagination-btn pagination-btn-disabled" aria-disabled="true">
+        <span className="pagination-btn pagination-btn-disabled" aria-disabled="true" aria-label={nextLabel}>
           <ChevronRight size={16} strokeWidth={2} className="rtl:rotate-180" />
         </span>
       )}

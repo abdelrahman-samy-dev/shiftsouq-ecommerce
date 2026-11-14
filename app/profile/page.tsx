@@ -8,26 +8,21 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import type { Locale } from "@/lib/types";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { getProfile } from "@/lib/actions/profile";
 import ProfileForm from "./ProfileForm";
 
 /* ── SEO ──────────────────────────────────────────────────────── */
 
-export const metadata: Metadata = {
-  title: "My Profile",
-  description:
-    "Manage your ShiftSouq account — update your personal information and change your password.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getLocaleAndDictionary();
+  return { title: dict.meta.profile.title, description: dict.meta.profile.description };
+}
 
 /* ── Page Component ───────────────────────────────────────────── */
 
 export default async function ProfilePage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
+  const { locale, dict } = await getLocaleAndDictionary();
 
   const profile = await getProfile();
 
@@ -42,14 +37,10 @@ export default async function ProfilePage() {
             className="text-xl font-bold mb-2"
             style={{ color: "var(--text-primary)" }}
           >
-            {locale === "ar"
-              ? "يرجى تسجيل الدخول"
-              : "Please log in"}
+            {dict.profile.pleaseLogin}
           </h1>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {locale === "ar"
-              ? "يجب تسجيل الدخول للوصول إلى ملفك الشخصي."
-              : "You need to be logged in to access your profile."}
+            {dict.profile.pleaseLoginDesc}
           </p>
         </div>
       </div>

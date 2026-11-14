@@ -14,29 +14,37 @@
 import Link from "next/link";
 import { RotateCcw, Home, ShoppingBag, ArrowLeft } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
+import { useLocale, pickLocalized, type Localized } from "@/components/providers/LocaleProvider";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
 interface ErrorStateProps {
-  /** Primary heading text. */
-  title?: string;
+  /** Primary heading text (a string, or { en, ar }). */
+  title?: Localized;
   /** Descriptive body copy explaining the issue. */
-  message?: string;
+  message?: Localized;
   /** Technical error digest ID for support reference. */
   digest?: string;
   /** Reset function from the error boundary. */
   onReset: () => void;
   /** Label for the primary retry button. */
-  retryLabel?: string;
+  retryLabel?: Localized;
   /** Secondary navigation link (e.g., /shop or /). */
   secondaryHref?: string;
   /** Label for the secondary link button. */
-  secondaryLabel?: string;
+  secondaryLabel?: Localized;
   /** Icon variant for the secondary button. */
   secondaryIcon?: "home" | "shop" | "back";
 }
 
 /* ── Icon Map ────────────────────────────────────────────────── */
+
+const DEFAULTS = {
+  title: { en: "Something went wrong", ar: "حدث خطأ ما" },
+  message: { en: "An unexpected error occurred. Please try again.", ar: "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى." },
+  retryLabel: { en: "Try Again", ar: "إعادة المحاولة" },
+  secondaryLabel: { en: "Go Home", ar: "العودة إلى الرئيسية" },
+} satisfies Record<string, Localized>;
 
 const secondaryIcons = {
   home: Home,
@@ -57,16 +65,18 @@ const secondaryIcons = {
  * - Clear primary (retry) and secondary (navigate) actions
  */
 export default function ErrorState({
-  title = "Something went wrong",
-  message = "An unexpected error occurred. Please try again.",
+  title = DEFAULTS.title,
+  message = DEFAULTS.message,
   digest,
   onReset,
-  retryLabel = "Try Again",
+  retryLabel = DEFAULTS.retryLabel,
   secondaryHref = "/",
-  secondaryLabel = "Go Home",
+  secondaryLabel = DEFAULTS.secondaryLabel,
   secondaryIcon = "home",
 }: ErrorStateProps) {
   const prefersReducedMotion = useReducedMotion();
+  const locale = useLocale();
+  const isAr = locale === "ar";
   const SecondaryIcon = secondaryIcons[secondaryIcon];
 
   return (
@@ -134,13 +144,13 @@ export default function ErrorState({
             className="text-2xl sm:text-3xl font-bold tracking-tight"
             style={{ color: "var(--text-primary)" }}
           >
-            {title}
+            {pickLocalized(title, locale)}
           </h1>
           <p
             className="text-sm sm:text-base leading-relaxed max-w-md mx-auto"
             style={{ color: "var(--text-muted)" }}
           >
-            {message}
+            {pickLocalized(message, locale)}
           </p>
         </div>
 
@@ -152,9 +162,10 @@ export default function ErrorState({
               color: "var(--text-faint)",
               background: "var(--surface-inset)",
             }}
-            title="Error reference code"
+            title={isAr ? "رمز مرجعي للخطأ" : "Error reference code"}
+            dir="ltr"
           >
-            Ref: {digest}
+            {isAr ? "المرجع" : "Ref"}: {digest}
           </div>
         )}
 
@@ -169,15 +180,15 @@ export default function ErrorState({
               strokeWidth={2}
               className="group-hover:-rotate-180 transition-transform duration-500"
             />
-            <span>{retryLabel}</span>
+            <span>{pickLocalized(retryLabel, locale)}</span>
           </button>
 
           <Link
             href={secondaryHref}
             className="btn-secondary flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-3.5 text-[15px] font-semibold transition-all"
           >
-            <SecondaryIcon size={17} strokeWidth={2} />
-            <span>{secondaryLabel}</span>
+            <SecondaryIcon size={17} strokeWidth={2} className={secondaryIcon === "back" ? "rtl:rotate-180" : undefined} />
+            <span>{pickLocalized(secondaryLabel, locale)}</span>
           </Link>
         </div>
 

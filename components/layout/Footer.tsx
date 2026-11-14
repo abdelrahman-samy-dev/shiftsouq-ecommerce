@@ -73,7 +73,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
 
   const isAr = locale === "ar";
   const year = new Date().getFullYear();
-  const ft = dict.footer || ({} as Record<string, string>);
+  const ft = dict.footer;
 
   /** Build the "Shop" section dynamically from DB categories */
   const shopLinks = navCategories.map((cat) => ({
@@ -94,7 +94,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
             <Link
               href="/"
               className="flex-shrink-0 flex items-center group transition-transform group-hover:scale-[1.02]"
-              aria-label="ShiftSouq Home"
+              aria-label={dict.common.homeLink}
             >
               <Logo locale={locale} size="sm" />
             </Link>
@@ -105,7 +105,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
           </div>
 
           {/* Column 2: Shop */}
-          <nav aria-label={isAr ? "روابط التسوق" : "Shop links"}>
+          <nav aria-label={ft.shopLinks}>
             <div className="flex flex-col gap-4">
               <h4 className="font-bold text-base tracking-tight text-text-primary">
                 {ft.shop || "Shop"}
@@ -124,7 +124,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
 
           {/* Column 3: Customer Service */}
           <nav
-            aria-label={isAr ? "خدمة العملاء" : "Customer service links"}
+            aria-label={ft.customerServiceLinks}
           >
             <div className="flex flex-col gap-4">
               <h4 className="font-bold text-base tracking-tight text-text-primary">
@@ -157,7 +157,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
             </h4>
             <nav
               className="flex flex-col gap-3"
-              aria-label={isAr ? "وسائل التواصل" : "Social media links"}
+              aria-label={ft.socialLinks}
             >
               <a
                 href="#"
@@ -193,9 +193,9 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
         {/* Bottom Bar (Copyright, Links) */}
         <div className="flex flex-col-reverse lg:flex-row items-center justify-between gap-6 pt-6">
           <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-6">
-            <p className="text-[13px] text-text-muted text-center lg:text-left font-medium">
-              © {year} ShiftSouq.{" "}
-              {isAr ? "جميع الحقوق محفوظة." : "All rights reserved."}
+            <p className="text-[13px] text-text-muted text-center lg:text-start font-medium">
+              © {year} {dict.common.appName}.{" "}
+              {dict.common.allRightsReserved}
             </p>
             <div className="hidden lg:block w-px h-4 bg-border"></div>
             <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-3 text-[13px] font-medium text-text-muted">
