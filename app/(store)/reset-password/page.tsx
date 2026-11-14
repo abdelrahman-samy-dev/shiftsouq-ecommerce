@@ -8,6 +8,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { RECOVERY_COOKIE } from "@/lib/validations/auth";
+import { isRecoveryFor } from "@/lib/auth/recovery-cookie";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { getAccountUser } from "@/lib/dal/account";
 import { ButtonLink } from "@/components/ds";
@@ -23,8 +24,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ResetPasswordPage() {
   const [{ locale, dict }, user, cookieStore] = await Promise.all([getLocaleAndDictionary(), getAccountUser(), cookies()]);
   const t = authCopy(locale);
-  // The reset link marked this browser for this account (see /auth/callback).
-  const recovering = !!user && cookieStore.get(RECOVERY_COOKIE)?.value === user.authUserId;
+  // The reset link marked this browser for this account (signed, 15 minutes; see /auth/callback).
+  const recovering = !!user && isRecoveryFor(cookieStore.get(RECOVERY_COOKIE)?.value, user.authUserId);
 
   return (
     <AuthSplit locale={locale}>

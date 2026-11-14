@@ -11,6 +11,10 @@
      (NEXT_LOCALE cookie); success redirects (redirect() throws,
      so it is called outside try/catch).
    • Redirect targets are same-site paths only (safeRedirectPath).
+   • Rate limits per client (hashed IP) and per email, checked here
+     because Supabase only sees this server's address: wrong
+     passwords, new accounts and reset links (lib/checkout/rate-limit).
+     A correct password gives its hit back.
    • "Forgot password" always answers the same way, whether or not
      an account exists, so it can't be used to find accounts.
    • The reset link points at /auth/callback on this site; the
@@ -26,6 +30,20 @@ import { createServerClient } from "@/lib/supabase/server";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { safeRedirectPath } from "@/lib/i18n/safe-redirect";
 import { SITE_URL } from "@/lib/seo/site";
+import { isRecoveryFor } from "@/lib/auth/recovery-cookie";
+import {
+  clientKey,
+  LOGIN_CLIENT_LIMIT,
+  LOGIN_EMAIL_LIMIT,
+  rateLimit,
+  refundRateLimit,
+  REGISTER_CLIENT_LIMIT,
+  REGISTER_EMAIL_LIMIT,
+  RESET_CLIENT_LIMIT,
+  RESET_EMAIL_LIMIT,
+  targetKey,
+  type Limit,
+} from "@/lib/checkout/rate-limit";
 import type { Dictionary } from "@/lib/i18n/get-dictionary";
 import {
   createForgotPasswordSchema,
@@ -68,6 +86,29 @@ function firstIssue(issues: { message: string }[], fallback: string): string {
   return issues[0]?.message || fallback;
 }
 
+/**
+ * Counts one attempt for this client and for this email (both must have room).
+ * Returns a refund function that gives both hits back.
+ */
+async function limitAttempt(
+  bucket: string,
+  email: string,
+  rules: { client: Limit; email: Limit },
+): Promise<{ allowed: boolean; refund: () => Promise<void> }> {
+  const client = await clientKey(null);
+  const target = targetKey(email);
+  const [byClient, byEmail] = await Promise.all([
+    rateLimit(bucket, client, rules.client),
+    rateLimit(`${bucket}-email`, target, rules.email),
+  ]);
+  return {
+    allowed: byClient && byEmail,
+    refund: async () => {
+      await Promise.all([refundRateLimit(bucket, client, rules.client), refundRateLimit(`${bucket}-email`, target, rules.email)]);
+    },
+  };
+}
+
 /* ── Sign in ─────────────────────────────────────────────────── */
 
 /**
@@ -79,10 +120,15 @@ export async function loginAction(data: LoginInput, redirectTo?: string) {
   const result = createLoginSchema(dict.validation).safeParse(data);
   if (!result.success) return { error: firstIssue(result.error.issues, dict.auth.errors.invalidForm) };
 
+  const limit = await limitAttempt("login", result.data.email, { client: LOGIN_CLIENT_LIMIT, email: LOGIN_EMAIL_LIMIT });
+  if (!limit.allowed) return { error: dict.auth.errors.tooManyRequests };
+
   const supabase = await createServerClient();
   const { error } = await supabase.auth.signInWithPassword({ email: result.data.email, password: result.data.password });
   if (error) return { error: authErrorMessage(error, dict) };
 
+  // Only wrong passwords count towards the limit.
+  await limit.refund();
   revalidatePath("/", "layout");
   // Only same-site relative paths: "//evil.com" or "/\evil.com" fall back.
   redirect(safeRedirectPath(redirectTo, "/account"));
@@ -100,8 +146,11 @@ export async function registerAction(data: RegisterInput, redirectTo?: string): 
   const result = createRegisterSchema(dict.validation).safeParse(data);
   if (!result.success) return { error: firstIssue(result.error.issues, dict.auth.errors.invalidForm) };
 
-  const supabase = await createServerClient();
   const { email, password, firstName, lastName } = result.data;
+  const limit = await limitAttempt("register", email, { client: REGISTER_CLIENT_LIMIT, email: REGISTER_EMAIL_LIMIT });
+  if (!limit.allowed) return { error: dict.auth.errors.tooManyRequests };
+
+  const supabase = await createServerClient();
   const { data: signUp, error } = await supabase.auth.signUp({
     email,
     password,
@@ -151,6 +200,9 @@ export async function forgotPasswordAction(data: ForgotPasswordInput): Promise<{
   const parsed = createForgotPasswordSchema(dict.validation).safeParse(data);
   if (!parsed.success) return { error: firstIssue(parsed.error.issues, dict.auth.errors.invalidForm) };
 
+  const limit = await limitAttempt("reset", parsed.data.email, { client: RESET_CLIENT_LIMIT, email: RESET_EMAIL_LIMIT });
+  if (!limit.allowed) return { error: dict.auth.errors.tooManyRequests };
+
   const supabase = await createServerClient();
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
     redirectTo: `${await authOrigin()}/auth/callback?next=/reset-password`,
@@ -181,9 +233,9 @@ export async function resetPasswordAction(data: NewPasswordInput): Promise<{ err
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Only right after a reset link: /auth/callback marked this browser for this account.
+  // Only right after a reset link: /auth/callback marked this browser for this account (signed, 15 minutes).
   const cookieStore = await cookies();
-  if (!user || cookieStore.get(RECOVERY_COOKIE)?.value !== user.id) return { error: x.resetExpired };
+  if (!user || !isRecoveryFor(cookieStore.get(RECOVERY_COOKIE)?.value, user.id)) return { error: x.resetExpired };
 
   const { error } = await supabase.auth.updateUser({ password: parsed.data.newPassword });
   if (error) {
