@@ -1521,6 +1521,8 @@ html:has(.ds-overlay[open]) { overflow: hidden; }
       font: inherit;
       color: inherit;
       cursor: pointer;
+      /* base-select renders as inline-flex: keep the chosen text vertically centred. */
+      align-items: center;
     }
   }
 
