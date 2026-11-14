@@ -1,0 +1,205 @@
+/**
+ * Admin operations: roles, owner-only settings, dashboard functions.
+ * Runs against the LOCAL Supabase only (npm run test:db).
+ * Uses (and creates if missing) owner admin@shiftsouq.local, admin e2e.admin@shiftsouq.local,
+ * buyer buyer@shiftsouq.local. Nothing is left changed: settings and roles are restored.
+ */
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { countsAsRevenue, toOrderState } from "@/lib/admin/orders";
+
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const local = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(URL);
+const d = local && ANON && SERVICE ? describe : describe.skip;
+const opts = { auth: { persistSession: false, autoRefreshToken: false } };
+
+let service: SupabaseClient;
+let anon: SupabaseClient;
+let owner: SupabaseClient;
+let admin: SupabaseClient;
+let buyer: SupabaseClient;
+let ownerProfile: string;
+let adminProfile: string;
+let buyerProfile: string;
+let settingsBefore: Record<string, unknown> | null = null;
+
+async function signIn(email: string, password: string) {
+  const c = createClient(URL, ANON, opts);
+  const { error } = await c.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`${email}: ${error.message}`);
+  return c;
+}
+
+/** Makes sure a test account exists with this password and role (fresh databases, e.g. CI, have none). */
+async function ensureAccount(email: string, password: string, role: "super_admin" | "admin" | "customer") {
+  const { data: list, error } = await service.auth.admin.listUsers({ perPage: 1000 });
+  if (error) throw error;
+  let id = list.users.find((u) => u.email?.toLowerCase() === email)?.id;
+  if (!id) {
+    const created = await service.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { first_name: "Test", last_name: role },
+    });
+    if (created.error) throw created.error;
+    id = created.data.user.id;
+  } else {
+    await service.auth.admin.updateUserById(id, { password });
+  }
+  const { error: roleError } = await service.from("profiles").upsert({ auth_user_id: id, role }, { onConflict: "auth_user_id" });
+  if (roleError) throw roleError;
+}
+
+async function profileOf(c: SupabaseClient) {
+  const { data: u } = await c.auth.getUser();
+  const { data } = await service.from("profiles").select("id, role").eq("auth_user_id", u.user!.id).single();
+  return data as { id: string; role: string };
+}
+
+d("admin operations (database)", () => {
+  beforeAll(async () => {
+    service = createClient(URL, SERVICE, opts);
+    anon = createClient(URL, ANON, opts);
+    // Sequential: the owner must exist before the "last owner" rules are exercised.
+    await ensureAccount("admin@shiftsouq.local", "Admin12345!", "super_admin");
+    await ensureAccount("e2e.admin@shiftsouq.local", "E2e-Admin-12345", "admin");
+    await ensureAccount("buyer@shiftsouq.local", "Buyer12345!", "customer");
+    [owner, admin, buyer] = await Promise.all([
+      signIn("admin@shiftsouq.local", "Admin12345!"),
+      signIn("e2e.admin@shiftsouq.local", "E2e-Admin-12345"),
+      signIn("buyer@shiftsouq.local", "Buyer12345!"),
+    ]);
+    const [o, a, b] = await Promise.all([profileOf(owner), profileOf(admin), profileOf(buyer)]);
+    expect(o.role).toBe("super_admin");
+    expect(a.role).toBe("admin");
+    expect(b.role).toBe("customer");
+    ownerProfile = o.id;
+    adminProfile = a.id;
+    buyerProfile = b.id;
+    const { data } = await service.from("store_settings").select("*").eq("id", 1).single();
+    settingsBefore = data;
+  });
+
+  afterAll(async () => {
+    // Safety net: put roles and settings back exactly as they were.
+    if (ownerProfile) await service.from("profiles").update({ role: "super_admin" }).eq("id", ownerProfile);
+    if (adminProfile) await service.from("profiles").update({ role: "admin" }).eq("id", adminProfile);
+    if (buyerProfile) await service.from("profiles").update({ role: "customer" }).eq("id", buyerProfile);
+    if (settingsBefore) {
+      const { id: _id, ...rest } = settingsBefore;
+      void _id;
+      await service.from("store_settings").update(rest).eq("id", 1);
+    }
+  });
+
+  it("an admin cannot change anyone's role (database guard)", async () => {
+    const { error } = await admin.from("profiles").update({ role: "admin" }).eq("id", buyerProfile);
+    expect(error?.code).toBe("42501");
+    const { error: self } = await admin.from("profiles").update({ role: "super_admin" }).eq("id", adminProfile);
+    expect(self?.code).toBe("42501");
+    const { data } = await service.from("profiles").select("role").eq("id", buyerProfile).single();
+    expect(data!.role).toBe("customer");
+  });
+
+  it("an admin cannot save store settings (row-level security)", async () => {
+    const { data, error } = await admin.from("store_settings").update({ policies: { return_days: 99 } }).eq("id", 1).select("id");
+    expect(error).toBeNull();
+    expect(data ?? []).toHaveLength(0);
+    const { data: row } = await service.from("store_settings").select("policies").eq("id", 1).single();
+    expect(row!.policies).toEqual(settingsBefore!.policies);
+  });
+
+  it("the owner can save store settings", async () => {
+    const { data, error } = await owner.from("store_settings").update({ policies: { return_days: 21 } }).eq("id", 1).select("policies");
+    expect(error).toBeNull();
+    expect(data?.[0]?.policies).toEqual({ return_days: 21 });
+    await owner.from("store_settings").update({ policies: settingsBefore!.policies }).eq("id", 1);
+  });
+
+  it("the owner can switch someone between customer and admin", async () => {
+    const up = await owner.from("profiles").update({ role: "admin" }).eq("id", buyerProfile).select("role");
+    expect(up.error).toBeNull();
+    expect(up.data?.[0]?.role).toBe("admin");
+    const down = await owner.from("profiles").update({ role: "customer" }).eq("id", buyerProfile).select("role");
+    expect(down.data?.[0]?.role).toBe("customer");
+  });
+
+  it("the last owner can never be removed", async () => {
+    const { error } = await owner.from("profiles").update({ role: "admin" }).eq("id", ownerProfile);
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/at least one owner/i);
+    // Not even by the server or the SQL editor.
+    const { error: svc } = await service.from("profiles").update({ role: "customer" }).eq("id", ownerProfile);
+    expect(svc?.message).toMatch(/at least one owner/i);
+    const { data } = await service.from("profiles").select("role").eq("id", ownerProfile).single();
+    expect(data!.role).toBe("super_admin");
+  });
+
+  it("only the owner can transfer ownership, and only to an admin", async () => {
+    const byAdmin = await admin.rpc("transfer_store_ownership", { p_target: adminProfile });
+    expect(byAdmin.error?.code).toBe("42501");
+    const toCustomer = await owner.rpc("transfer_store_ownership", { p_target: buyerProfile });
+    expect(toCustomer.error?.code).toBe("22023");
+
+    // Round trip: owner → admin, then back.
+    const there = await owner.rpc("transfer_store_ownership", { p_target: adminProfile });
+    expect(there.error).toBeNull();
+    const roles = await service.from("profiles").select("id, role").in("id", [ownerProfile, adminProfile]);
+    const byId = Object.fromEntries((roles.data ?? []).map((r) => [r.id, r.role]));
+    expect(byId[adminProfile]).toBe("super_admin");
+    expect(byId[ownerProfile]).toBe("admin");
+    const back = await admin.rpc("transfer_store_ownership", { p_target: ownerProfile });
+    expect(back.error).toBeNull();
+    const after = await service.from("profiles").select("id, role").in("id", [ownerProfile, adminProfile]);
+    const again = Object.fromEntries((after.data ?? []).map((r) => [r.id, r.role]));
+    expect(again[ownerProfile]).toBe("super_admin");
+    expect(again[adminProfile]).toBe("admin");
+  });
+
+  it("dashboard and customer functions refuse customers and visitors", async () => {
+    const now = new Date().toISOString();
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    for (const c of [buyer]) {
+      expect((await c.rpc("admin_queue_counts")).error?.code).toBe("42501");
+      expect((await c.rpc("admin_period_stats", { p_from: from, p_to: now })).error?.code).toBe("42501");
+      expect((await c.rpc("admin_customers", {})).error?.code).toBe("42501");
+      expect((await c.rpc("admin_profile_emails", { p_ids: [buyerProfile] })).error?.code).toBe("42501");
+    }
+    // Visitors are not even allowed to call them.
+    const visitor = await anon.rpc("admin_customers", {});
+    expect(visitor.error).not.toBeNull();
+    expect(visitor.data ?? []).toHaveLength(0);
+    // Finding accounts by e-mail is for the owner only.
+    expect((await admin.rpc("admin_profile_by_email", { p_email: "buyer@shiftsouq.local" })).error?.code).toBe("42501");
+    const found = await owner.rpc("admin_profile_by_email", { p_email: "BUYER@shiftsouq.local" });
+    expect(found.data?.[0]?.profile_id).toBe(buyerProfile);
+  });
+
+  it("revenue in the dashboard uses the same rule as the order screens", async () => {
+    // Other local test runs may place or update orders meanwhile: compare up to 3 times.
+    let last: { db: number; js: number; dbCount: number; jsCount: number } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const from = new Date(Date.now() - 400 * 86_400_000 + 60_000).toISOString();
+      const to = new Date(Date.now() - 1_000).toISOString();
+      const [{ data: stats, error }, { data: orders }] = await Promise.all([
+        admin.rpc("admin_period_stats", { p_from: from, p_to: to }).single(),
+        service.from("orders").select("total, status, payment_status, payment_method").gte("created_at", from).lt("created_at", to),
+      ]);
+      expect(error).toBeNull();
+      const received = (orders ?? []).filter((o) => countsAsRevenue(toOrderState(o)));
+      const s = stats as { revenue: number | string; revenue_orders: number };
+      last = {
+        db: Number(s.revenue),
+        js: received.reduce((sum, o) => sum + Number(o.total), 0),
+        dbCount: Number(s.revenue_orders),
+        jsCount: received.length,
+      };
+      if (Math.abs(last.db - last.js) < 0.005 && last.dbCount === last.jsCount) break;
+    }
+    expect(last!.db).toBeCloseTo(last!.js, 2);
+    expect(last!.dbCount).toBe(last!.jsCount);
+  });
+});

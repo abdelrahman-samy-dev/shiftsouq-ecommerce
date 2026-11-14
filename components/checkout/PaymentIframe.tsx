@@ -1,27 +1,19 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   PaymentIframe — Embedded Paymob Card Payment
+   PaymentIframe — Paymob's card form, inside our page
    ──────────────────────────────────────────────────────────────
-   Hosts the Paymob iFrame inline on the checkout page so users
-   complete card payment without ever leaving ShiftSouq.
-
-   Features:
-   • Premium shimmer skeleton while the iFrame loads
-   • Responsive container that matches the design system
-   • beforeunload guard to prevent accidental navigation
-   • Smooth Framer Motion entrance/exit animations
-   • Fallback timeout (12s) to escape stuck loading states
-   • Listens for postMessage events from Paymob to detect
-     transaction completion or failure
+   A modal <dialog> (focus stays inside, the page behind is inert)
+   holding Paymob's hosted card form. It never closes on a stray
+   tap or Esc — that could abort a payment mid 3-D Secure — only
+   with the close button. Messages from Paymob's own origins tell
+   us when the transaction finished; the order is only marked paid
+   by the signed webhook, never by this page.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { CreditCard, Lock, X, AlertTriangle, RefreshCw, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-/* ── Types ───────────────────────────────────────────────────── */
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Lock, RefreshCw, X } from "lucide-react";
+import { Button, Spinner } from "@/components/ds";
 
 interface PaymentIframeProps {
   paymentToken: string;
@@ -31,337 +23,139 @@ interface PaymentIframeProps {
   locale: string;
 }
 
-/* ── Constants ───────────────────────────────────────────────── */
-
 const PAYMOB_IFRAME_BASE = "https://accept.paymob.com/api/acceptance/iframes";
-
-/** Maximum time to wait for the iFrame to load before showing timeout error */
+const PAYMOB_ORIGINS = ["https://accept.paymob.com", "https://egypt.paymob.com", "https://accept.paymobsolutions.com"];
+/** After this long without a load event, show the form anyway with a "retry" hint. */
 const LOAD_TIMEOUT_MS = 12_000;
 
-/* ── Component ───────────────────────────────────────────────── */
-
-export function PaymentIframe({
-  paymentToken,
-  iframeId,
-  onClose,
-  onTransactionComplete,
-  locale,
-}: PaymentIframeProps) {
+export function PaymentIframe({ paymentToken, iframeId, onClose, onTransactionComplete, locale }: PaymentIframeProps) {
   const isAr = locale === "ar";
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [isTimeout, setIsTimeout] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
-  const iframeUrl = `${PAYMOB_IFRAME_BASE}/${iframeId}?payment_token=${paymentToken}`;
+  const src = `${PAYMOB_IFRAME_BASE}/${encodeURIComponent(iframeId)}?payment_token=${encodeURIComponent(paymentToken)}`;
 
-  // Debug: log the iFrame URL on mount and on retry
   useEffect(() => {
-    console.log("[PaymentIframe] Rendering with:", {
-      iframeId,
-      paymentToken: paymentToken ? `${paymentToken.slice(0, 20)}...` : "MISSING",
-      iframeUrl,
-      retryCount,
-    });
-  }, [iframeId, paymentToken, iframeUrl, retryCount]);
-
-  /* ── Navigation Guard ──────────────────────────────────────── */
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
+    const el = dialogRef.current;
+    if (el && !el.open) el.showModal();
+    return () => {
+      if (el?.open) el.close();
     };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
-  /* ── Fallback Timeout ──────────────────────────────────────── */
   useEffect(() => {
-    if (!isLoading) return;
-
+    if (!loading) return;
     const timer = setTimeout(() => {
-      if (isLoading) {
-        console.warn("[PaymentIframe] Load timeout reached — forcing visible.");
-        // Don't show error — force the iframe visible in case it loaded
-        // but onLoad didn't fire (cross-origin restriction)
-        setIsLoading(false);
-        setIsTimeout(true);
-      }
+      setLoading(false);
+      setSlow(true);
     }, LOAD_TIMEOUT_MS);
-
     return () => clearTimeout(timer);
-  }, [isLoading, retryCount]);
+  }, [loading, attempt]);
 
-  /* ── Listen for Paymob postMessage Events ──────────────────── */
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Only trust messages from Paymob's domain
-      if (
-        event.origin !== "https://accept.paymob.com" &&
-        event.origin !== "https://egypt.paymob.com" &&
-        event.origin !== "https://accept.paymobsolutions.com"
-      ) {
-        return;
-      }
-
-      console.log("[PaymentIframe] postMessage received:", event.data);
-
-      // Paymob sends transaction status via postMessage
+    const onMessage = (event: MessageEvent) => {
+      if (!PAYMOB_ORIGINS.includes(event.origin)) return;
       if (event.data && typeof event.data === "object") {
-        const { success, txn_response_code } = event.data;
-        if (success === true || txn_response_code === "APPROVED") {
-          onTransactionComplete(true, event.data);
-        } else if (success === false) {
-          onTransactionComplete(false, event.data);
-        }
+        const { success, txn_response_code } = event.data as { success?: unknown; txn_response_code?: unknown };
+        if (success === true || txn_response_code === "APPROVED") onTransactionComplete(true, event.data);
+        else if (success === false) onTransactionComplete(false, event.data);
       }
     };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, [onTransactionComplete]);
 
-  /* ── iFrame Load Handler ───────────────────────────────────── */
-  const handleIframeLoad = useCallback(() => {
-    console.log("[PaymentIframe] onLoad fired");
-    setIsLoading(false);
-    setIsTimeout(false);
-    setHasError(false);
-  }, []);
-
-  const handleIframeError = useCallback(() => {
-    console.error("[PaymentIframe] onError fired");
-    setIsLoading(false);
-    setHasError(true);
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    console.log("[PaymentIframe] Retrying...");
-    setIsLoading(true);
-    setHasError(false);
-    setIsTimeout(false);
-    setRetryCount((c) => c + 1);
+  const retry = useCallback(() => {
+    setLoading(true);
+    setFailed(false);
+    setSlow(false);
+    setAttempt((n) => n + 1);
   }, []);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm"
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="payment-iframe-title"
+      onCancel={(e) => e.preventDefault()}
+      className="ds-overlay ds-dialog m-0 h-dvh max-h-dvh w-full max-w-full bg-surface-elevated p-0 text-text-primary sm:m-auto sm:h-[min(760px,92dvh)] sm:w-[min(92vw,560px)] sm:rounded-sm"
     >
-      {/* Click-away backdrop */}
-      <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
-
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-        className="relative w-full max-w-[500px] flex flex-col bg-white dark:bg-[var(--background)] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh]"
-        style={{ border: "1px solid var(--border)" }}
-      >
-        {/* ── Header ──────────────────────────────────────────── */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[var(--border)] shrink-0 bg-[var(--background)] relative z-10">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{
-                background: "var(--primary)",
-                color: "var(--primary-foreground)",
-              }}
-            >
-              <CreditCard size={20} strokeWidth={1.8} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                {isAr ? "الدفع بالبطاقة" : "Card Payment"}
-              </h3>
-              <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
-                <Lock size={11} strokeWidth={2.5} />
-                {isAr
-                  ? "اتصال مشفر وآمن"
-                  : "Secure, encrypted connection"}
-              </p>
-            </div>
+      <div className="flex h-full flex-col">
+        <div className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-5">
+          <div className="flex flex-col">
+            <h2 id="payment-iframe-title" className="text-base font-medium">
+              {isAr ? "الدفع بالبطاقة" : "Card payment"}
+            </h2>
+            <p className="flex items-center gap-1.5 text-[0.75rem] text-text-muted">
+              <Lock className="size-3" strokeWidth={2} aria-hidden="true" />
+              {isAr ? "اتصال مشفّر عبر Paymob" : "Encrypted connection via Paymob"}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className={cn(
-              "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-              "border border-[var(--border)] bg-[var(--background)]",
-              "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-              "hover:border-[var(--border-hover)] transition-all duration-200"
-            )}
-            aria-label={isAr ? "إغلاق" : "Close"}
+            aria-label={isAr ? "إغلاق نموذج الدفع" : "Close the payment form"}
+            className="-me-2 inline-flex size-11 items-center justify-center rounded-sm hover:bg-surface"
           >
-            <X size={16} strokeWidth={2} />
+            <X className="size-5" strokeWidth={1.5} />
           </button>
         </div>
 
-        {/* ── iFrame Container ────────────────────────────────── */}
-        <div
-          className="relative w-full bg-white overflow-y-auto overflow-x-hidden"
-          style={{ height: "520px" }}
-        >
-          {/* Shimmer Loading Overlay */}
-          <AnimatePresence>
-            {isLoading && !hasError && (
-              <motion.div
-                initial={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 bg-white p-6"
-              >
-                {/* Shimmer Card Skeleton */}
-                <div className="w-full max-w-sm space-y-4">
-                  {/* Card number skeleton */}
-                  <div className="space-y-2">
-                    <div className="payment-shimmer h-3 w-24 rounded-md" />
-                    <div className="payment-shimmer h-12 w-full rounded-xl" />
-                  </div>
-                  {/* Expiry + CVV row */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <div className="payment-shimmer h-3 w-16 rounded-md" />
-                      <div className="payment-shimmer h-12 rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="payment-shimmer h-3 w-12 rounded-md" />
-                      <div className="payment-shimmer h-12 rounded-xl" />
-                    </div>
-                  </div>
-                  {/* Cardholder name */}
-                  <div className="space-y-2">
-                    <div className="payment-shimmer h-3 w-32 rounded-md" />
-                    <div className="payment-shimmer h-12 w-full rounded-xl" />
-                  </div>
-                  {/* Submit button */}
-                  <div className="payment-shimmer h-12 w-full rounded-xl mt-2" />
-                </div>
-
-                {/* Loading text */}
-                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] mt-2">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                  >
-                    <RefreshCw size={14} />
-                  </motion.div>
-                  {isAr
-                    ? "جارٍ تحميل نموذج الدفع الآمن..."
-                    : "Loading secure payment form..."}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Error State */}
-          {hasError && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[var(--background)]">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                style={{
-                  background: "var(--destructive-bg)",
-                  border: "1px solid var(--destructive-border)",
-                }}
-              >
-                <AlertTriangle
-                  size={24}
-                  strokeWidth={1.8}
-                  className="text-[var(--destructive)]"
-                />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
-                  {isAr
-                    ? "تعذر تحميل نموذج الدفع"
-                    : "Payment form failed to load"}
-                </p>
-                <p className="text-xs text-[var(--text-muted)] max-w-xs mx-auto">
-                  {isAr
-                    ? "تحقق من اتصال الإنترنت وحاول مرة أخرى"
-                    : "Please check your connection and try again"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleRetry}
-                className="btn-secondary gap-2 text-sm"
-              >
-                <RefreshCw size={14} />
-                {isAr ? "إعادة المحاولة" : "Retry"}
-              </button>
+        <div className="relative min-h-0 flex-1 bg-white">
+          {loading && !failed ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-elevated text-sm text-text-muted">
+              <Spinner className="size-5" />
+              {isAr ? "جارٍ تحميل نموذج الدفع الآمن…" : "Loading the secure payment form…"}
             </div>
-          )}
+          ) : null}
 
-          {/* Actual iFrame */}
+          {failed ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-surface-elevated p-6 text-center">
+              <p className="text-sm font-medium">{isAr ? "تعذر تحميل نموذج الدفع" : "The payment form didn't load"}</p>
+              <p className="max-w-xs text-[0.8125rem] text-text-muted">
+                {isAr ? "تحقق من اتصالك بالإنترنت ثم أعد المحاولة." : "Check your connection, then try again."}
+              </p>
+              <Button variant="secondary" onClick={retry} icon={<RefreshCw className="size-4" strokeWidth={1.5} />}>
+                {isAr ? "إعادة المحاولة" : "Try again"}
+              </Button>
+            </div>
+          ) : null}
+
           <iframe
-            ref={iframeRef}
-            key={retryCount}
-            src={iframeUrl}
-            title={isAr ? "نموذج الدفع الآمن" : "Secure Payment Form"}
-            onLoad={handleIframeLoad}
-            onError={handleIframeError}
-            scrolling="no"
-            style={{
-              position: "absolute",
-              top: "-150px",
-              left: "-18%",
-              width: "136%",
-              height: "810px",
+            key={attempt}
+            src={src}
+            title={isAr ? "نموذج الدفع الآمن" : "Secure payment form"}
+            onLoad={() => {
+              setLoading(false);
+              setSlow(false);
             }}
-            className={cn(
-              "border-0 block transition-opacity duration-300",
-              isLoading || hasError ? "opacity-0" : "opacity-100"
-            )}
+            onError={() => {
+              setLoading(false);
+              setFailed(true);
+            }}
+            className="absolute inset-0 block h-full w-full border-0"
             allow="payment"
           />
 
-          {/* Timeout notice */}
-          {isTimeout && !isLoading && !hasError && (
-            <div
-              className="absolute bottom-0 left-0 right-0 flex items-center gap-2.5 px-4 py-2.5 text-xs z-20"
-              style={{
-                background: "var(--warning-bg)",
-                borderTop: "1px solid rgba(245, 158, 11, 0.2)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <Clock size={13} className="text-[var(--warning)] flex-shrink-0" />
-              {isAr
-                ? "إذا لم يظهر النموذج، اضغط إعادة المحاولة"
-                : "If the form doesn't appear, click retry"}
-              <button
-                type="button"
-                onClick={handleRetry}
-                className="ms-auto text-[var(--text-primary)] font-semibold hover:underline"
-              >
-                {isAr ? "إعادة المحاولة" : "Retry"}
+          {slow && !failed ? (
+            <div className="absolute inset-x-0 bottom-0 z-10 flex items-center gap-3 border-t border-border bg-warning-bg px-4 py-2.5 text-[0.8125rem] text-text-secondary">
+              {isAr ? "إذا لم يظهر النموذج، أعد تحميله." : "If the form doesn't appear, reload it."}
+              <button type="button" onClick={retry} className="ms-auto min-h-10 font-medium text-text-primary underline underline-offset-4">
+                {isAr ? "إعادة التحميل" : "Reload"}
               </button>
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* ── Security Footer ─────────────────────────────────── */}
-        <div
-          className="flex items-center gap-2.5 px-4 py-3 border-t"
-          style={{
-            background: "var(--success-bg)",
-            borderColor: "var(--border)",
-          }}
-        >
-          <Lock size={14} className="text-[var(--success)] flex-shrink-0" />
-          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-            {isAr
-              ? "هذا النموذج مستضاف بواسطة Paymob ومحمي بمعايير PCI-DSS. لا يتم تخزين بيانات بطاقتك على خوادمنا."
-              : "This form is hosted by Paymob and protected by PCI-DSS standards. Your card details are never stored on our servers."}
-          </p>
-        </div>
-      </motion.div>
-    </motion.div>
+        <p className="flex shrink-0 items-start gap-2 border-t border-border px-5 py-3 text-[0.75rem] leading-relaxed text-text-muted">
+          <Lock className="mt-0.5 size-3.5 shrink-0 text-success" strokeWidth={1.5} aria-hidden="true" />
+          {isAr
+            ? "يستضيف Paymob هذا النموذج وفق معيار PCI-DSS، ولا تُحفظ بيانات بطاقتك على خوادمنا."
+            : "Paymob hosts this form under PCI-DSS. Your card details never touch our servers."}
+        </p>
+      </div>
+    </dialog>
   );
 }

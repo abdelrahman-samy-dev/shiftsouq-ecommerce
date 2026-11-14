@@ -1,245 +1,158 @@
 /* ══════════════════════════════════════════════════════════════
-   Paymob Callback Route — HMAC-Verified Transaction Handler
+   Paymob callbacks
    ──────────────────────────────────────────────────────────────
-   Handles Paymob's server-to-server transaction response callback.
-   
-   Verifies the request authenticity via HMAC-SHA512 signature
-   before processing the transaction result. This runs silently
-   in the background — the frontend uses postMessage from the
-   embedded iFrame instead.
-
-   Endpoint: POST /api/checkout/paymob/callback
+   POST  Transaction processed callback (server to server).
+         HMAC-verified. The order is found from Paymob's SIGNED
+         order id through payment_attempts — never from
+         merchant_order_id, which the HMAC does not cover. The paid
+         amount must equal the attempt and the order total, and one
+         transaction id confirms one order (all checked inside
+         mark_order_paid, under a row lock).
+         Refunds, voids and second payments for a paid order are
+         recorded in the audit log for the owner to reconcile.
+   GET   Transaction response callback (the buyer's browser is
+         redirected here). Never trusted to mark anything paid —
+         it only routes the buyer to the right page.
    ══════════════════════════════════════════════════════════════ */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac } from "crypto";
-import { createClient } from "@supabase/supabase-js";
+import { orderForPaymobOrder, signedPaymobOrderId, verifyPaymobHmac } from "@/lib/payments/paymob";
+import { getServiceClient } from "@/lib/supabase/service";
 
-/* ── Constants ───────────────────────────────────────────────── */
+type Txn = Record<string, unknown> & {
+  id?: number | string;
+  success?: boolean;
+  pending?: boolean;
+  error_occured?: boolean;
+  is_voided?: boolean;
+  is_refunded?: boolean;
+  is_void?: boolean;
+  is_refund?: boolean;
+  amount_cents?: number | string;
+  currency?: string;
+  order?: { id?: number | string; merchant_order_id?: string };
+};
 
-const HMAC_SECRET = process.env.PAYMOB_HMAC_SECRET || "";
+/** Results of mark_order_paid() that need a person to look at the order. */
+const NEEDS_ATTENTION = new Set(["amount_mismatch", "already_paid_other", "transaction_reused", "paid_after_cancel", "unknown_attempt"]);
 
-/**
- * The ordered list of fields Paymob uses to compute the HMAC.
- * These must be concatenated in this exact order.
- * @see https://docs.paymob.com/docs/hmac-calculation
- */
-const HMAC_FIELDS = [
-  "amount_cents",
-  "created_at",
-  "currency",
-  "error_occured",
-  "has_parent_transaction",
-  "id",
-  "integration_id",
-  "is_3d_secure",
-  "is_auth",
-  "is_capture",
-  "is_refunded",
-  "is_standalone_payment",
-  "is_voided",
-  "order.id",
-  "owner",
-  "pending",
-  "source_data.pan",
-  "source_data.sub_type",
-  "source_data.type",
-  "success",
-] as const;
-
-/* ── Utility: Extract Nested Field ───────────────────────────── */
-
-/**
- * Safely extract a nested field value from an object using dot notation.
- * e.g., "order.id" → obj.order.id
- */
-function getNestedValue(obj: Record<string, unknown>, path: string): string {
-  const parts = path.split(".");
-  let current: unknown = obj;
-
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== "object") {
-      return "";
-    }
-    current = (current as Record<string, unknown>)[part];
+/** Records a payment event the owner must reconcile (refund, void…). Never throws. */
+async function recordPaymentEvent(action: string, orderId: string, data: Record<string, unknown>) {
+  try {
+    const { error } = await getServiceClient()
+      .from("audit_log")
+      .insert({ actor_id: null, action, entity: "payment", entity_id: orderId, data });
+    if (error) throw error;
+  } catch (err) {
+    console.error("[Paymob callback] could not record", action, orderId, err instanceof Error ? err.message : err);
   }
-
-  return String(current ?? "");
 }
-
-/* ── HMAC Verification ───────────────────────────────────────── */
-
-/**
- * Verifies the Paymob HMAC signature against the transaction data.
- * Returns true if the signature matches, false otherwise.
- */
-function verifyHmac(
-  transactionData: Record<string, unknown>,
-  receivedHmac: string
-): boolean {
-  if (!HMAC_SECRET) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[Paymob Callback] CRITICAL: HMAC_SECRET not configured in production. Rejecting webhook.");
-      return false;
-    }
-    console.warn("[Paymob Callback] HMAC_SECRET not configured. Skipping verification in dev mode.");
-    return true; // Allow in dev mode when HMAC isn't configured
-  }
-
-  // Concatenate fields in the required order
-  const concatenated = HMAC_FIELDS.map((field) =>
-    getNestedValue(transactionData, field)
-  ).join("");
-
-  // Compute HMAC-SHA512
-  const computedHmac = createHmac("sha512", HMAC_SECRET)
-    .update(concatenated)
-    .digest("hex");
-
-  return computedHmac === receivedHmac;
-}
-
-/* ── POST Handler ────────────────────────────────────────────── */
 
 export async function POST(request: NextRequest) {
+  let body: { obj?: Txn; type?: string; hmac?: string };
   try {
-    const body = await request.json();
-    const { hmac, obj: transactionData } = body;
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
 
-    if (!transactionData) {
-      console.error("[Paymob Callback] Missing transaction data in request body.");
-      return NextResponse.json(
-        { error: "Missing transaction data" },
-        { status: 400 }
-      );
-    }
+  const txn = body.obj;
+  // Paymob appends the HMAC to the callback URL; older integrations put it in the body.
+  const hmac = request.nextUrl.searchParams.get("hmac") ?? body.hmac ?? null;
+  if (!txn || typeof txn !== "object" || !verifyPaymobHmac(txn, hmac)) {
+    console.error("[Paymob callback] rejected: missing data or bad HMAC");
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-    /* ── HMAC Verification ─────────────────────────────────── */
-    if (!verifyHmac(transactionData, hmac)) {
-      console.error("[Paymob Callback] HMAC verification failed. Possible tampering.");
-      return NextResponse.json(
-        { error: "HMAC verification failed" },
-        { status: 403 }
-      );
-    }
-
-    /* ── Process Transaction Result ────────────────────────── */
-    const {
-      id: transactionId,
-      success,
-      amount_cents,
-      currency,
-      order,
-      source_data,
-    } = transactionData;
-
-    const paymobOrderId = order?.id ?? "unknown";
-    const merchantOrderId = order?.merchant_order_id ?? "";
-    const paymentMethod = source_data?.type ?? "unknown";
-    const cardLast4 = source_data?.pan ?? "****";
-
-    console.log(
-      `[Paymob Callback] Transaction #${transactionId} | ` +
-      `Paymob Order #${paymobOrderId} | Merchant Order: ${merchantOrderId} | ` +
-      `${success ? "✅ SUCCESS" : "❌ FAILED"} | ` +
-      `${amount_cents / 100} ${currency} | ` +
-      `Method: ${paymentMethod} (${cardLast4})`
-    );
-
-    /* ── Determine the Supabase order ID to update ─────────── */
-    // merchantOrderId is set to the Supabase UUID during checkout
-    const supabaseOrderId = merchantOrderId;
-
-    if (!supabaseOrderId) {
-      console.error(
-        `[Paymob Callback] No merchant_order_id found in callback data. ` +
-        `Cannot update Supabase order. Paymob Order: ${paymobOrderId}`
-      );
-      return NextResponse.json({ received: true });
-    }
-
-    if (success) {
-      /* ── Successful Payment ─────────────────────────────── */
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-
-      const { error } = await supabase
-        .from("orders")
-        .update({ 
-          payment_status: "paid", 
-          transaction_id: String(transactionId) 
-        })
-        .eq("id", supabaseOrderId);
-
-      if (error) {
-        console.error(`[Paymob Callback] Database error updating order ${supabaseOrderId} to PAID:`, error);
-      } else {
-        console.log(`[Paymob Callback] Order ${supabaseOrderId} marked as PAID. Transaction: ${transactionId}`);
-      }
-      
-      // TODO: Send order confirmation email
-      // TODO: Update inventory/stock levels
-    } else {
-      /* ── Failed Payment ─────────────────────────────────── */
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-
-      const { error } = await supabase
-        .from("orders")
-        .update({ 
-          payment_status: "failed", 
-          transaction_id: String(transactionId) 
-        })
-        .eq("id", supabaseOrderId);
-
-      if (error) {
-        console.error(`[Paymob Callback] Database error updating order ${supabaseOrderId} to FAILED:`, error);
-      } else {
-        console.log(`[Paymob Callback] Order ${supabaseOrderId} payment FAILED. Transaction: ${transactionId}`);
-      }
-      
-      // TODO: Send failure notification (optional)
-    }
-
-    // Paymob expects a 200 response to acknowledge receipt
+  const paymobOrderId = signedPaymobOrderId(txn);
+  if (!paymobOrderId) {
+    console.error("[Paymob callback] no Paymob order id");
     return NextResponse.json({ received: true });
-  } catch (error) {
-    console.error("[Paymob Callback] Error processing callback:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  }
+
+  let attempt: Awaited<ReturnType<typeof orderForPaymobOrder>>;
+  try {
+    attempt = await orderForPaymobOrder(paymobOrderId);
+  } catch (err) {
+    console.error("[Paymob callback] attempt lookup failed", paymobOrderId, err);
+    return NextResponse.json({ error: "Retry later" }, { status: 500 });
+  }
+  if (!attempt) {
+    // Not a payment this store started (or a test from the Paymob dashboard).
+    console.error(`[Paymob callback] unknown Paymob order ${paymobOrderId}`);
+    return NextResponse.json({ received: true, result: "unknown_attempt" });
+  }
+  const orderId = attempt.orderId;
+  const transactionId = String(txn.id ?? "");
+  const amountCents = Math.round(Number(txn.amount_cents ?? 0));
+
+  // A pending transaction (e.g. wallet OTP not completed yet) changes nothing.
+  if (txn.pending) return NextResponse.json({ received: true });
+
+  // Refunds and voids don't change the order here; the owner reconciles them.
+  const reversal = txn.is_refunded === true || txn.is_refund === true ? "refund" : txn.is_voided === true || txn.is_void === true ? "void" : null;
+  if (reversal) {
+    console.error(`[Paymob callback] ${reversal.toUpperCase()} for order ${orderId} (transaction ${transactionId})`);
+    await recordPaymentEvent(`payment.${reversal}`, orderId, {
+      transaction_id: transactionId,
+      amount_cents: amountCents,
+      paymob_order_id: paymobOrderId,
+      success: txn.success === true,
+    });
+    return NextResponse.json({ received: true, result: reversal });
+  }
+
+  const succeeded = txn.success === true && !txn.error_occured && txn.currency === "EGP";
+
+  try {
+    const { data, error } = await getServiceClient().rpc("mark_order_paid", {
+      p_order_id: orderId,
+      p_paymob_order_id: paymobOrderId,
+      p_amount_cents: amountCents,
+      p_transaction_id: transactionId,
+      p_success: succeeded,
+    });
+    if (error) throw error;
+    if (NEEDS_ATTENTION.has(String(data))) {
+      console.error(`[Paymob callback] ${String(data).toUpperCase()} for order ${orderId} (transaction ${transactionId})`);
+    }
+    return NextResponse.json({ received: true, result: data });
+  } catch (err) {
+    console.error("[Paymob callback] could not update order", orderId, err);
+    // 500 so Paymob retries the callback later.
+    return NextResponse.json({ error: "Retry later" }, { status: 500 });
   }
 }
 
-/* ── GET Handler (Transaction Response Redirect) ─────────────── */
-
-/**
- * Handles the redirect from Paymob after a transaction.
- * This is the URL Paymob redirects the user to after payment.
- * For the embedded iFrame flow, this acts as a fallback.
- */
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const success = searchParams.get("success") === "true";
-  const orderId = searchParams.get("order") || "";
-  const hmac = searchParams.get("hmac") || "";
+  const q = Object.fromEntries(request.nextUrl.searchParams.entries());
+  const signed = verifyPaymobHmac(q, q.hmac, true);
+  const looksPaid = signed && q.success === "true" && q.pending !== "true";
 
-  console.log(
-    `[Paymob Redirect] Order #${orderId} | ${success ? "SUCCESS" : "FAILED"}`
-  );
-
-  // Redirect to appropriate page
-  if (success) {
-    return NextResponse.redirect(
-      new URL("/checkout/success", request.url)
-    );
+  // Only a signed redirect names the order (through its payment attempt).
+  let orderNumber = "";
+  const paymobOrderId = signed ? signedPaymobOrderId(q, true) : null;
+  if (looksPaid && paymobOrderId) {
+    try {
+      const attempt = await orderForPaymobOrder(paymobOrderId);
+      if (attempt) {
+        const { data } = await getServiceClient().from("orders").select("order_number").eq("id", attempt.orderId).maybeSingle();
+        orderNumber = data?.order_number ?? "";
+      }
+    } catch {
+      /* fall through to the generic pages */
+    }
   }
 
-  // On failure, redirect back to checkout with error
-  return NextResponse.redirect(
-    new URL("/checkout?payment_error=true", request.url)
-  );
+  const target = looksPaid
+    ? `/checkout/success${orderNumber ? `?order=${encodeURIComponent(orderNumber)}` : ""}`
+    : "/checkout?payment_error=true";
+
+  // After a card payment Paymob loads this URL INSIDE its iframe, so a plain
+  // redirect would open our page inside the payment box. Navigate the top
+  // window instead (same origin by now); the meta refresh is a fallback.
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="2;url=${target.replace(/&/g, "&amp;")}"></head><body><script>(window.top||window).location.replace(${JSON.stringify(target)});</script></body></html>`;
+  return new NextResponse(html, {
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
 }

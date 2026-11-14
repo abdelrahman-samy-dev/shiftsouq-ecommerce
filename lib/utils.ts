@@ -7,6 +7,7 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Locale } from "@/lib/types";
+import { brand } from "@/lib/brand/config";
 
 /**
  * Formats a numeric price with locale-aware number formatting
@@ -17,20 +18,18 @@ import type { Locale } from "@/lib/types";
  *
  * @param amount   - The numeric price value.
  * @param locale   - Display locale ("en" or "ar").
- * @param _currency - Reserved for future multi-currency support.
- * @returns Formatted price string (e.g. "EGP 1,500" or "١٬٥٠٠ ج.م").
+ * @returns Formatted price string (e.g. "EGP 1,500" or "1,500 ج.م"). The currency
+ *          label comes from lib/brand/config, so another brand only edits that file.
  */
-export function formatPrice(
-  amount: number,
-  locale: Locale = "en",
-  _currency: string = "EGP"
-): string {
-  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-EG" : "en-US", {
+export function formatPrice(amount: number, locale: Locale = "en"): string {
+  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-EG-u-nu-latn" : "en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
   const formattedNumber = formatter.format(amount);
-  return locale === "ar" ? `${formattedNumber} ج.م` : `EGP ${formattedNumber}`;
+  return locale === "ar"
+    ? `${formattedNumber} ${brand.currency.label.ar}`
+    : `${brand.currency.label.en} ${formattedNumber}`;
 }
 
 /**

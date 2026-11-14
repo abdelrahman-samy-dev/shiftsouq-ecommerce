@@ -1,58 +1,68 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { ChevronDown, Globe } from "lucide-react";
+/* ══════════════════════════════════════════════════════════════
+   LanguageSwitcher — English ⇄ العربية
+   ──────────────────────────────────────────────────────────────
+   Two languages, so one tap: the button names the other language.
+   A Server Function writes the NEXT_LOCALE cookie, then the
+   router refreshes: Server Components re-render in the new
+   language and <html lang/dir> update without a full reload.
+   For shareable links, /ar and /en (?next=…) do the same thing.
+   ══════════════════════════════════════════════════════════════ */
+
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { setLocaleAction } from "@/lib/i18n/actions";
+import type { Locale } from "@/lib/types";
+import { Spinner } from "@/components/ds/Button";
+import { cn } from "@/lib/utils";
 
-export function LanguageSwitcher({ currentLocale, className }: { currentLocale: string, className?: string }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+const LABEL: Record<Locale, string> = { en: "English", ar: "العربية" };
+const TITLE: Record<Locale, string> = { en: "Switch to Arabic", ar: "التبديل إلى الإنجليزية" };
+const PREFIX: Record<Locale, string> = { en: "Switch to ", ar: "التبديل إلى " };
+
+export function LanguageSwitcher({
+  currentLocale,
+  className,
+  variant = "text",
+}: {
+  currentLocale: Locale;
+  className?: string;
+  /** "text": compact header link style. "outline": bordered button (menus, footer). */
+  variant?: "text" | "outline";
+}) {
+  const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const target: Locale = currentLocale === "ar" ? "en" : "ar";
 
-  const toggleLanguage = (lang: string) => {
-    document.cookie = `NEXT_LOCALE=${lang}; path=/; max-age=31536000`;
-    setIsOpen(false);
-    router.refresh();
+  const switchLanguage = () => {
+    startTransition(async () => {
+      const result = await setLocaleAction(target);
+      if ("locale" in result) router.refresh();
+    });
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   return (
-    <div className={`relative ${className || ''}`} ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="h-[46px] w-full px-3.5 flex items-center gap-2 font-medium text-sm border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs text-text-primary"
-      >
-        <Globe size={18} strokeWidth={1.8} />
-        <span className="hidden xl:inline-block flex-1 text-left">{currentLocale === "ar" ? "العربية" : "English"}</span>
-        <span className="xl:hidden uppercase flex-1 text-left">{currentLocale}</span>
-        <ChevronDown size={14} strokeWidth={2} className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-      </button>
-
-      {isOpen && (
-        <div className="dropdown-panel absolute top-full right-0 mt-2 w-32 z-50 animate-scale-in origin-top py-1">
-          <button
-            onClick={() => toggleLanguage("en")}
-            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${currentLocale === 'en' ? 'bg-surface-elevated font-semibold text-text-primary' : 'text-text-secondary hover:bg-surface-elevated hover:text-text-primary'}`}
-          >
-            English
-          </button>
-          <button
-            onClick={() => toggleLanguage("ar")}
-            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${currentLocale === 'ar' ? 'bg-surface-elevated font-semibold text-text-primary' : 'text-text-secondary hover:bg-surface-elevated hover:text-text-primary'}`}
-          >
-            العربية
-          </button>
-        </div>
+    <button
+      type="button"
+      onClick={switchLanguage}
+      title={TITLE[currentLocale]}
+      aria-busy={isPending || undefined}
+      className={cn(
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors duration-150",
+        variant === "text"
+          ? "h-10 rounded-sm px-2 text-[0.8125rem] font-medium hover:bg-surface group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5"
+          : "h-11 rounded-sm border border-border px-4 text-sm hover:border-text-primary",
+        className,
       )}
-    </div>
+    >
+      {isPending ? <Spinner className="size-3.5" /> : null}
+      {/* The accessible name keeps the visible language name ("Switch to العربية"). */}
+      <span className="sr-only">{PREFIX[currentLocale]}</span>
+      {/* On English pages the Arabic name uses the system Arabic face, so the Arabic web font isn't downloaded for one word. */}
+      <span lang={target} dir={target === "ar" ? "rtl" : "ltr"} style={target === "ar" ? { fontFamily: "system-ui, sans-serif" } : undefined}>
+        {LABEL[target]}
+      </span>
+    </button>
   );
 }

@@ -1,207 +1,256 @@
 /* ══════════════════════════════════════════════════════════════
-   Admin Dashboard Overview — /admin
+   Admin overview — /admin
    ──────────────────────────────────────────────────────────────
-   Premium dashboard overview with beautifully styled grid cards
-   and a modern recent orders table.
+   KPIs for today / 7 days / 30 days against the period before
+   (revenue = paid online or COD delivered, not cancelled or
+   refunded — same rule as admin_order_stats), work queues, a
+   30-day revenue chart, best sellers and recent orders.
+   Numbers come from SQL functions in 20261114040000_admin_ops.sql.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { DollarSign, ShoppingBag, Package, Users, ArrowUpRight, TrendingUp } from "lucide-react";
-import { APP_NAME } from "@/lib/constants";
+import Image from "next/image";
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import { Locale } from "@/lib/types";
-import { ExportCsvButton } from "./components/ExportCsvButton";
-import { getAdminDashboardStats } from "@/lib/dal/admin";
+import { AlertTriangle, ArrowUpRight, Banknote, CreditCard, Inbox, MessageSquareQuote, Package, ShoppingBag } from "lucide-react";
+import { getDailyRevenue, getKpis, getQueueCounts, getRecentOrders, getTopProducts } from "@/lib/dal/admin";
+import { averageOrderValue, isKpiPeriod, percentChange, type KpiPeriod } from "@/lib/admin/kpi";
+import { fill, formatAmount, formatDate, formatDateTime, formatInt, formatPercent, getAdminText } from "@/lib/admin/i18n";
+import { adminImage } from "@/lib/admin/images";
+import { getLocale } from "@/lib/i18n/server";
+import { getStoreSettings } from "@/lib/settings";
+import { cn } from "@/lib/utils";
+import { brand, t as pick } from "@/lib/brand/config";
+import { DataTable } from "./components/DataTable";
+import { RevenueChart } from "./components/RevenueChart";
+import { OrderStatusBadge } from "./components/StatusBadges";
+import { AdminEmptyState, PageHeader, Panel, StatCard, type StatDelta } from "./components/ui";
 
-export const metadata: Metadata = {
-  title: `Dashboard | ${APP_NAME} Admin`,
-};
+// The admin layout's title template applies to child routes only, so the overview spells its title out.
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const ar = locale === "ar";
+  return { title: { absolute: `${getAdminText(locale).shell.nav.overview} · ${ar ? "الإدارة" : "Admin"} · ${pick(brand.name, locale)}` } };
+}
 
-export default async function AdminDashboardPage() {
-  const stats = await getAdminDashboardStats();
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
-  const isRTL = locale === "ar";
+export default async function AdminOverviewPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+  const [{ period: rawPeriod }, locale] = await Promise.all([searchParams, getLocale()]);
+  const period: KpiPeriod = isKpiPeriod(rawPeriod) ? rawPeriod : "7d";
+  const t = getAdminText(locale);
+  const o = t.overview;
+
+  const [kpis, daily, queues, top, recent, settings] = await Promise.all([
+    getKpis(period),
+    getDailyRevenue(30),
+    getQueueCounts(),
+    getTopProducts("30d", 5),
+    getRecentOrders(6),
+    getStoreSettings(),
+  ]);
+  // The queue count uses the same threshold (admin_queue_counts reads store_settings.inventory).
+  const lowStockThreshold = settings.inventory.lowStockThreshold;
+
+  const { current: cur, previous: prev } = kpis;
+  const aov = averageOrderValue(cur.revenue, cur.revenueOrders);
+  const prevAov = averageOrderValue(prev.revenue, prev.revenueOrders);
+  const delta = (a: number, b: number): StatDelta => {
+    const change = percentChange(a, b);
+    const label =
+      change == null ? o.noComparison : Math.abs(change) < 0.0005 ? o.flat : fill(change > 0 ? o.up : o.down, { pct: formatPercent(change, locale) });
+    return { change, label, context: change == null ? undefined : o.vs[period] };
+  };
+
+  const total30 = daily.reduce((s, d) => s + d.revenue, 0);
+  const orders30 = daily.reduce((s, d) => s + d.orders, 0);
+
+  const queueRows = [
+    { key: "toFulfil", label: o.queue.toFulfil, count: queues.toFulfil, href: "/admin/orders?queue=fulfil", icon: ShoppingBag, tone: "ink" },
+    { key: "awaiting", label: o.queue.awaiting, count: queues.awaitingPayment, href: "/admin/orders?queue=awaiting", icon: CreditCard, tone: "neutral" },
+    { key: "cash", label: o.queue.cash, count: queues.cashToCollect, href: "/admin/orders?queue=cash", icon: Banknote, tone: "neutral" },
+    {
+      key: "lowStock",
+      label: o.queue.lowStock,
+      hint: fill(o.queue.lowStockHint, { n: formatInt(lowStockThreshold, locale) }),
+      count: queues.lowStock,
+      href: "/admin/inventory?stock=low",
+      icon: AlertTriangle,
+      tone: "warning",
+    },
+    { key: "reviews", label: o.queue.reviews, count: queues.pendingReviews, href: "/admin/reviews", icon: MessageSquareQuote, tone: "neutral" },
+    { key: "messages", label: o.queue.messages, count: queues.unreadMessages, href: "/admin/messages?view=unread", icon: Inbox, tone: "ink" },
+  ] as const;
+  const waiting = queueRows.filter((q) => q.count > 0).length;
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mb-1.5">
-            {dict.admin?.overview?.title || "Overview"}
-          </h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">
-            {dict.admin?.overview?.description || "Here's what's happening with your store today."}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-           <ExportCsvButton 
-             data={stats.recentOrders} 
-             filename="recent-orders" 
-             label={dict.admin?.overview?.exportData || "Export Data"} 
-           />
-        </div>
+    <>
+      <PageHeader
+        title={o.title}
+        description={fill(o.subtitle, { date: formatDate(new Date().toISOString(), locale) })}
+        actions={
+          <nav aria-label={o.period} className="inline-flex rounded-[3px] border border-border bg-surface-elevated p-0.5">
+            {(["today", "7d", "30d"] as const).map((p) => (
+              <Link
+                key={p}
+                href={p === "7d" ? "/admin" : `/admin?period=${p}`}
+                scroll={false}
+                aria-current={p === period ? "page" : undefined}
+                className={cn(
+                  "inline-flex h-8 items-center rounded-[2px] px-3 text-[0.8125rem] transition-colors pointer-coarse:h-10",
+                  p === period ? "bg-text-primary text-background" : "text-text-secondary hover:text-text-primary",
+                )}
+              >
+                {o.periods[p]}
+              </Link>
+            ))}
+          </nav>
+        }
+      />
+
+      {/* ── KPIs ─────────────────────────────────────────── */}
+      <section aria-label={o.periods[period]} className="grid grid-cols-2 gap-3 xl:grid-cols-4 lg:gap-4">
+        <StatCard label={o.revenue} value={formatAmount(cur.revenue, locale)} delta={delta(cur.revenue, prev.revenue)} hint={o.revenueHint} />
+        <StatCard label={o.orders} value={formatInt(cur.orders, locale)} delta={delta(cur.orders, prev.orders)} hint={o.ordersHint} href="/admin/orders" />
+        <StatCard label={o.aov} value={formatAmount(aov, locale)} delta={delta(aov, prevAov)} hint={o.aovHint} />
+        <StatCard
+          label={o.newCustomers}
+          value={formatInt(cur.newCustomers, locale)}
+          delta={delta(cur.newCustomers, prev.newCustomers)}
+          hint={o.newCustomersHint}
+          href="/admin/customers"
+        />
+      </section>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:mt-6 lg:gap-6 xl:grid-cols-3">
+        {/* ── Revenue chart ──────────────────────────────── */}
+        <Panel title={o.chartTitle} className="xl:col-span-2" actions={<span className="text-[0.8125rem] tabular-nums text-text-muted">{formatAmount(total30, locale)}</span>}>
+          {total30 > 0 ? (
+            <RevenueChart
+              points={daily}
+              locale={locale}
+              title={o.chartTitle}
+              summary={fill(o.chartDesc, { total: formatAmount(total30, locale), orders: formatInt(orders30, locale) })}
+              labels={{ day: o.chartDay, revenue: o.chartRevenue, orders: o.chartOrders }}
+            />
+          ) : (
+            <AdminEmptyState icon={<ShoppingBag />} title={o.chartEmpty} />
+          )}
+        </Panel>
+
+        {/* ── Work queues ────────────────────────────────── */}
+        <Panel title={o.queues} padded={false}>
+          <ul className="divide-y divide-border">
+            {queueRows.map((q) => {
+              const Icon = q.icon;
+              const active = q.count > 0;
+              return (
+                <li key={q.key}>
+                  <Link href={q.href} className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface/60 sm:px-5">
+                    <Icon aria-hidden="true" className={cn("size-4 shrink-0", active ? "text-text-primary" : "text-text-faint")} strokeWidth={1.75} />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("block text-[0.8125rem]", active ? "text-text-primary" : "text-text-muted")}>{q.label}</span>
+                      {"hint" in q ? <span className="block text-[0.75rem] text-text-faint">{q.hint}</span> : null}
+                    </span>
+                    <span
+                      className={cn(
+                        "min-w-7 rounded-full px-2 text-center text-[0.75rem] font-medium leading-6 tabular-nums",
+                        !active && "text-text-faint",
+                        active && q.tone === "ink" && "bg-text-primary text-background",
+                        active && q.tone === "warning" && "bg-warning-bg text-warning",
+                        active && q.tone === "neutral" && "bg-surface text-text-primary",
+                      )}
+                    >
+                      {formatInt(q.count, locale)}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {waiting === 0 ? <p className="border-t border-border px-5 py-3 text-[0.75rem] text-text-muted">{o.allClear}</p> : null}
+        </Panel>
+
+        {/* ── Recent orders ──────────────────────────────── */}
+        <Panel
+          title={o.recentOrders}
+          className="xl:col-span-2"
+          padded={false}
+          actions={
+            <Link href="/admin/orders" className="inline-flex items-center gap-1 text-[0.8125rem] text-text-muted hover:text-text-primary">
+              {o.viewAll}
+              <ArrowUpRight aria-hidden="true" className="size-3.5 rtl:-scale-x-100" strokeWidth={1.75} />
+            </Link>
+          }
+        >
+          {recent.length === 0 ? (
+            <AdminEmptyState icon={<ShoppingBag />} title={o.noOrders} body={o.noOrdersBody} />
+          ) : (
+            <DataTable
+              caption={o.recentOrders}
+              rows={recent}
+              rowKey={(r) => r.id}
+              columns={[
+                {
+                  key: "order",
+                  header: t.orders.order,
+                  cell: (r) => (
+                    <div className="min-w-0">
+                      <Link href={`/admin/orders/${r.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                        {r.order_number}
+                      </Link>
+                      <p className="text-[0.75rem] text-text-muted">{formatDateTime(r.created_at, locale)}</p>
+                    </div>
+                  ),
+                },
+                {
+                  key: "customer",
+                  header: t.orders.customer,
+                  hideBelow: "md",
+                  cell: (r) => <span className="block max-w-48 truncate text-text-secondary">{r.customer_name || t.orders.guest}</span>,
+                },
+                { key: "status", header: t.orders.status, hideBelow: "sm", cell: (r) => <OrderStatusBadge status={r.status} text={t} /> },
+                {
+                  key: "total",
+                  header: t.orders.total,
+                  align: "end",
+                  cell: (r) => <span className="whitespace-nowrap font-medium tabular-nums">{formatAmount(r.total, locale, 2)}</span>,
+                },
+              ]}
+            />
+          )}
+        </Panel>
+
+        {/* ── Top products ───────────────────────────────── */}
+        <Panel title={o.topProducts} description={o.topProductsDesc} padded={false}>
+          {top.length === 0 ? (
+            <AdminEmptyState icon={<Package />} title={o.topEmpty} />
+          ) : (
+            <ol className="divide-y divide-border">
+              {top.map((p, i) => {
+                const name = locale === "ar" ? p.nameAr : p.nameEn;
+                const img = adminImage(p.imageUrl);
+                return (
+                  <li key={p.productId ?? `${p.nameEn}-${i}`} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                    <span className="w-4 shrink-0 text-[0.75rem] tabular-nums text-text-faint">{i + 1}</span>
+                    <span className="relative size-10 shrink-0 overflow-hidden rounded-[2px] bg-surface">
+                      {img ? <Image src={img.src} unoptimized={img.unoptimized} alt="" fill sizes="40px" className="object-cover" /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      {p.productId ? (
+                        <Link href={`/admin/products/${p.productId}`} className="block truncate text-[0.8125rem] text-text-primary hover:underline">
+                          {name}
+                        </Link>
+                      ) : (
+                        <span className="block truncate text-[0.8125rem] text-text-primary">{name}</span>
+                      )}
+                      <span className="block text-[0.75rem] tabular-nums text-text-muted">{formatAmount(p.revenue, locale)}</span>
+                    </span>
+                    <span className="shrink-0 text-[0.8125rem] font-medium tabular-nums">{fill(o.sold, { n: formatInt(p.units, locale) })}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </Panel>
       </div>
-
-      {/* ── Stats Grid ─────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-        
-        {/* Revenue */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">{dict.admin?.stats?.totalRevenue || "Total Revenue"}</h3>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-              <DollarSign size={20} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-                <span className={`text-xl font-medium text-zinc-400 ${isRTL ? 'ml-1' : 'mr-1'}`}>
-                  {dict.common?.currency || "EGP"}
-                </span>
-                {stats.totalRevenue.toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </div>
-            </div>
-            <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-md">
-              <TrendingUp size={12} />
-              +12.5%
-            </div>
-          </div>
-        </div>
-
-        {/* Orders */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">{dict.admin?.stats?.totalOrders || "Total Orders"}</h3>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-              <ShoppingBag size={20} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-              {stats.totalOrders}
-            </div>
-            <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-md">
-              <TrendingUp size={12} />
-              +8.2%
-            </div>
-          </div>
-        </div>
-
-        {/* Products */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">{dict.admin?.stats?.totalProducts || "Total Products"}</h3>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-              <Package size={20} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-              {stats.totalProducts}
-            </div>
-          </div>
-        </div>
-
-        {/* Users */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">{dict.admin?.stats?.totalCustomers || "Registered Users"}</h3>
-            <div className="w-10 h-10 rounded-xl bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-              <Users size={20} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-              {stats.totalUsers}
-            </div>
-            <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-md">
-              <TrendingUp size={12} />
-              +2.4%
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Recent Orders ──────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/50 dark:bg-transparent">
-          <h2 className="text-base font-bold text-zinc-900 dark:text-white">{dict.admin?.recentOrders || "Recent Orders"}</h2>
-          <Link 
-            href="/admin/orders" 
-            className="text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white transition-colors flex items-center gap-1"
-          >
-            {dict.admin?.viewAllOrders || "View all"} <ArrowUpRight size={14} className={isRTL ? "-scale-x-100" : ""} />
-          </Link>
-        </div>
-        
-        {stats.recentOrders.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center justify-center">
-            <div className="w-20 h-20 bg-zinc-50 dark:bg-zinc-800/50 rounded-full flex items-center justify-center mb-5 ring-8 ring-zinc-50/50 dark:ring-zinc-800/20">
-               <ShoppingBag size={28} className="text-zinc-400" />
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-white mb-1">{dict.admin?.overview?.noOrdersYet || "No orders yet"}</h3>
-            <p className="text-zinc-500 text-sm">{dict.admin?.overview?.noOrdersYetDesc || "When customers place orders, they will appear here."}</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className={`w-full text-sm ${isRTL ? 'text-right' : 'text-left'} whitespace-nowrap`}>
-              <thead className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800/80">
-                <tr>
-                  <th className="px-6 py-4">{dict.admin?.orders?.orderId || "Order ID"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.customer || "Customer"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.date || "Date"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.status || "Status"}</th>
-                  <th className={`px-6 py-4 ${isRTL ? 'text-left' : 'text-right'}`}>{dict.admin?.orders?.total || "Total"}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-                {stats.recentOrders.map((order) => {
-                  let badgeClass = "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 backdrop-blur-sm";
-                  if (order.status === "delivered") badgeClass = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 backdrop-blur-sm";
-                  if (order.status === "processing") badgeClass = "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 backdrop-blur-sm";
-                  if (order.status === "cancelled") badgeClass = "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 border border-red-200 dark:border-red-500/20 backdrop-blur-sm";
-                  if (order.status === "pending") badgeClass = "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-500/20 backdrop-blur-sm";
-
-                  return (
-                    <tr key={order.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors group">
-                      <td className="px-6 py-4 font-mono text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                        {order.order_number || `#${order.id.split("-")[0]}`}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-semibold text-zinc-900 dark:text-white">
-                          {order.user?.full_name || order.shipping_name || "Guest User"}
-                        </div>
-                        <div className="text-zinc-500 text-xs mt-0.5">
-                          {order.shipping_email || dict.admin?.orders?.noEmail || "No email"}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400 font-medium">
-                        {new Date(order.created_at).toLocaleDateString(locale === 'ar' ? 'ar-EG' : undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                          {dict.orders?.[("status" + order.status.charAt(0).toUpperCase() + order.status.slice(1)) as keyof typeof dict.orders] || order.status}
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 ${isRTL ? 'text-left' : 'text-right'} font-bold text-zinc-900 dark:text-white`}>
-                        <span className={`font-medium text-zinc-500 text-xs ${isRTL ? 'ml-1' : 'mr-1'}`}>{dict.common?.currency || "EGP"}</span>
-                        {Number(order.total || 0).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+    </>
   );
 }

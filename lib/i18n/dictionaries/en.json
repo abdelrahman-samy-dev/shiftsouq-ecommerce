@@ -37,7 +37,15 @@
     "required": "Required",
     "optional": "Optional",
     "noData": "No data available",
-    "loginRequired": "Please log in to access this page"
+    "loginRequired": "Please log in to access this page",
+    "homeLink": "ShiftSouq home",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "mainMenu": "Main menu",
+    "productCategories": "Product categories",
+    "allRightsReserved": "All rights reserved.",
+    "goHome": "Go Home",
+    "browseShop": "Browse Shop"
   },
   "nav": {},
   "home": {
@@ -129,7 +137,21 @@
     "uk": "United Kingdom",
     "uae": "United Arab Emirates",
     "ksa": "Saudi Arabia",
-    "egy": "Egypt"
+    "egy": "Egypt",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "firstNamePlaceholder": "e.g. Ahmed",
+    "lastNamePlaceholder": "e.g. Hassan",
+    "cityPlaceholder": "e.g. Cairo",
+    "errors": {
+      "invalidCredentials": "Incorrect email or password.",
+      "emailNotConfirmed": "Please confirm your email address before signing in.",
+      "emailTaken": "An account with this email already exists.",
+      "weakPassword": "This password is too weak. Please choose a stronger one.",
+      "tooManyRequests": "Too many attempts. Please wait a moment and try again.",
+      "invalidForm": "Please check the highlighted fields.",
+      "generic": "Something went wrong. Please try again."
+    }
   },
   "orders": {
     "title": "My Orders",
@@ -190,20 +212,39 @@
     "profileUpdated": "Profile updated successfully",
     "passwordChanged": "Password changed successfully",
     "passwordMismatch": "New passwords do not match",
-    "emailNote": "Email cannot be changed. Contact support if needed."
+    "emailNote": "Email cannot be changed. Contact support if needed.",
+    "fullNamePlaceholder": "Enter your full name",
+    "countryPlaceholder": "Egypt",
+    "cityPlaceholder": "Cairo",
+    "pleaseLogin": "Please log in",
+    "pleaseLoginDesc": "You need to be logged in to access your profile.",
+    "errors": {
+      "notLoggedIn": "You must be logged in to update your profile.",
+      "notFound": "Profile not found. Please contact support.",
+      "noChanges": "No changes to save.",
+      "updateFailed": "Failed to update profile. Please try again.",
+      "passwordLoginRequired": "You must be logged in to change your password.",
+      "samePassword": "New password must be different from the current password.",
+      "weakPassword": "This password is too weak. Please choose a stronger one.",
+      "passwordFailed": "Failed to change password. Please try again.",
+      "unexpected": "An unexpected error occurred. Please try again."
+    }
   },
   "contact": {
-    "title": "Contact Us",
+    "title": "Contact us",
     "subtitle": "We'd love to hear from you. Send us a message and we'll respond as soon as possible.",
     "form": {
-      "name": "Your Name",
-      "email": "Email Address",
+      "name": "Your name",
+      "email": "Email address",
       "subject": "Subject",
-      "message": "Your Message",
-      "submit": "Send Message",
-      "sending": "Sending...",
+      "message": "Your message",
+      "submit": "Send message",
+      "sending": "Sending…",
       "success": "Your message has been sent successfully! We'll get back to you within 24-48 hours.",
-      "error": "Something went wrong. Please try again or email us directly."
+      "error": "Something went wrong. Please try again or email us directly.",
+      "namePlaceholder": "Enter your name",
+      "subjectPlaceholder": "Choose a subject",
+      "messagePlaceholder": "Write your message here…"
     },
     "info": {
       "title": "Get in Touch",
@@ -215,25 +256,31 @@
       "addressValue": "Cairo, Egypt"
     },
     "subjects": {
-      "general": "General Inquiry",
-      "order": "Order Issue",
-      "return": "Return / Refund",
-      "product": "Product Question",
+      "general": "General question",
+      "order": "An order",
+      "return": "Return or refund",
+      "product": "A product",
       "other": "Other"
+    },
+    "responseNote": "We aim to respond to all inquiries within 24-48 business hours. For urgent matters, please call us directly.",
+    "errors": {
+      "tooMany": "You've sent several messages already. Please wait a few minutes and try again.",
+      "sendFailed": "Failed to send message. Please try again later.",
+      "unexpected": "An unexpected error occurred. Please try again."
     }
   },
   "legal": {
     "lastUpdated": "Last updated",
     "privacyPolicy": {
-      "title": "Privacy Policy",
+      "title": "Privacy policy",
       "description": "Learn how ShiftSouq collects, uses, and protects your personal information."
     },
     "terms": {
-      "title": "Terms & Conditions",
+      "title": "Terms & conditions",
       "description": "Read the terms and conditions governing your use of ShiftSouq."
     },
     "refundPolicy": {
-      "title": "Return & Refund Policy",
+      "title": "Returns & refunds",
       "description": "Learn about our return and refund policies at ShiftSouq."
     }
   },
@@ -404,7 +451,10 @@
     "customerService": "Customer Service",
     "shipping": "Shipping",
     "returns": "Returns",
-    "social": "Social"
+    "social": "Social",
+    "shopLinks": "Shop links",
+    "customerServiceLinks": "Customer service links",
+    "socialLinks": "Social media links"
   },
   "breadcrumb": {
     "youAreHere": "You are here"
@@ -416,7 +466,10 @@
     "viewAllResults": "View all results for",
     "trending": "Trending",
     "recentSearches": "Recent Searches",
-    "clearRecent": "Clear"
+    "clearRecent": "Clear",
+    "clearSearch": "Clear search",
+    "submit": "Search",
+    "categoryFilter": "Search in category"
   },
   "promo": {
     "left": {
@@ -457,5 +510,61 @@
     "sale": "Sale",
     "addToCart": "Add to cart",
     "addToWishlist": "Add to wishlist"
+  },
+  "meta": {
+    "siteTitle": "ShiftSouq — Modern Menswear, Shoes & Accessories in Egypt",
+    "siteDescription": "Modern menswear from ShiftSouq: clothing, shoes and accessories in clean, considered cuts. Cash on delivery and delivery across Egypt.",
+    "login": {
+      "title": "Login",
+      "description": "Sign in to your ShiftSouq account to access your orders, wishlist, and exclusive offers."
+    },
+    "register": {
+      "title": "Create Account",
+      "description": "Create a ShiftSouq account to check out faster, follow your orders and keep a wishlist."
+    },
+    "contact": {
+      "title": "Contact us",
+      "description": "Get in touch with ShiftSouq. We're here to help with orders, returns, product questions, and more."
+    },
+    "profile": {
+      "title": "My Profile",
+      "description": "Manage your ShiftSouq account — update your personal information and change your password."
+    },
+    "cart": {
+      "title": "Cart",
+      "description": "Review your selected products and proceed to checkout at ShiftSouq."
+    },
+    "wishlist": {
+      "title": "Wishlist",
+      "description": "Your saved products at ShiftSouq. Add them to your cart when you're ready."
+    },
+    "shipping": {
+      "title": "Shipping & Delivery",
+      "description": "Delivery areas, delivery times and shipping fees for ShiftSouq orders across Egypt."
+    }
+  },
+  "validation": {
+    "emailInvalid": "Please enter a valid email address.",
+    "passwordRequired": "Password is required.",
+    "firstNameRequired": "Please enter your first name (at least 2 characters).",
+    "lastNameRequired": "Please enter your last name (at least 2 characters).",
+    "genderRequired": "Please select a gender.",
+    "countryRequired": "Please select your country.",
+    "cityRequired": "Please enter your city (at least 2 characters).",
+    "passwordMin": "Password must be at least 8 characters.",
+    "passwordMax": "Password must be at most 72 characters.",
+    "passwordsMismatch": "Passwords do not match.",
+    "termsRequired": "You must accept the terms and privacy policy.",
+    "nameInvalid": "Please enter a name between 2 and 120 characters.",
+    "fullNameInvalid": "Full name must be between 2 and 100 characters.",
+    "subjectRequired": "Please select a subject.",
+    "messageMin": "Message must be at least 10 characters long.",
+    "messageMax": "Message must be under 5000 characters.",
+    "phoneInvalid": "Please enter a valid phone number.",
+    "tooLong": "This field is too long."
+  },
+  "notFound": {
+    "title": "Page Not Found",
+    "message": "The page you're looking for doesn't exist or has been moved. Let's get you back on track."
   }
 }

@@ -1,8 +1,15 @@
 "use client";
 
+/* ══════════════════════════════════════════════════════════════
+   Filter select for list pages: sets one URL search param
+   (default "status") and resets to page 1. A native <select>, so
+   it is keyboard- and phone-friendly; `defaultLabel` is the
+   "all" option and, unless `label` is given, its accessible name.
+   ══════════════════════════════════════════════════════════════ */
+
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useTransition, useState, useRef, useEffect } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import { useTransition } from "react";
+import { cn } from "@/lib/utils";
 
 export interface FilterOption {
   label: string;
@@ -13,97 +20,63 @@ export function AdminFilterDropdown({
   options,
   defaultLabel,
   className,
+  param = "status",
+  label,
 }: {
   options: FilterOption[];
   defaultLabel: string;
   className?: string;
+  param?: string;
+  label?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const current = searchParams.get(param) || "";
+  const known = options.some((o) => o.value === current);
 
-  const currentStatus = searchParams.get("status") || "all";
-
-  const handleSelect = (status: string) => {
-    setIsOpen(false);
+  const handleSelect = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (status && status !== "all") {
-      params.set("status", status);
-    } else {
-      params.delete("status");
-    }
-    params.set("page", "1");
-
+    if (value) params.set(param, value);
+    else params.delete(param);
+    params.delete("page");
+    const qs = params.toString();
     startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`);
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     });
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const currentLabel =
-    currentStatus === "all"
-      ? defaultLabel
-      : options.find((o) => o.value === currentStatus)?.label || defaultLabel;
-
   return (
-    <div className={`relative ${className || ""}`} ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
+    <div className={cn("relative min-w-36 flex-1 sm:flex-none", className)}>
+      <select
+        aria-label={label ?? defaultLabel}
+        value={known ? current : ""}
         disabled={isPending}
-        className={`w-full flex items-center justify-between min-w-[160px] px-4 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white transition-all disabled:opacity-50 ${
-          isOpen ? "ring-2 ring-zinc-900 dark:ring-white" : ""
-        }`}
+        onChange={(e) => handleSelect(e.target.value)}
+        className={cn(
+          "h-9 w-full min-w-36 cursor-pointer items-center sm:min-w-40 appearance-none rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] pointer-coarse:h-11",
+          "hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] disabled:opacity-60",
+          known ? "border-text-primary" : "border-border",
+        )}
       >
-        <span className="truncate">{currentLabel}</span>
-        <ChevronDown
-          size={16}
-          className={`ml-2 text-zinc-500 transition-transform duration-200 ${
-            isOpen ? "rotate-180" : ""
-          }`}
-        />
-      </button>
-
-      {isOpen && (
-        <div className="absolute z-50 w-full min-w-[160px] mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg origin-top-right right-0 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
-          <button
-            onClick={() => handleSelect("all")}
-            className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${
-              currentStatus === "all"
-                ? "text-zinc-900 dark:text-white font-medium"
-                : "text-zinc-600 dark:text-zinc-400"
-            }`}
-          >
-            {defaultLabel}
-            {currentStatus === "all" && <Check size={16} className="text-zinc-900 dark:text-white" />}
-          </button>
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => handleSelect(opt.value)}
-              className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors ${
-                currentStatus === opt.value
-                  ? "text-zinc-900 dark:text-white font-medium"
-                  : "text-zinc-600 dark:text-zinc-400"
-              }`}
-            >
-              {opt.label}
-              {currentStatus === opt.value && <Check size={16} className="text-zinc-900 dark:text-white" />}
-            </button>
-          ))}
-        </div>
-      )}
+        <option value="">{defaultLabel}</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="pointer-events-none absolute end-3 top-1/2 size-3.5 -translate-y-1/2 text-text-muted"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
+        <path d="M3.5 6l4.5 4.5L12.5 6" />
+      </svg>
     </div>
   );
 }

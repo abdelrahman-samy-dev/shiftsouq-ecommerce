@@ -1,101 +1,90 @@
 /* ══════════════════════════════════════════════════════════════
-   Not Found — 404 Page
+   Not found (404)
    ──────────────────────────────────────────────────────────────
-   Displayed when a user navigates to a route that doesn't exist.
-   Premium design with animated SVG, clear messaging, and
-   helpful navigation links.
+   Editorial and helpful: a display title, one sentence, the two
+   most useful ways out, and the store's categories. Follows the
+   visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */
 
 import Link from "next/link";
-import { Home, ShoppingBag, Search } from "lucide-react";
+import { getLocale } from "@/lib/i18n/server";
+import { getNavigation } from "@/lib/dal/navigation";
+import { buttonClasses } from "@/components/ds/Button";
+import { categoryHref, NEW_IN_HREF } from "@/components/layout/shell-rules";
+import { StoreChrome } from "@/components/layout/StoreChrome";
 
-export default function NotFound() {
+const COPY = {
+  en: {
+    eyebrow: "Error 404",
+    title: "We couldn’t find that page",
+    body: "The link may be old, or the page may have moved. Try the shop, or start from one of our categories.",
+    home: "Back to the home page",
+    shop: "Browse the shop",
+    browse: "Or browse",
+    newIn: "New in",
+  },
+  ar: {
+    eyebrow: "خطأ 404",
+    title: "تعذّر العثور على هذه الصفحة",
+    body: "ربما يكون الرابط قديمًا أو نُقلت الصفحة إلى مكان آخر. تصفّح المتجر، أو ابدأ من إحدى الفئات.",
+    home: "العودة إلى الصفحة الرئيسية",
+    shop: "تصفّح المتجر",
+    browse: "أو تصفّح",
+    newIn: "وصل حديثًا",
+  },
+} as const;
+
+/** The 404 body; rendered inside the store frame by app/(store)/not-found.tsx and below. */
+export async function NotFoundContent() {
+  const [locale, nav] = await Promise.all([getLocale(), getNavigation()]);
+  const c = COPY[locale];
+  const links = [
+    ...nav.categories.map((cat) => ({ href: categoryHref(cat.slug), label: locale === "ar" ? cat.name.ar : cat.name.en })),
+    { href: NEW_IN_HREF, label: c.newIn },
+  ];
+
   return (
-    <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
-      <div className="flex flex-col items-center gap-8 text-center max-w-lg w-full">
-        {/* ── 404 Display ─────────────────────────────────── */}
-        <div className="relative select-none">
-          {/* Glow behind the number */}
-          <div
-            className="absolute inset-0 blur-3xl opacity-20 rounded-full"
-            style={{ background: "var(--primary)" }}
-          />
-
-          <h1
-            className="relative text-[120px] sm:text-[160px] font-black leading-none tracking-tighter"
-            style={{
-              color: "var(--text-primary)",
-              opacity: 0.08,
-            }}
-          >
-            404
-          </h1>
-
-          {/* Overlaid icon */}
-          <div
-            className="absolute inset-0 flex items-center justify-center"
-          >
-            <div
-              className="w-20 h-20 rounded-full flex items-center justify-center border-2"
-              style={{
-                background: "var(--surface-elevated)",
-                borderColor: "var(--border)",
-              }}
-            >
-              <Search
-                size={32}
-                strokeWidth={1.5}
-                style={{ color: "var(--text-muted)" }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* ── Text Content ────────────────────────────────── */}
-        <div className="space-y-3 -mt-4">
-          <h2
-            className="text-2xl sm:text-3xl font-bold tracking-tight"
-            style={{ color: "var(--text-primary)" }}
-          >
-            Page Not Found
-          </h2>
-          <p
-            className="text-sm sm:text-base leading-relaxed max-w-md mx-auto"
-            style={{ color: "var(--text-muted)" }}
-          >
-            The page you&apos;re looking for doesn&apos;t exist or has been moved. 
-            Let&apos;s get you back on track.
-          </p>
-        </div>
-
-        {/* ── Action Buttons ──────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          <Link
-            href="/"
-            className="btn-primary group flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-3.5 text-[15px] font-semibold shadow-lg shadow-primary/10 hover:shadow-primary/20 transition-all"
-          >
-            <Home size={17} strokeWidth={2} />
-            <span>Go Home</span>
+    <section className="container-x flex min-h-[60vh] flex-col justify-center py-20 md:py-28">
+      <div className="flex max-w-3xl flex-col gap-5">
+        <p className="t-eyebrow">{c.eyebrow}</p>
+        <h1 className="t-display text-balance">{c.title}</h1>
+        <p className="max-w-xl text-[1.0625rem] leading-relaxed text-text-secondary md:text-lg">{c.body}</p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <Link href="/shop" className={buttonClasses("primary", "lg", false, "sm:min-w-44")}>
+            {c.shop}
           </Link>
-
-          <Link
-            href="/shop"
-            className="btn-secondary flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-3.5 text-[15px] font-semibold transition-all"
-          >
-            <ShoppingBag size={17} strokeWidth={2} />
-            <span>Browse Shop</span>
+          <Link href="/" className={buttonClasses("secondary", "lg", false, "sm:min-w-44")}>
+            {c.home}
           </Link>
         </div>
-
-        {/* ── Decorative bottom line ──────────────────────── */}
-        <div
-          className="w-16 h-1 rounded-full mt-4"
-          style={{
-            background: "linear-gradient(90deg, var(--primary), var(--border))",
-            opacity: 0.4,
-          }}
-        />
       </div>
-    </div>
+
+      {links.length > 1 ? (
+        <nav aria-labelledby="nf-browse" className="mt-16 flex flex-col gap-4 border-t border-border pt-8 md:mt-24">
+          <h2 id="nf-browse" className="t-eyebrow">
+            {c.browse}
+          </h2>
+          <ul className="flex flex-wrap gap-x-8 gap-y-2">
+            {links.map((l) => (
+              <li key={l.href}>
+                <Link href={l.href} className="inline-flex min-h-11 items-center font-display text-[1.5rem] leading-none hover:underline underline-offset-[6px] decoration-1 rtl:text-[1.25rem] rtl:font-semibold">
+                  {l.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
+    </section>
+  );
+}
+
+/** Unknown URLs render outside every route group, so add the store frame here. */
+export default async function NotFound() {
+  const locale = await getLocale();
+  return (
+    <StoreChrome locale={locale}>
+      <NotFoundContent />
+    </StoreChrome>
   );
 }

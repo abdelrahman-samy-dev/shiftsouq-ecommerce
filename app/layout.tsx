@@ -1,52 +1,61 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono, Alexandria } from "next/font/google";
+import { Instrument_Sans, Instrument_Serif, IBM_Plex_Sans_Arabic } from "next/font/google";
 import ThemeProvider from "@/components/providers/ThemeProvider";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
+import { LocaleProvider } from "@/components/providers/LocaleProvider";
 import "./globals.css";
 import { Toaster } from "sonner";
-import { cookies } from "next/headers";
-import { Locale } from "@/lib/types";
+import { getDirection } from "@/lib/i18n/config";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
+import { SITE_URL } from "@/lib/seo/site";
 
 /* ── Fonts ─────────────────────────────────────────────────── */
 
-const inter = Inter({
-  variable: "--font-inter",
+const instrumentSans = Instrument_Sans({
+  variable: "--font-instrument-sans",
   subsets: ["latin"],
   display: "swap",
 });
 
-const alexandria = Alexandria({
-  variable: "--font-alexandria",
+// Display serif and Arabic are not preloaded: they load only on pages/glyphs that use them.
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  display: "swap",
+  preload: false,
+});
+
+const plexArabic = IBM_Plex_Sans_Arabic({
+  variable: "--font-plex-arabic",
   subsets: ["arabic"],
-  weight: ["300", "400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-  display: "swap",
+  preload: false,
 });
 
 /* ── Metadata ──────────────────────────────────────────────── */
 
-export const metadata: Metadata = {
-  title: {
-    default: "ShiftSouq — Premium Fashion & Lifestyle Store",
-    template: "%s | ShiftSouq",
-  },
-  description:
-    "Discover curated collections of menswear, kids fashion, sneakers & accessories at ShiftSouq. Premium quality, modern design, worldwide delivery.",
-  keywords: [
-    "ShiftSouq",
-    "e-commerce",
-    "fashion",
-    "sneakers",
-    "accessories",
-    "online store",
-  ],
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale, dict } = await getLocaleAndDictionary();
+
+  return {
+    metadataBase: new URL(SITE_URL),
+    title: {
+      default: dict.meta.siteTitle,
+      template: `%s | ${dict.common.appName}`,
+    },
+    description: dict.meta.siteDescription,
+    keywords:
+      locale === "ar"
+        ? [dict.common.appName, "أزياء رجالية", "ملابس رجالية", "أحذية", "إكسسوارات", "تسوق أونلاين", "مصر"]
+        : [dict.common.appName, "menswear", "men's clothing", "shoes", "accessories", "online store", "Egypt"],
+    openGraph: {
+      siteName: dict.common.appName,
+      locale: locale === "ar" ? "ar_EG" : "en_US",
+    },
+  };
+}
 
 /* ── Root Layout ───────────────────────────────────────────── */
 
@@ -55,31 +64,48 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dir = locale === "ar" ? "rtl" : "ltr";
+  const locale = await getLocale();
+  const dir = getDirection(locale);
 
   return (
     <html
       lang={locale}
       dir={dir}
       suppressHydrationWarning
-      className={`${inter.variable} ${alexandria.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${instrumentSans.variable} ${instrumentSerif.variable} ${plexArabic.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ThemeProvider>
-          {/* ── Global Header ─────────────────────────────── */}
-          <Header locale={locale} />
-
-          {/* ── Page Content ──────────────────────────────── */}
-          <main className="flex-1">
+      <body className="min-h-full flex flex-col bg-background text-text-primary">
+        <LocaleProvider locale={locale}>
+          <ThemeProvider>
+            {/* Store pages get their header/footer from app/(store)/layout.tsx; the admin has its own frame. */}
             {children}
-          </main>
-
-          {/* ── Global Footer ─────────────────────────────── */}
-          <Footer locale={locale} />
-        </ThemeProvider>
-        <Toaster richColors position="top-center" dir={dir} />
+          </ThemeProvider>
+          {/* Toasts in the house style: ink panel, square corners, no colour washes. */}
+          <Toaster
+            position="top-center"
+            dir={dir}
+            gap={8}
+            style={
+              {
+                "--normal-bg": "var(--text-primary)",
+                "--normal-text": "var(--background)",
+                "--normal-border": "transparent",
+                "--border-radius": "var(--radius-sm)",
+                "--width": "380px",
+                fontFamily: "var(--font-sans)",
+              } as React.CSSProperties
+            }
+            toastOptions={{
+              style: { boxShadow: "var(--shadow-float)", padding: "14px 16px", fontSize: "0.875rem", gap: "10px" },
+              classNames: {
+                description: "opacity-75",
+                actionButton: "bg-background! text-text-primary! rounded-sm! h-8! px-3! text-[0.8125rem]! font-medium!",
+                cancelButton: "bg-transparent! text-background! underline! rounded-sm!",
+                closeButton: "bg-text-primary! text-background! border-0!",
+              },
+            }}
+          />
+        </LocaleProvider>
       </body>
     </html>
   );

@@ -1,160 +1,166 @@
 /* ══════════════════════════════════════════════════════════════
-   useCheckoutStore — Checkout Flow State (Zustand)
+   useCheckoutStore — checkout form state (Zustand)
    ──────────────────────────────────────────────────────────────
-   Manages the multi-step checkout state including contact info,
-   shipping address, payment method, and shipping costs.
-   
-   Not persisted — checkout state should be fresh each visit.
+   One-page checkout: Contact → Delivery → Payment. Holds what the
+   buyer typed, which section is open, the payment method, the
+   promo code the server accepted and the unpaid online order of
+   this visit (so retrying a payment reuses it).
+
+   Kept in sessionStorage (this tab only, cleared when it closes)
+   so a buyer who comes back from a failed card / wallet payment
+   finds their details, promo code and order still there. Prices
+   and totals are never stored here — the server computes them.
    ══════════════════════════════════════════════════════════════ */
 
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
-export type CheckoutStep = 1 | 2 | 3;
+export type CheckoutSection = "contact" | "delivery" | "payment";
 export type PaymentMethod = "cod" | "card" | "wallet";
 
-/** Egyptian governorates with their shipping cost tier */
-export const GOVERNORATE_SHIPPING: Record<string, number> = {
-  cairo: 50,
-  giza: 50,
-  alexandria: 100,
-  dakahlia: 100,
-  sharqia: 100,
-  qalyubia: 100,
-  "kafr-el-sheikh": 100,
-  gharbia: 100,
-  monufia: 100,
-  beheira: 100,
-  ismailia: 100,
-  suez: 100,
-  "port-said": 100,
-  damietta: 100,
-  fayoum: 100,
-  "beni-suef": 100,
-  minya: 100,
-  asyut: 100,
-  sohag: 100,
-  qena: 100,
-  luxor: 100,
-  aswan: 100,
-  "red-sea": 100,
-  "new-valley": 100,
-  matruh: 100,
-  "north-sinai": 100,
-  "south-sinai": 100,
-};
-
-/** Governorate display labels (EN + AR) */
-export const GOVERNORATES = [
-  { value: "cairo", en: "Cairo", ar: "القاهرة" },
-  { value: "giza", en: "Giza", ar: "الجيزة" },
-  { value: "alexandria", en: "Alexandria", ar: "الإسكندرية" },
-  { value: "dakahlia", en: "Dakahlia", ar: "الدقهلية" },
-  { value: "sharqia", en: "Sharqia", ar: "الشرقية" },
-  { value: "qalyubia", en: "Qalyubia", ar: "القليوبية" },
-  { value: "kafr-el-sheikh", en: "Kafr El-Sheikh", ar: "كفر الشيخ" },
-  { value: "gharbia", en: "Gharbia", ar: "الغربية" },
-  { value: "monufia", en: "Monufia", ar: "المنوفية" },
-  { value: "beheira", en: "Beheira", ar: "البحيرة" },
-  { value: "ismailia", en: "Ismailia", ar: "الإسماعيلية" },
-  { value: "suez", en: "Suez", ar: "السويس" },
-  { value: "port-said", en: "Port Said", ar: "بور سعيد" },
-  { value: "damietta", en: "Damietta", ar: "دمياط" },
-  { value: "fayoum", en: "Fayoum", ar: "الفيوم" },
-  { value: "beni-suef", en: "Beni Suef", ar: "بني سويف" },
-  { value: "minya", en: "Minya", ar: "المنيا" },
-  { value: "asyut", en: "Asyut", ar: "أسيوط" },
-  { value: "sohag", en: "Sohag", ar: "سوهاج" },
-  { value: "qena", en: "Qena", ar: "قنا" },
-  { value: "luxor", en: "Luxor", ar: "الأقصر" },
-  { value: "aswan", en: "Aswan", ar: "أسوان" },
-  { value: "red-sea", en: "Red Sea", ar: "البحر الأحمر" },
-  { value: "new-valley", en: "New Valley", ar: "الوادي الجديد" },
-  { value: "matruh", en: "Matruh", ar: "مطروح" },
-  { value: "north-sinai", en: "North Sinai", ar: "شمال سيناء" },
-  { value: "south-sinai", en: "South Sinai", ar: "جنوب سيناء" },
-] as const;
+/** Governorates and default rates live with the shipping rules (re-exported for existing imports). */
+export { GOVERNORATES, GOVERNORATE_SHIPPING } from "@/lib/checkout/shipping";
 
 export interface ContactInfo {
-  firstName: string;
-  lastName: string;
   email: string;
   phone: string;
 }
 
-export interface ShippingAddress {
+export interface DeliveryInfo {
+  /** Saved address chosen by a signed-in buyer, or null for a new address. */
+  addressId: string | null;
+  firstName: string;
+  lastName: string;
   governorate: string;
   city: string;
   address: string;
   apartment: string;
   postalCode: string;
+  notes: string;
   saveAddress: boolean;
 }
 
-interface CheckoutState {
-  /** Current step (1 = Contact, 2 = Shipping, 3 = Payment) */
-  step: CheckoutStep;
-  /** Contact information */
-  contact: ContactInfo;
-  /** Shipping address */
-  shipping: ShippingAddress;
-  /** Selected payment method */
-  paymentMethod: PaymentMethod;
-  /** Calculated shipping cost */
-  shippingCost: number;
-  /** Whether the order is being processed */
-  isProcessing: boolean;
+/** Unpaid card / wallet order created in this visit — retrying payment reuses it. */
+export interface PendingOrder {
+  /** Fingerprint of what was ordered (details, method, promo, bag lines). */
+  key: string;
+  orderId: string;
+  orderNumber: string;
+  method: "card" | "wallet";
+}
 
-  /* ── Actions ──────────────────────────────────────────────── */
-  setStep: (step: CheckoutStep) => void;
+interface CheckoutState {
+  /** Section currently open. */
+  section: CheckoutSection;
+  /** Sections the buyer has completed (shown collapsed with a summary). */
+  done: { contact: boolean; delivery: boolean };
+  contact: ContactInfo;
+  delivery: DeliveryInfo;
+  paymentMethod: PaymentMethod | null;
+  /** Promo code accepted by the server for this bag, or null */
+  promoCode: string | null;
+  pendingOrder: PendingOrder | null;
+  isProcessing: boolean;
+  /** Bumped when the form is filled in for the buyer (profile, saved address): the sections remount with it. */
+  seed: number;
+
+  open: (section: CheckoutSection) => void;
+  completeContact: (contact: ContactInfo) => void;
+  completeDelivery: (delivery: DeliveryInfo) => void;
   setContact: (contact: ContactInfo) => void;
-  setShipping: (shipping: ShippingAddress) => void;
-  setPaymentMethod: (method: PaymentMethod) => void;
-  setShippingCost: (cost: number) => void;
+  setDelivery: (delivery: DeliveryInfo) => void;
+  setPaymentMethod: (method: PaymentMethod | null) => void;
+  setPromoCode: (code: string | null) => void;
+  setPendingOrder: (order: PendingOrder | null) => void;
   setIsProcessing: (v: boolean) => void;
+  bumpSeed: () => void;
   resetCheckout: () => void;
 }
 
-const INITIAL_CONTACT: ContactInfo = {
+export const INITIAL_CONTACT: ContactInfo = { email: "", phone: "" };
+
+export const INITIAL_DELIVERY: DeliveryInfo = {
+  addressId: null,
   firstName: "",
   lastName: "",
-  email: "",
-  phone: "",
-};
-
-const INITIAL_SHIPPING: ShippingAddress = {
   governorate: "",
   city: "",
   address: "",
   apartment: "",
   postalCode: "",
-  saveAddress: false,
+  notes: "",
+  saveAddress: true,
+};
+
+const INITIAL = {
+  section: "contact" as CheckoutSection,
+  done: { contact: false, delivery: false },
+  contact: INITIAL_CONTACT,
+  delivery: INITIAL_DELIVERY,
+  paymentMethod: null as PaymentMethod | null,
+  promoCode: null as string | null,
+  pendingOrder: null as PendingOrder | null,
+  isProcessing: false,
+  seed: 0,
 };
 
 /* ── Store ───────────────────────────────────────────────────── */
 
-export const useCheckoutStore = create<CheckoutState>()((set) => ({
-  step: 1,
-  contact: INITIAL_CONTACT,
-  shipping: INITIAL_SHIPPING,
-  paymentMethod: "cod",
-  shippingCost: 0,
-  isProcessing: false,
-
-  setStep: (step) => set({ step }),
-  setContact: (contact) => set({ contact }),
-  setShipping: (shipping) => set({ shipping }),
-  setPaymentMethod: (method) => set({ paymentMethod: method }),
-  setShippingCost: (cost) => set({ shippingCost: cost }),
-  setIsProcessing: (v) => set({ isProcessing: v }),
-  resetCheckout: () =>
-    set({
-      step: 1,
-      contact: INITIAL_CONTACT,
-      shipping: INITIAL_SHIPPING,
-      paymentMethod: "cod",
-      shippingCost: 0,
-      isProcessing: false,
+export const useCheckoutStore = create<CheckoutState>()(
+  persist(
+    (set) => ({
+      ...INITIAL,
+      open: (section) => set({ section }),
+      completeContact: (contact) =>
+        set((s) => ({ contact, done: { ...s.done, contact: true }, section: s.done.delivery ? "payment" : "delivery" })),
+      completeDelivery: (delivery) => set((s) => ({ delivery, done: { ...s.done, delivery: true }, section: "payment" })),
+      setContact: (contact) => set({ contact }),
+      setDelivery: (delivery) => set({ delivery }),
+      setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+      setPromoCode: (promoCode) => set({ promoCode }),
+      setPendingOrder: (pendingOrder) => set({ pendingOrder }),
+      setIsProcessing: (isProcessing) => set({ isProcessing }),
+      bumpSeed: () => set((s) => ({ seed: s.seed + 1 })),
+      resetCheckout: () => set({ ...INITIAL }),
     }),
-}));
+    {
+      name: "shiftsouq-checkout",
+      version: 2,
+      storage: createJSONStorage(() => sessionStorage),
+      // Older shapes (multi-step checkout) start fresh.
+      migrate: () => ({ ...INITIAL }) as unknown as CheckoutState,
+      partialize: (s) => ({
+        section: s.section,
+        done: s.done,
+        contact: s.contact,
+        delivery: s.delivery,
+        paymentMethod: s.paymentMethod,
+        promoCode: s.promoCode,
+        pendingOrder: s.pendingOrder,
+      }),
+    },
+  ),
+);
+
+/* ── Delivery estimate chosen on the bag page (this device) ──── */
+
+const GOV_KEY = "shiftsouq-delivery-governorate";
+
+export function readSavedGovernorate(): string {
+  try {
+    return localStorage.getItem(GOV_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveGovernorate(value: string): void {
+  try {
+    if (value) localStorage.setItem(GOV_KEY, value);
+    else localStorage.removeItem(GOV_KEY);
+  } catch {
+    /* storage blocked: the estimate just isn't remembered */
+  }
+}

@@ -2,15 +2,19 @@
    Server Actions — Contact Form
    ──────────────────────────────────────────────────────────────
    Inserts contact form submissions into the contact_messages
-   table. Uses the service role client because the public anon
-   key needs an INSERT policy (which we've created), but we use
-   the admin client here for reliability and to avoid any RLS
-   edge cases.
+   table with the service role client. There is deliberately no
+   public INSERT policy (migration 20261114080000), so the honeypot
+   and the per-address throttle below can't be bypassed by
+   writing to the table with the public key.
+
+   Replies are written in the visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */
 
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
+import { getServiceClient } from "@/lib/supabase/service";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { createContactSchema } from "@/lib/validations/contact";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -19,21 +23,15 @@ export interface ContactFormData {
   email: string;
   subject: string;
   message: string;
+  /** Honeypot: hidden field that real visitors leave empty. */
+  website?: string;
 }
 
 export interface ContactResult {
   success: boolean;
   message: string;
-}
-
-/* ── Service Client ──────────────────────────────────────────── */
-
-function getServiceClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  /** Field the message refers to, when it is a validation error. */
+  field?: "name" | "email" | "subject" | "message";
 }
 
 /* ── Submit Contact Form ─────────────────────────────────────── */
@@ -43,35 +41,47 @@ function getServiceClient() {
  * No authentication required — public visitors can submit.
  */
 export async function submitContactForm(data: ContactFormData): Promise<ContactResult> {
+  const { dict } = await getLocaleAndDictionary();
+  const t = dict.contact;
+
   try {
+    // Bots fill every field, including the hidden one: pretend success.
+    if (data?.website) {
+      return { success: true, message: t.form.success };
+    }
+
     /* 1. Server-side validation */
-    const name = data.name?.trim();
-    const email = data.email?.trim().toLowerCase();
-    const subject = data.subject?.trim();
-    const message = data.message?.trim();
+    const parsed = createContactSchema(dict.validation).safeParse({
+      name: data?.name ?? "",
+      email: data?.email ?? "",
+      subject: data?.subject ?? "",
+      message: data?.message ?? "",
+    });
 
-    if (!name || name.length < 2) {
-      return { success: false, message: "Please enter a valid name (at least 2 characters)." };
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return {
+        success: false,
+        message: issue?.message ?? t.form.error,
+        field: issue?.path[0] as ContactResult["field"],
+      };
     }
 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { success: false, message: "Please enter a valid email address." };
-    }
+    const { name, email, subject, message } = parsed.data;
 
-    if (!subject || subject.length < 3) {
-      return { success: false, message: "Please select or enter a subject." };
-    }
-
-    if (!message || message.length < 10) {
-      return { success: false, message: "Message must be at least 10 characters long." };
-    }
-
-    if (message.length > 5000) {
-      return { success: false, message: "Message must be under 5000 characters." };
-    }
-
-    /* 2. Insert into database */
+    /* 2. Throttle: at most 3 messages per email address every 10 minutes */
     const db = getServiceClient();
+    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { count } = await db
+      .from("contact_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("email", email)
+      .gte("created_at", since);
+    if ((count ?? 0) >= 3) {
+      return { success: false, message: t.errors.tooMany };
+    }
+
+    /* 3. Insert into database */
 
     const { error } = await db
       .from("contact_messages")
@@ -84,15 +94,12 @@ export async function submitContactForm(data: ContactFormData): Promise<ContactR
 
     if (error) {
       console.error("[submitContactForm]", error.message);
-      return { success: false, message: "Failed to send message. Please try again later." };
+      return { success: false, message: t.errors.sendFailed };
     }
 
-    return {
-      success: true,
-      message: "Your message has been sent successfully! We'll get back to you within 24-48 hours.",
-    };
+    return { success: true, message: t.form.success };
   } catch (err) {
     console.error("[submitContactForm] unexpected:", err);
-    return { success: false, message: "An unexpected error occurred. Please try again." };
+    return { success: false, message: t.errors.unexpected };
   }
 }

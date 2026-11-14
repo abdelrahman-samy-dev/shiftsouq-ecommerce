@@ -1,550 +1,232 @@
 "use server";
 
 /* ══════════════════════════════════════════════════════════════
-   Server Actions — Admin CRUD (Secured)
+   Server Actions — Admin
    ──────────────────────────────────────────────────────────────
-   All admin actions now:
-   1. Verify the caller is an authenticated admin (C3)
-   2. Validate all input with Zod schemas (C4)
-   3. Use safe upsert patterns instead of delete-then-insert (C7)
+   Every action:
+   1. checks on the server that the caller is an admin (database
+      role, not just the proxy's signed-in check);
+   2. validates its input with zod;
+   3. writes with the admin's own session, so row-level security
+      (is_admin()) applies too — no service key is used here;
+   4. returns { ok: true } or { ok: false, error: <key> }, where the
+      key is turned into a friendly, translated message by the UI.
+      Database details are logged on the server, never returned.
    ══════════════════════════════════════════════════════════════ */
 
-import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import {
-  createProductSchema,
-  updateProductSchema,
-  createCategorySchema,
-} from "@/lib/validations/product";
+import { z } from "zod";
+import { getAdminContext, type AdminContext } from "@/lib/admin/auth";
+import { logAdminAction } from "@/lib/admin/audit";
+import { checkTransition, toOrderState, type TransitionError } from "@/lib/admin/orders";
+import type { OrderFilters } from "@/lib/admin/types";
+import { getOrdersForExport } from "@/lib/dal/admin";
 
-/* ── Admin Auth Guard ──────────────────────────────────────────
-   Verifies the calling user is an authenticated admin.
-   Returns the Supabase client if authorized, or an error object.
-   ─────────────────────────────────────────────────────────── */
+export type ActionResult<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
 
-async function requireAdmin() {
-  const supabase = await createServerClient();
+const idSchema = z.guid();
+const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user) {
-    return { error: "Authentication required.", supabase: null };
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  if (profileError || !profile || profile.role !== "admin") {
-    return { error: "Unauthorized: Admin access required.", supabase: null };
-  }
-
-  return { error: null, supabase };
+async function adminOrFail(): Promise<AdminContext | null> {
+  return getAdminContext();
 }
 
-/* ── Create Product ──────────────────────────────────────────── */
-
-export async function createProduct(formData: FormData) {
-  /* 1. Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError };
-
-  /* 2. Parse and validate input with Zod */
-  const imagesJson = formData.get("images") as string;
-  const variantsJson = formData.get("variants") as string;
-
-  const rawInput = {
-    name_en: formData.get("name_en") as string,
-    name_ar: formData.get("name_ar") as string,
-    description_en: (formData.get("description_en") as string) || null,
-    description_ar: (formData.get("description_ar") as string) || null,
-    base_price: Number(formData.get("base_price")),
-    sale_price: formData.get("sale_price")
-      ? Number(formData.get("sale_price"))
-      : null,
-    category_id: formData.get("category_id") as string,
-    stock: Number(formData.get("stock") || 0),
-    images: imagesJson ? JSON.parse(imagesJson) : [],
-    variants: variantsJson ? JSON.parse(variantsJson) : [],
-  };
-
-  const parsed = createProductSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    const firstError = parsed.error.issues[0]?.message || "Invalid input.";
-    return { error: firstError };
-  }
-
-  const {
-    name_en,
-    name_ar,
-    description_en,
-    description_ar,
-    base_price,
-    sale_price,
-    category_id,
-    stock,
-    images,
-    variants,
-  } = parsed.data;
-
-  const slug =
-    name_en.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now();
-
-  try {
-    /* 3. Insert product */
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .insert({
-        name_en,
-        name_ar,
-        slug,
-        description_en: description_en || null,
-        description_ar: description_ar || null,
-        base_price,
-        sale_price: sale_price || null,
-        category_id,
-        is_active: true,
-        is_featured: false,
-        is_new: true,
-        rating: 0,
-        review_count: 0,
-        total_orders: 0,
-      })
-      .select()
-      .single();
-
-    if (productError) throw productError;
-
-    /* 4. Insert variants */
-    if (variants.length > 0) {
-      const variantsToInsert = variants.map((v) => ({
-        product_id: product.id,
-        sku:
-          v.sku ||
-          `SKU-${slug.slice(0, 8).toUpperCase()}-${Math.floor(Math.random() * 1000)}`,
-        stock: v.stock || 0,
-        price_override: v.price_override || null,
-        size: v.size || null,
-        color_en: v.color_en || null,
-        color_ar: v.color_ar || null,
-      }));
-      const { error: variantError } = await supabase
-        .from("product_variants")
-        .insert(variantsToInsert);
-      if (variantError) throw variantError;
-    } else {
-      const { error: variantError } = await supabase
-        .from("product_variants")
-        .insert({
-          product_id: product.id,
-          sku: `SKU-${slug.slice(0, 8).toUpperCase()}`,
-          stock: stock || 0,
-        });
-      if (variantError) throw variantError;
-    }
-
-    /* 5. Insert images */
-    if (images.length > 0) {
-      const imagesToInsert = images.map((url: string, idx: number) => ({
-        product_id: product.id,
-        url,
-        is_primary: idx === 0,
-        sort_order: idx + 1,
-      }));
-      const { error: imageError } = await supabase
-        .from("product_images")
-        .insert(imagesToInsert);
-      if (imageError) throw imageError;
-    }
-
-    revalidatePath("/admin/products");
-    return { success: true, productId: product.id };
-  } catch (error: any) {
-    console.error("[createProduct] error:", error);
-    return { error: error.message || "Failed to create product." };
-  }
+/** Refreshes every admin page (lists, dashboard, badges in the layout). */
+function refreshAdmin() {
+  revalidatePath("/admin", "layout");
 }
 
-/* ── Update Product ──────────────────────────────────────────── */
-
-export async function updateProduct(id: string, formData: FormData) {
-  /* 1. Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError };
-
-  /* 1b. Validate product ID is a UUID */
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(id)) {
-    return { error: "Invalid product ID." };
-  }
-
-  /* 2. Parse and validate input with Zod */
-  const imagesJson = formData.get("images") as string;
-  const variantsJson = formData.get("variants") as string;
-
-  const rawInput = {
-    name_en: formData.get("name_en") as string,
-    name_ar: formData.get("name_ar") as string,
-    description_en: (formData.get("description_en") as string) || null,
-    description_ar: (formData.get("description_ar") as string) || null,
-    base_price: Number(formData.get("base_price")),
-    sale_price: formData.get("sale_price")
-      ? Number(formData.get("sale_price"))
-      : null,
-    category_id: formData.get("category_id") as string,
-    stock: Number(formData.get("stock") || 0),
-    images: imagesJson ? JSON.parse(imagesJson) : [],
-    variants: variantsJson ? JSON.parse(variantsJson) : [],
-  };
-
-  const parsed = updateProductSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    const firstError = parsed.error.issues[0]?.message || "Invalid input.";
-    return { error: firstError };
-  }
-
-  const {
-    name_en,
-    name_ar,
-    description_en,
-    description_ar,
-    base_price,
-    sale_price,
-    category_id,
-    images,
-    variants,
-  } = parsed.data;
-
-  try {
-    /* 3. Update product fields */
-    const { error: productError } = await supabase
-      .from("products")
-      .update({
-        name_en,
-        name_ar,
-        description_en: description_en || null,
-        description_ar: description_ar || null,
-        base_price,
-        sale_price: sale_price || null,
-        category_id,
-      })
-      .eq("id", id);
-
-    if (productError) throw productError;
-
-    /* 4. Update variants safely (C7 fix)
-       ──────────────────────────────────────────────────────────
-       Instead of DELETE → INSERT (which orphans order_items FK),
-       we soft-replace: delete only old variants, then insert new.
-       Wrapped in sequence to minimize the window of inconsistency.
-       
-       In a true production system, use a Postgres function with
-       a transaction. For now, we verify the insert succeeds
-       before considering the operation complete. */
-    if (variants.length > 0) {
-      const variantsToInsert = variants.map((v) => ({
-        product_id: id,
-        sku:
-          v.sku ||
-          `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        stock: v.stock || 0,
-        price_override: v.price_override || null,
-        size: v.size || null,
-        color_en: v.color_en || null,
-        color_ar: v.color_ar || null,
-      }));
-
-      /* Insert new variants first */
-      const { error: insertError } = await supabase
-        .from("product_variants")
-        .insert(variantsToInsert);
-
-      if (insertError) throw insertError;
-
-      /* Only delete old variants after successful insert.
-         Identify old variants by excluding the newly inserted SKUs. */
-      const newSkus = variantsToInsert.map((v) => v.sku);
-      await supabase
-        .from("product_variants")
-        .delete()
-        .eq("product_id", id)
-        .not("sku", "in", `(${newSkus.map((s) => `"${s}"`).join(",")})`);
-    }
-
-    /* 5. Update images */
-    if (images.length > 0) {
-      /* Same insert-first, delete-old pattern */
-      const imagesToInsert = images.map((url: string, idx: number) => ({
-        product_id: id,
-        url,
-        is_primary: idx === 0,
-        sort_order: idx + 1,
-      }));
-      const { error: imageError } = await supabase
-        .from("product_images")
-        .insert(imagesToInsert);
-
-      if (imageError) throw imageError;
-
-      /* Delete old images (ones not matching new URLs) */
-      const newUrls = images;
-      await supabase
-        .from("product_images")
-        .delete()
-        .eq("product_id", id)
-        .not("url", "in", `(${newUrls.map((u: string) => `"${u}"`).join(",")})`);
-    }
-
-    revalidatePath("/admin/products");
-    return { success: true };
-  } catch (error: any) {
-    console.error("[updateProduct] error:", error);
-    return { error: error.message || "Failed to update product." };
-  }
+type DbError = { code?: string; message?: string; details?: string } | null | undefined;
+function logDb(where: string, error: DbError) {
+  if (error) console.error(`[admin:${where}]`, error.code ?? "", error.message ?? "", error.details ?? "");
 }
 
-/* ── Delete Product ──────────────────────────────────────────── */
+/* ══ Exports (rows for CSV) ═══════════════════════════════════ */
 
-export async function deleteProduct(id: string) {
-  /* 1. Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError };
+export type ExportRow = Record<string, string | number | boolean | null>;
 
-  /* 1b. Validate product ID */
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(id)) {
-    return { error: "Invalid product ID." };
-  }
+const exportFilterSchema = z
+  .object({
+    search: z.string().max(200).optional(),
+    status: z.string().max(20).optional(),
+    payment: z.string().max(20).optional(),
+    method: z.string().max(20).optional(),
+    queue: z.string().max(20).optional(),
+    sort: z.string().max(20).optional(),
+    customer: z.string().max(40).optional(),
+  })
+  .optional();
 
-  try {
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", id);
-
-    if (error) throw error;
-
-    revalidatePath("/admin/products");
-    return { success: true };
-  } catch (error: any) {
-    console.error("[deleteProduct] error:", error);
-    return { error: error.message || "Failed to delete product." };
-  }
+/** Orders matching the list filters, flattened for CSV (payment method and status included). */
+export async function getAllOrdersForExport(filters?: OrderFilters): Promise<ExportRow[]> {
+  if (!(await adminOrFail())) return [];
+  const parsed = exportFilterSchema.safeParse(filters);
+  const rows = await getOrdersForExport(parsed.success ? (parsed.data ?? {}) : {});
+  return rows.map((o) => ({
+    order_number: o.order_number,
+    created_at: o.created_at,
+    status: o.status,
+    payment_method: o.payment_method,
+    payment_status: o.payment_status,
+    transaction_id: o.transaction_id,
+    customer: o.customer_name,
+    email: o.email,
+    phone: o.phone,
+    governorate: o.governorate,
+    city: o.city,
+    address: o.address,
+    items: o.items,
+    subtotal: o.subtotal,
+    discount: o.discount_amount,
+    promo_code: o.promo_code,
+    shipping: o.shipping_cost,
+    total: o.total,
+  }));
 }
 
-/* ── Create Category ─────────────────────────────────────────── */
+/* ══ Orders ═══════════════════════════════════════════════════ */
 
-export async function createCategory(nameEn: string, nameAr: string) {
-  /* 1. Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError };
-
-  /* 2. Validate with Zod */
-  const parsed = createCategorySchema.safeParse({
-    name_en: nameEn,
-    name_ar: nameAr,
-  });
-  if (!parsed.success) {
-    const firstError = parsed.error.issues[0]?.message || "Invalid input.";
-    return { error: firstError };
-  }
-
-  const slug =
-    parsed.data.name_en.toLowerCase().replace(/[^a-z0-9]+/g, "-") +
-    "-" +
-    Date.now();
-
-  try {
-    const { data: category, error } = await supabase
-      .from("categories")
-      .insert({
-        name_en: parsed.data.name_en,
-        name_ar: parsed.data.name_ar,
-        slug,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    return { success: true, category };
-  } catch (error: any) {
-    console.error("[createCategory] error:", error);
-    return { error: error.message || "Failed to create category." };
-  }
-}
-
-/* ── Export All Products (Admin) ──────────────────────────────── */
-
-export async function getAllProductsForExport() {
-  /* Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*, category:categories(name_en, name_ar)")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    return (data || []).map((product) => ({
-      ...product,
-      category_en: product.category?.name_en || "",
-      category_ar: product.category?.name_ar || "",
-      category: undefined,
-    }));
-  } catch (error: any) {
-    console.error("[getAllProductsForExport] error:", error);
-    return [];
-  }
-}
-
-/* ── Export All Orders (Admin) ────────────────────────────────── */
-
-export async function getAllOrdersForExport() {
-  /* Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*, shipping_email, user:profiles(full_name)")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    return (data || []).map((order) => ({
-      ...order,
-      customer_name: order.user?.full_name || "",
-      user: undefined,
-    }));
-  } catch (error: any) {
-    console.error("[getAllOrdersForExport] error:", error);
-    return [];
-  }
-}
-
-/* ── Update Order Status ──────────────────────────────────────── */
+export type OrderActionError = TransitionError | "unauthorized" | "not_found" | "changed" | "save_failed" | "not_cod";
 
 /**
- * Valid status transitions for order fulfillment.
- * Prevents illogical jumps like delivered → pending.
+ * Moves an order to a new status after checking the rules in lib/admin/orders.ts.
+ * The update only applies if the order is still in the state that was checked,
+ * so a payment confirmed meanwhile by the webhook is never overwritten.
+ * Cancelled / refunded orders get their stock back from the database trigger.
  */
-const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
-  pending: ["confirmed", "processing", "cancelled"],
-  confirmed: ["processing", "shipped", "cancelled"],
-  processing: ["shipped", "cancelled"],
-  shipped: ["delivered", "cancelled"],
-  delivered: ["refunded"],
-  cancelled: [],
-  refunded: [],
-};
+export async function updateOrderStatus(orderId: string, newStatus: string): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(orderId).success) return fail("not_found");
+  if (typeof newStatus !== "string" || newStatus.length > 20) return fail("invalid_status");
 
-export async function updateOrderStatus(
-  orderId: string,
-  newStatus: string
-): Promise<{ success?: boolean; error?: string }> {
-  /* Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError || "Unauthorized" };
+  const { data: row, error } = await ctx.supabase
+    .from("orders")
+    .select("id, status, payment_status, payment_method")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) return (logDb("updateOrderStatus.read", error), fail("save_failed"));
+  if (!row) return fail("not_found");
 
-  /* Validate UUID */
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(orderId)) {
-    return { error: "Invalid order ID." };
-  }
+  const current = toOrderState(row);
+  const check = checkTransition(current, newStatus);
+  if (!check.ok) return fail(check.error);
 
-  /* Validate status value */
-  const validStatuses = [
-    "pending", "confirmed", "processing", "shipped",
-    "delivered", "cancelled", "refunded",
-  ];
-  if (!validStatuses.includes(newStatus)) {
-    return { error: `Invalid status: ${newStatus}` };
-  }
+  let update = ctx.supabase
+    .from("orders")
+    .update(check.patch)
+    .eq("id", orderId)
+    .eq("status", current.status)
+    .eq("payment_status", current.payment_status);
+  update = current.payment_method ? update.eq("payment_method", current.payment_method) : update.is("payment_method", null);
+  const { data: changed, error: updateError } = await update.select("id");
 
-  try {
-    /* Fetch current status to validate transition */
-    const { data: order, error: fetchError } = await supabase
-      .from("orders")
-      .select("status")
-      .eq("id", orderId)
-      .single();
+  if (updateError) return (logDb("updateOrderStatus", updateError), fail("save_failed"));
+  if (!changed?.length) return fail("changed");
 
-    if (fetchError || !order) {
-      return { error: "Order not found." };
-    }
-
-    const allowed = VALID_STATUS_TRANSITIONS[order.status] || [];
-    if (!allowed.includes(newStatus)) {
-      return {
-        error: `Cannot change status from "${order.status}" to "${newStatus}".`,
-      };
-    }
-
-    /* Perform update */
-    const { error: updateError } = await supabase
-      .from("orders")
-      .update({ status: newStatus })
-      .eq("id", orderId);
-
-    if (updateError) throw updateError;
-
-    revalidatePath("/admin/orders");
-    revalidatePath("/admin");
-    return { success: true };
-  } catch (error: any) {
-    console.error("[updateOrderStatus] error:", error);
-    return { error: error.message || "Failed to update order status." };
-  }
+  await logAdminAction(ctx, "order.status", "orders", orderId, {
+    from: current.status,
+    to: check.patch.status,
+    ...(check.patch.payment_status ? { payment_from: current.payment_status, payment_to: check.patch.payment_status } : {}),
+  });
+  refreshAdmin();
+  return { ok: true };
 }
 
-/* ── Update Payment Status ─────────────────────────────────────── */
+/** COD orders only: record that the courier collected the cash (normally automatic on delivery). */
+export async function markCashCollected(orderId: string): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(orderId).success) return fail("not_found");
 
-export async function updatePaymentStatus(
-  orderId: string,
-  newStatus: string
-): Promise<{ success?: boolean; error?: string }> {
-  /* Auth guard */
-  const { error: authError, supabase } = await requireAdmin();
-  if (authError || !supabase) return { error: authError || "Unauthorized" };
+  const { data: row, error } = await ctx.supabase
+    .from("orders")
+    .select("id, status, payment_status, payment_method")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) return (logDb("markCashCollected.read", error), fail("save_failed"));
+  if (!row) return fail("not_found");
+  const o = toOrderState(row);
+  if (o.payment_method !== "cod") return fail("not_cod");
+  if (!["shipped", "delivered"].includes(o.status) || o.payment_status !== "unpaid") return fail("not_next_step");
 
-  /* Validate UUID */
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(orderId)) {
-    return { error: "Invalid order ID." };
+  const { data: changed, error: e } = await ctx.supabase
+    .from("orders")
+    .update({ payment_status: "paid" })
+    .eq("id", orderId)
+    .eq("payment_method", "cod")
+    .eq("payment_status", "unpaid")
+    .in("status", ["shipped", "delivered"])
+    .select("id");
+  if (e) return (logDb("markCashCollected", e), fail("save_failed"));
+  if (!changed?.length) return fail("changed");
+  await logAdminAction(ctx, "order.cash_collected", "orders", orderId, { payment_from: "unpaid", payment_to: "paid" });
+  refreshAdmin();
+  return { ok: true };
+}
+
+/**
+ * Internal note on an order (order_internal_notes: team only, row-level
+ * security is_admin()). The buyer's own delivery note stays in orders.notes,
+ * which the buyer can read, so staff text never goes there.
+ */
+export async function saveOrderNote(orderId: string, note: string): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(orderId).success) return fail("not_found");
+  if (typeof note !== "string") return fail("save_failed");
+  const text = note.replace(/\r\n/g, "\n").trim();
+  if (text.length > 2000) return fail("note_too_long");
+
+  const { data: order, error: readError } = await ctx.supabase.from("orders").select("id").eq("id", orderId).maybeSingle();
+  if (readError) return (logDb("saveOrderNote.read", readError), fail("save_failed"));
+  if (!order) return fail("not_found");
+
+  const { data, error } = await ctx.supabase
+    .from("order_internal_notes")
+    .upsert(
+      { order_id: orderId, note: text, updated_at: new Date().toISOString(), updated_by: ctx.profileId },
+      { onConflict: "order_id" },
+    )
+    .select("order_id");
+  if (error) return (logDb("saveOrderNote", error), fail("save_failed"));
+  if (!data?.length) return fail("not_found");
+  await logAdminAction(ctx, "order.note", "orders", orderId, { length: text.length });
+  refreshAdmin();
+  return { ok: true };
+}
+
+/* ══ Contact inbox ════════════════════════════════════════════ */
+
+export async function setMessageRead(id: string, read: boolean): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(id).success || typeof read !== "boolean") return fail("not_found");
+  const { data, error } = await ctx.supabase
+    .from("contact_messages")
+    .update({ is_read: read, read_at: read ? new Date().toISOString() : null })
+    .eq("id", id)
+    .select("id");
+  if (error) return (logDb("setMessageRead", error), fail("save_failed"));
+  if (!data?.length) return fail("not_found");
+  await logAdminAction(ctx, read ? "message.read" : "message.unread", "contact_messages", id);
+  refreshAdmin();
+  return { ok: true };
+}
+
+export async function setMessageArchived(id: string, archived: boolean): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(id).success || typeof archived !== "boolean") return fail("not_found");
+  const now = new Date().toISOString();
+  const patch = archived ? { archived_at: now, is_read: true } : { archived_at: null };
+  const { data, error } = await ctx.supabase.from("contact_messages").update(patch).eq("id", id).select("id, read_at");
+  if (error) return (logDb("setMessageArchived", error), fail("save_failed"));
+  if (!data?.length) return fail("not_found");
+  if (archived && !data[0].read_at) {
+    await ctx.supabase.from("contact_messages").update({ read_at: now }).eq("id", id).is("read_at", null);
   }
-
-  const validPaymentStatuses = ["unpaid", "paid", "failed", "refunded"];
-  if (!validPaymentStatuses.includes(newStatus)) {
-    return { error: `Invalid payment status: ${newStatus}` };
-  }
-
-  try {
-    const { error: updateError } = await supabase
-      .from("orders")
-      .update({ payment_status: newStatus })
-      .eq("id", orderId);
-
-    if (updateError) throw updateError;
-
-    revalidatePath("/admin/orders");
-    revalidatePath("/admin");
-    return { success: true };
-  } catch (error: any) {
-    console.error("[updatePaymentStatus] error:", error);
-    return { error: error.message || "Failed to update payment status." };
-  }
+  await logAdminAction(ctx, archived ? "message.archive" : "message.restore", "contact_messages", id);
+  refreshAdmin();
+  return { ok: true };
 }

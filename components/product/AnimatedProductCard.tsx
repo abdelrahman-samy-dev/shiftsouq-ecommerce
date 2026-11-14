@@ -1,17 +1,17 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   AnimatedProductCard — Scroll-Triggered Animation Wrapper
+   AnimatedProductCard — Scroll-Triggered Reveal Wrapper
    ──────────────────────────────────────────────────────────────
-   Thin client-side wrapper that adds Framer Motion whileInView
-   scroll animation to ProductCard (which remains a server
-   component for maximum performance).
-
-   Respects prefers-reduced-motion via useReducedMotion.
+   Server-rendered cards stay visible in the HTML (no opacity:0
+   before JavaScript runs, so the first cards can be the LCP).
+   After hydration, cards that are still below the fold are
+   hidden and faded up when they scroll into view. Cards already
+   on screen are left alone. Respects prefers-reduced-motion.
+   No animation library is needed for this.
    ══════════════════════════════════════════════════════════════ */
 
-import { motion, useReducedMotion } from "framer-motion";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 interface AnimatedProductCardProps {
   /** The ProductCard content to wrap. */
@@ -20,31 +20,50 @@ interface AnimatedProductCardProps {
   index?: number;
 }
 
-/**
- * Wraps a ProductCard with scroll-triggered fade-up animation.
- * Each card animates independently as it enters the viewport.
- *
- * @param children - ProductCard JSX to animate.
- * @param index    - Grid position index for stagger offset.
- */
+const HIDDEN = ["opacity-0", "translate-y-6"];
+
 export default function AnimatedProductCard({
   children,
   index = 0,
 }: AnimatedProductCardProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let first = true;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (first) {
+          first = false;
+          if (entry.isIntersecting) {
+            observer.disconnect(); // already visible: no animation
+            return;
+          }
+          el.classList.add(...HIDDEN);
+          return;
+        }
+        if (entry.isIntersecting) {
+          el.style.transitionDelay = `${(index % 4) * 80}ms`;
+          el.classList.remove(...HIDDEN);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "0px 0px -50px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [index]);
 
   return (
-    <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-50px" }}
-      transition={{
-        duration: 0.5,
-        delay: prefersReducedMotion ? 0 : index * 0.08,
-        ease: [0.25, 0.1, 0.25, 1],
-      }}
+    <div
+      ref={ref}
+      className="h-full transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
     >
       {children}
-    </motion.div>
+    </div>
   );
 }

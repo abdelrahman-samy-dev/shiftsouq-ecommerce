@@ -1,304 +1,258 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   ProductCard — Product Listing Card (Client Component)
+   ProductCard — editorial product tile (docs/design-system.md §5)
    ──────────────────────────────────────────────────────────────
-   Reusable card component for product grids. Displays the
-   primary image, price, name, and action buttons (wishlist, cart).
-
-   Now a client component to integrate with Zustand stores for
-   real-time wishlist toggle and add-to-cart functionality.
-
-   Used across: homepage sections, shop page, category page,
-   wishlist page, and related products sections.
-
-   Performance:
-   - `sizes` attribute is set with responsive breakpoints to
-     avoid loading oversized images on smaller viewports.
+   No box: photo on a sand ground, name and price underneath.
+   • Second photo cross-fades in on hover (mouse only; it is
+     fetched on the first hover, so phones never download it).
+   • Quick add: a single option adds straight away; one colour in
+     several sizes shows the sizes along the photo (hover on
+     desktop, "+" on touch); several colours open the product.
+   • Price = what checkout charges (lib/seo/pricing).
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Heart, ShoppingCart, Check } from "lucide-react";
+import { Heart, Plus, X } from "lucide-react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import type { ProductWithDetails } from "@/lib/types";
-import { formatPrice, getDiscountPercentage } from "@/lib/utils";
-import type { Locale } from "@/lib/types";
+import type { Product, ProductImage, ProductVariant } from "@/lib/types";
+import { Badge, Price } from "@/components/ds/Display";
+import { priceSummary, unitPrice, variantInStock } from "@/lib/seo/pricing";
 import { useWishlistStore } from "@/lib/store/useWishlistStore";
 import { useCartStore } from "@/lib/store/useCartStore";
+import { useCartUi } from "@/lib/store/useCartUi";
+import { useHydrated } from "./use-hydrated";
+import { cn } from "@/lib/utils";
 
-/* ── Types ───────────────────────────────────────────────────── */
+type CardVariant = Pick<ProductVariant, "id" | "size" | "color_en"> &
+  Partial<Pick<ProductVariant, "color_ar" | "color_hex" | "stock" | "price_override">>;
+
+type CardImage = Pick<ProductImage, "url" | "alt_text_en" | "alt_text_ar">;
+
+/** The fields a card reads (any listing product fits). */
+export type CardProduct = Pick<Product, "id" | "slug" | "name_en" | "name_ar" | "base_price" | "sale_price" | "is_new"> & {
+  primary_image?: CardImage | null;
+  secondary_image?: CardImage | null;
+  variants?: CardVariant[];
+};
+
+/** Kept for compatibility with existing callers; the card has its own bilingual copy. */
+type CardDict = { products?: Partial<Record<string, string>> };
 
 interface ProductCardProps {
-  /** The product data including primary image and category. */
-  product: ProductWithDetails;
-  /** Current display locale. */
+  product: CardProduct;
   locale: string;
-  /** Localised UI strings dictionary. */
-  dict: Record<string, Record<string, string>>;
+  dict?: CardDict;
+  /** Image `sizes` matching the grid (default: 2 columns on phones, 4 on desktop). */
+  sizes?: string;
+  /** First row above the fold: load the photo eagerly at high priority. */
+  priority?: boolean;
 }
 
-/* ── Component ───────────────────────────────────────────────── */
+const DEFAULT_SIZES = "(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 25vw";
 
-/**
- * ProductCard renders a single product tile for listing grids.
- *
- * Features:
- * - Sale/New badges overlaid on the image
- * - Responsive image sizing with Next.js Image
- * - Hover zoom effect on the product image
- * - Localized price formatting with discount display
- * - Zustand-powered wishlist toggle with scale animation
- * - Quick add-to-cart with feedback animation
- * - Accessible action buttons with aria-labels
- *
- * @param product - Product data with relations.
- * @param locale  - Current locale for formatting.
- * @param dict    - Localised UI strings.
- */
-export default function ProductCard({
-  product,
-  locale,
-  dict,
-}: ProductCardProps) {
+export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, priority = false }: ProductCardProps) {
   const isAr = locale === "ar";
-
-  /* ── Store integration (reactive selectors) ──────────────── */
+  const hydrated = useHydrated();
   const toggleWishlist = useWishlistStore((s) => s.toggleWishlist);
   const wishlistIds = useWishlistStore((s) => s.productIds);
   const addItem = useCartStore((s) => s.addItem);
+  const openCart = useCartUi((s) => s.openCart);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [hoverPhoto, setHoverPhoto] = useState<false | "loading" | "ready">(false);
 
-  const [mounted, setMounted] = useState(false);
-  const [addedToCart, setAddedToCart] = useState(false);
-  const router = useRouter();
+  const variants = product.variants ?? [];
+  const stockKnown = variants.every((v) => typeof v.stock === "number");
+  const priced = stockKnown ? variants : variants.map((v) => ({ ...v, stock: 1 }));
+  const summary = priceSummary(product, priced);
+  const soldOut = !summary.purchasable || !summary.inStock;
 
-  /* ── Variant Check ──────────────────────────────────────── */
-  const hasVariants = product.variants && product.variants.length > 0;
-
-  useEffect(() => setMounted(true), []);
-
-  /* Derive wishlisted from the reactive productIds array */
-  const wishlisted = mounted ? wishlistIds.includes(product.id) : false;
-
-  /* ── Wishlist toggle handler ────────────────────────────── */
-  const handleWishlistToggle = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleWishlist(product.id);
-    },
-    [toggleWishlist, product.id]
+  const colours = Array.from(
+    new Map(variants.filter((v) => v.color_hex || v.color_en).map((v) => [v.color_en ?? v.color_hex, v])).values(),
   );
+  const singleColour = colours.length <= 1;
+  const single = variants.length === 1 ? variants[0] : null;
+  // One colour, several sizes → sizes can be picked right on the card.
+  const sizeOptions = singleColour && variants.length > 1 ? variants.filter((v) => v.size) : [];
 
-  /* ── Quick add to cart ─────────────────────────────────── */
-  const handleAddToCart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const name = isAr ? product.name_ar : product.name_en;
+  const href = `/product/${product.slug}`;
+  const wishlisted = hydrated && wishlistIds.includes(product.id);
+  const alt = (img: CardProduct["primary_image"]) => (img ? (isAr ? img.alt_text_ar : img.alt_text_en) || name : name);
 
-      if (hasVariants) {
-        toast(
-          isAr
-            ? "برجاء تحديد الخيارات أولاً"
-            : "Please select product options (size/color) to continue.",
-          {
-            description: isAr
-              ? "سيتم توجيهك لصفحة المنتج"
-              : "Redirecting to product details...",
-            duration: 3000,
-          }
-        );
-        router.push(`/product/${product.slug}`);
-        return;
-      }
+  function add(variant: CardVariant) {
+    addItem({
+      productId: product.id,
+      variantId: variant.id,
+      name_en: product.name_en,
+      name_ar: product.name_ar,
+      slug: product.slug,
+      image: product.primary_image?.url || "",
+      size: variant.size || null,
+      color_en: variant.color_en || null,
+      color_ar: variant.color_ar || null,
+      color_hex: variant.color_hex || null,
+      price: unitPrice(product, variant),
+      quantity: 1,
+    });
+    setPickerOpen(false);
+    toast.success(isAr ? "أُضيف إلى الحقيبة" : "Added to bag", {
+      description: variant.size ? `${name} · ${variant.size}` : name,
+      action: { label: isAr ? "عرض الحقيبة" : "View bag", onClick: openCart },
+    });
+  }
 
-      const currentPrice =
-        product.sale_price !== null && product.sale_price < product.base_price
-          ? product.sale_price
-          : product.base_price;
+  const badge = soldOut ? (
+    <Badge tone="neutral">{isAr ? "نفد" : "Sold out"}</Badge>
+  ) : summary.discountPercent ? (
+    <Badge tone="accent">
+      <bdi dir="ltr">−{summary.discountPercent}%</bdi>
+    </Badge>
+  ) : product.is_new ? (
+    <Badge tone="neutral">{isAr ? "جديد" : "New"}</Badge>
+  ) : null;
 
-      addItem({
-        productId: product.id,
-        variantId: "default",
-        name_en: product.name_en,
-        name_ar: product.name_ar,
-        slug: product.slug,
-        image: product.primary_image?.url || "",
-        size: null,
-        color_en: null,
-        color_ar: null,
-        color_hex: null,
-        price: currentPrice,
-        quantity: 1,
-      });
-
-      setAddedToCart(true);
-      setTimeout(() => setAddedToCart(false), 1500);
-    },
-    [addItem, product]
-  );
-
-  /* ── Price computation ──────────────────────────────────── */
-  const hasSale =
-    product.sale_price !== null && product.sale_price < product.base_price;
-  const discountPercent = hasSale
-    ? getDiscountPercentage(product.base_price, product.sale_price!)
-    : 0;
-  const currentPrice = hasSale ? product.sale_price! : product.base_price;
-  const formattedPrice = formatPrice(currentPrice, locale as Locale);
-  const formattedBasePrice = hasSale
-    ? formatPrice(product.base_price, locale as Locale)
-    : null;
-
-  /* ── Localised text ─────────────────────────────────────── */
-  const productName = isAr ? product.name_ar : product.name_en;
-  const imageAlt = product.primary_image
-    ? isAr
-      ? product.primary_image.alt_text_ar || productName
-      : product.primary_image.alt_text_en || productName
-    : productName;
+  const canQuickAdd = !soldOut && (single || sizeOptions.length > 0);
 
   return (
-    <article className="group card-elevated card-hover flex flex-col h-full w-full">
-      {/* ── Image Container ────────────────────────────── */}
-      <div className="relative aspect-[4/5] bg-surface dark:bg-surface-inset overflow-hidden">
-        {/* Badges */}
-        <div className="absolute top-3 start-3 z-10 flex flex-col gap-2">
-          {product.is_new && (
-            <span className="badge badge-new">
-              {dict?.products?.new || "New"}
-            </span>
-          )}
-          {hasSale && (
-            <span className="badge badge-sale">
-              {dict?.products?.sale || "Sale"} {discountPercent}%
-            </span>
-          )}
-        </div>
-
-        {/* Link wrapping image */}
-        <Link
-          href={`/product/${product.slug}`}
-          className="block relative w-full h-full"
-          aria-label={`${isAr ? "عرض" : "View"} ${productName}`}
-        >
+    <article
+      className="group/card relative flex flex-col"
+      onPointerEnter={(e) => {
+        // The hover photo is fetched on the first mouse hover, never on touch screens.
+        if (e.pointerType === "mouse" && product.secondary_image && !hoverPhoto) setHoverPhoto("loading");
+      }}
+    >
+      <div className="relative aspect-[4/5] overflow-hidden bg-surface">
+        <Link href={href} aria-label={name} className="absolute inset-0 block">
           {product.primary_image ? (
-            <div className="absolute inset-0 w-full h-full">
-              <Image
-                src={product.primary_image.url}
-                alt={imageAlt}
-                fill
-                className="object-cover object-center transition-transform duration-700 ease-in-out group-hover:scale-105"
-                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-              />
-            </div>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-text-faint">
-              {isAr ? "لا توجد صورة" : "No Image"}
-            </div>
-          )}
+            <Image
+              src={product.primary_image.url}
+              alt={alt(product.primary_image)}
+              fill
+              sizes={sizes}
+              loading={priority ? "eager" : "lazy"}
+              fetchPriority={priority ? "high" : undefined}
+              className={cn(
+                "object-cover transition-opacity duration-500 ease-out",
+                hoverPhoto === "ready" && "[@media(hover:hover)]:group-hover/card:opacity-0",
+              )}
+            />
+          ) : null}
+          {product.secondary_image && hoverPhoto ? (
+            <Image
+              src={product.secondary_image.url}
+              alt=""
+              fill
+              sizes={sizes}
+              onLoad={() => setHoverPhoto("ready")}
+              className="object-cover opacity-0 transition-opacity duration-500 ease-out [@media(hover:hover)]:group-hover/card:opacity-100"
+            />
+          ) : null}
         </Link>
+
+        {badge ? <div className="pointer-events-none absolute start-3 top-3 flex gap-1.5">{badge}</div> : null}
+
+        <button
+          type="button"
+          onClick={() => toggleWishlist(product.id)}
+          aria-pressed={wishlisted}
+          aria-label={
+            wishlisted
+              ? isAr ? `إزالة ${name} من المفضلة` : `Remove ${name} from wishlist`
+              : isAr ? `إضافة ${name} إلى المفضلة` : `Add ${name} to wishlist`
+          }
+          // A paper disc keeps the heart readable on light and dark photos, in both themes.
+          className="absolute end-2 top-2 inline-flex size-9 items-center justify-center rounded-full bg-background/75 text-text-primary transition-colors hover:bg-background"
+        >
+          <Heart className={cn("size-[18px]", wishlisted && "fill-current")} strokeWidth={1.5} />
+        </button>
+
+        {canQuickAdd ? (
+          <>
+            {/* Touch: "+" toggles the size row. Desktop: the row appears on hover. */}
+            <button
+              type="button"
+              onClick={() => (single ? add(single) : setPickerOpen((o) => !o))}
+              aria-expanded={single ? undefined : pickerOpen}
+              aria-label={
+                pickerOpen
+                  ? isAr ? "إغلاق المقاسات" : "Close sizes"
+                  : isAr ? `إضافة ${name} إلى الحقيبة` : `Add ${name} to bag`
+              }
+              className="absolute bottom-2 end-2 z-10 inline-flex size-9 items-center justify-center rounded-full bg-background/90 text-text-primary [@media(hover:hover)]:hidden"
+            >
+              {pickerOpen ? <X className="size-4" strokeWidth={1.5} /> : <Plus className="size-4" strokeWidth={1.5} />}
+            </button>
+
+            <div
+              className={cn(
+                "absolute inset-x-2 bottom-2 bg-background/95 p-2 transition-[opacity,translate] duration-200",
+                pickerOpen ? "opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-2",
+                "[@media(hover:hover)]:group-hover/card:pointer-events-auto [@media(hover:hover)]:group-hover/card:opacity-100 [@media(hover:hover)]:group-hover/card:translate-y-0",
+                "[@media(hover:hover)]:group-focus-within/card:pointer-events-auto [@media(hover:hover)]:group-focus-within/card:opacity-100 [@media(hover:hover)]:group-focus-within/card:translate-y-0",
+              )}
+            >
+              {single ? (
+                <button
+                  type="button"
+                  onClick={() => add(single)}
+                  className="h-9 w-full text-[0.8125rem] font-medium text-text-primary hover:bg-surface"
+                >
+                  {isAr ? "أضف إلى الحقيبة" : "Add to bag"}
+                </button>
+              ) : (
+                <>
+                  <p className="mb-1.5 px-1 text-[0.6875rem] text-text-muted">{isAr ? "اختر المقاس" : "Quick add — choose size"}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {sizeOptions.map((v) => {
+                      const out = stockKnown && !variantInStock({ ...v, stock: v.stock ?? 0 });
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          disabled={out}
+                          onClick={() => add(v)}
+                          aria-label={out ? `${v.size} — ${isAr ? "نفد" : "sold out"}` : `${isAr ? "أضف مقاس" : "Add size"} ${v.size}`}
+                          className="h-8 min-w-10 px-2 text-[0.8125rem] tabular-nums text-text-primary border border-border hover:border-text-primary disabled:text-text-faint disabled:line-through disabled:hover:border-border"
+                        >
+                          {v.size}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        ) : null}
       </div>
 
-      {/* ── Content & Actions ──────────────────────────── */}
-      <div className="p-3 sm:p-4 flex flex-col flex-grow">
-        {/* Price */}
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-bold text-base sm:text-lg text-text-primary">
-            {formattedPrice}
-          </span>
-          {hasSale && (
-            <span className="text-sm text-text-faint line-through">
-              {formattedBasePrice}
-            </span>
-          )}
-        </div>
-
-        {/* Title */}
-        <Link
-          href={`/product/${product.slug}`}
-          className="block group/link mb-4"
-        >
-          <h3 className="text-text-secondary text-xs sm:text-sm line-clamp-2 min-h-[32px] sm:min-h-[40px] group-hover/link:text-text-primary transition-colors">
-            {productName}
-          </h3>
-        </Link>
-
-        {/* Actions Row (Pushed to bottom via mt-auto) */}
-        <div className="mt-auto flex items-center gap-2 pt-2">
-          {/* Wishlist Button */}
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.85 }}
-            onClick={handleWishlistToggle}
-            className="btn-icon flex-shrink-0 w-9 h-9 sm:w-11 sm:h-11 transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            style={{
-              borderColor: wishlisted ? "var(--destructive)" : undefined,
-              color: wishlisted ? "var(--destructive)" : "var(--text-secondary)",
-              background: wishlisted ? "var(--destructive-bg)" : undefined,
-            }}
-            aria-label={`${dict?.products?.addToWishlist || "Add to wishlist"}: ${productName}`}
-            aria-pressed={wishlisted}
-          >
-            <AnimatePresence mode="wait">
-              <motion.span
-                key={wishlisted ? "filled" : "empty"}
-                initial={{ scale: 0.5, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.5, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
-                <Heart
-                  size={20}
-                  strokeWidth={1.5}
-                  fill={wishlisted ? "currentColor" : "none"}
+      <div className="flex flex-col gap-1 pt-3">
+        <h3 className="text-sm leading-snug text-text-primary">
+          <Link href={href} className="line-clamp-1 hover:underline underline-offset-4 decoration-1">
+            {name}
+          </Link>
+        </h3>
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-1.5">
+            {summary.varies ? <span className="text-[0.8125rem] text-text-muted">{isAr ? "من" : "From"}</span> : null}
+            <Price amount={summary.price} compareAt={summary.compareAt} locale={locale} size="sm" />
+          </div>
+          {colours.length > 1 ? (
+            <span className="flex items-center gap-1" aria-label={isAr ? `${colours.length} ألوان` : `${colours.length} colours`}>
+              {colours.slice(0, 4).map((c) => (
+                <span
+                  key={c.id}
+                  title={(isAr ? c.color_ar : c.color_en) ?? undefined}
+                  className="size-2.5 rounded-full ring-1 ring-border-hover"
+                  style={{ backgroundColor: c.color_hex ?? "#ccc" }}
                 />
-              </motion.span>
-            </AnimatePresence>
-          </motion.button>
-
-          {/* Add to Cart Button */}
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.97 }}
-            onClick={handleAddToCart}
-            className={`flex-1 h-9 sm:h-11 text-xs sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-              addedToCart ? "btn-secondary" : "btn-primary"
-            }`}
-            title={dict?.products?.addToCart || "Add to cart"}
-            aria-label={`${dict?.products?.addToCart || "Add to cart"}: ${productName}`}
-          >
-            <AnimatePresence mode="wait">
-              {addedToCart ? (
-                <motion.span
-                  key="added"
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.8, opacity: 0 }}
-                  className="flex items-center gap-1.5"
-                >
-                  <Check size={18} strokeWidth={2.5} className="text-success" />
-                  <span className="text-success font-semibold">
-                    {isAr ? "تمت الإضافة" : "Added!"}
-                  </span>
-                </motion.span>
-              ) : (
-                <motion.span
-                  key="add"
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.8, opacity: 0 }}
-                  className="flex items-center gap-1.5"
-                >
-                  <ShoppingCart size={18} strokeWidth={2} />
-                  <span>{dict?.products?.addToCart || "Add to cart"}</span>
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </motion.button>
+              ))}
+              {colours.length > 4 ? <span className="text-[0.6875rem] text-text-muted">+{colours.length - 4}</span> : null}
+            </span>
+          ) : null}
         </div>
       </div>
     </article>

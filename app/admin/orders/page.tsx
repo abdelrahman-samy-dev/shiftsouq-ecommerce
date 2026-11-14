@@ -1,203 +1,230 @@
 /* ══════════════════════════════════════════════════════════════
-   Admin Orders Management — /admin/orders
+   Admin orders — /admin/orders
    ──────────────────────────────────────────────────────────────
-   Premium data table to view all customer orders with pagination,
-   hover effects, and modern color-coded badges.
+   Work-queue tabs (to fulfil, awaiting payment, cash to collect),
+   search by order number / name / email / phone, filters for
+   status, payment and method, sortable date and total, CSV export
+   of the filtered list, and per-order actions (rules in
+   lib/admin/orders.ts, re-checked by the server action).
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { getAllOrders } from "@/lib/dal/admin";
-import { getAllOrdersForExport } from "@/lib/actions/admin";
-import { APP_NAME } from "@/lib/constants";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, Download } from "lucide-react";
-import { cookies } from "next/headers";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import { Locale } from "@/lib/types";
-import { ExportCsvButton } from "../components/ExportCsvButton";
-import { AdminSearchInput } from "../components/AdminSearchInput";
+import { ShoppingBag } from "lucide-react";
+import { getAllOrders, clampPage, isOrderQueue } from "@/lib/dal/admin";
+import { getAllOrdersForExport } from "@/lib/actions/admin";
+import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, type OrderState } from "@/lib/admin/orders";
+import { fill, formatAmount, formatDateTime, formatInt, getAdminText } from "@/lib/admin/i18n";
+import type { AdminOrderListItem, OrderFilters } from "@/lib/admin/types";
+import { getLocale } from "@/lib/i18n/server";
+import { GOVERNORATES } from "@/lib/store/useCheckoutStore";
 import { AdminFilterDropdown } from "../components/AdminFilterDropdown";
 import { AdminPagination } from "../components/AdminPagination";
+import { AdminSearchInput } from "../components/AdminSearchInput";
+import { DataTable, type SortDir } from "../components/DataTable";
+import { ExportCsvButton } from "../components/ExportCsvButton";
 import { OrderActionsDropdown } from "../components/OrderActionsDropdown";
+import { OrderStatusBadge, PaymentMethodBadge, PaymentStatusBadge } from "../components/StatusBadges";
+import { AdminEmptyState, FilterBar, PageHeader, Panel, TabsNav } from "../components/ui";
+import { adminButton } from "../components/buttons";
 
-export const metadata: Metadata = {
-  title: `Orders | ${APP_NAME} Admin`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.orders };
+}
 
-export default async function AdminOrdersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ page?: string; search?: string; status?: string }>;
-}) {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
-  const isRTL = locale === "ar";
+type SP = { page?: string; search?: string; status?: string; payment?: string; method?: string; queue?: string; sort?: string };
+const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+const pickState = (o: OrderState): OrderState => ({ status: o.status, payment_status: o.payment_status, payment_method: o.payment_method });
+const PAGE_SIZE = 20;
 
-  const sp = await searchParams;
-  const currentPage = Number(sp.page) || 1;
-  const pageSize = 10;
-  const search = sp.search;
-  const status = sp.status;
-  
-  const { orders, totalPages, count } = await getAllOrders({ page: currentPage, pageSize, search, status });
+export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const [sp, locale] = await Promise.all([searchParams, getLocale()]);
+  const t = getAdminText(locale);
+  const L = t.orderList;
+  const currentPage = clampPage(sp.page);
+  const queue = isOrderQueue(sp.queue) ? sp.queue : undefined;
+  const sort = ["newest", "oldest", "total_desc", "total_asc"].includes(sp.sort ?? "") ? (sp.sort as string) : "newest";
+  const filters: OrderFilters = {
+    search: str(sp.search),
+    status: str(sp.status),
+    payment: str(sp.payment),
+    method: str(sp.method),
+    queue,
+    sort,
+  };
+  const hasFilters = Boolean(filters.search || filters.status || filters.payment || filters.method);
+
+  const { orders, totalPages, count } = await getAllOrders({ page: currentPage, pageSize: PAGE_SIZE, ...filters });
+  const exportOrders = getAllOrdersForExport.bind(null, filters);
+
+  const qs = (patch: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    const merged = { search: filters.search, status: filters.status, payment: filters.payment, method: filters.method, queue, sort: sort === "newest" ? undefined : sort, ...patch };
+    for (const [k, v] of Object.entries(merged)) if (v) params.set(k, v);
+    const s = params.toString();
+    return `/admin/orders${s ? `?${s}` : ""}`;
+  };
+  const sortState = {
+    key: sort.startsWith("total") ? "total" : "date",
+    dir: (sort === "oldest" || sort === "total_asc" ? "asc" : "desc") as SortDir,
+    href: (key: string, dir: SortDir) => qs({ sort: key === "total" ? (dir === "asc" ? "total_asc" : "total_desc") : dir === "asc" ? "oldest" : undefined }),
+    sortLabel: t.common.sortBy,
+  };
+  const govName = (key: string | null) => {
+    const g = GOVERNORATES.find((x) => x.value === key);
+    return g ? (locale === "ar" ? g.ar : g.en) : key;
+  };
+
+  const tabs = [
+    { href: qs({ queue: undefined }), label: L.tabs.all, current: !queue },
+    { href: qs({ queue: "fulfil" }), label: L.tabs.fulfil, current: queue === "fulfil" },
+    { href: qs({ queue: "awaiting" }), label: L.tabs.awaiting, current: queue === "awaiting" },
+    { href: qs({ queue: "cash" }), label: L.tabs.cash, current: queue === "cash" },
+  ];
+
+  const customerCell = (o: AdminOrderListItem) => (
+    <div className="min-w-0 max-w-64">
+      <p className="truncate text-text-primary"><bdi>{o.customer_name || t.orders.guest}</bdi></p>
+      <p className="truncate text-[0.75rem] text-text-muted">
+        <bdi dir="ltr">{o.email || o.phone || t.orders.noEmail}</bdi>
+      </p>
+    </div>
+  );
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mb-1.5">
-            {dict.admin?.orders?.title || "Orders"}
-          </h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">
-            {(dict.admin?.orders?.description || "Manage your store's orders ({count} total).").replace("{count}", count.toString())}
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <AdminFilterDropdown 
-            options={[
-              { label: dict.admin?.orders?.pending || "Pending", value: "pending" },
-              { label: dict.admin?.orders?.paid || "Paid", value: "paid" },
-              { label: dict.admin?.orders?.shipped || "Shipped", value: "shipped" },
-              { label: dict.admin?.orders?.delivered || "Delivered", value: "delivered" },
-              { label: dict.admin?.orders?.cancelled || "Cancelled", value: "cancelled" }
-            ]}
-            defaultLabel={dict.admin?.orders?.allOrders || "All Statuses"}
-          />
-          <ExportCsvButton 
-            data={orders} 
-            fetchData={getAllOrdersForExport}
-            filename="orders" 
-            label={dict.admin?.orders?.exportCsv || "Export CSV"} 
-          />
-        </div>
-      </div>
+    <>
+      <PageHeader
+        title={L.title}
+        description={fill(L.description, { count: formatInt(count, locale) })}
+        actions={<ExportCsvButton fetchData={exportOrders} filename="orders" locale={locale} label={t.common.exportCsv} />}
+      />
 
-      {/* ── Filters & Search Bar ───────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-2 shadow-sm flex flex-col sm:flex-row items-center gap-2">
-         <AdminSearchInput placeholder={dict.admin?.orders?.searchPlaceholder || "Search orders by customer or ID..."} />
-      </div>
+      <TabsNav label={L.title} tabs={tabs} className="mb-4" />
 
-      {/* ── Data Table ─────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm">
+      <FilterBar
+        end={
+          hasFilters ? (
+            <Link href={qs({ search: undefined, status: undefined, payment: undefined, method: undefined })} className="hover:text-text-primary">
+              {t.common.clearFilters}
+            </Link>
+          ) : null
+        }
+      >
+        <AdminSearchInput placeholder={t.filters.search} className="sm:w-96" />
+        <AdminFilterDropdown param="status" options={ORDER_STATUSES.map((s) => ({ value: s, label: t.status[s] }))} defaultLabel={t.filters.allStatuses} />
+        <AdminFilterDropdown param="payment" options={PAYMENT_STATUSES.map((s) => ({ value: s, label: t.payment[s] }))} defaultLabel={t.filters.allPayments} />
+        <AdminFilterDropdown param="method" options={PAYMENT_METHODS.map((m) => ({ value: m, label: t.method[m] }))} defaultLabel={t.filters.allMethods} />
+      </FilterBar>
+
+      <Panel padded={false}>
         {orders.length === 0 ? (
-          <div className="p-16 text-center flex flex-col items-center justify-center">
-            <div className="w-20 h-20 bg-zinc-50 dark:bg-zinc-800/50 rounded-full flex items-center justify-center mb-5 ring-8 ring-zinc-50/50 dark:ring-zinc-800/20">
-               <Search size={28} className="text-zinc-400" />
-            </div>
-            <h3 className="text-base font-semibold text-zinc-900 dark:text-white mb-1">{dict.admin?.orders?.noOrdersFound || "No orders found"}</h3>
-            <p className="text-zinc-500 text-sm max-w-sm mx-auto">{dict.admin?.orders?.noOrdersDesc || "Try adjusting your search or filters to find what you're looking for."}</p>
-          </div>
+          hasFilters || queue ? (
+            <AdminEmptyState
+              icon={<ShoppingBag />}
+              title={L.emptyTitle}
+              body={L.emptyBody}
+              action={
+                <Link href="/admin/orders" className={adminButton("outline", "sm")}>
+                  {t.common.clearFilters}
+                </Link>
+              }
+            />
+          ) : (
+            <AdminEmptyState icon={<ShoppingBag />} title={L.emptyAllTitle} body={L.emptyAllBody} />
+          )
         ) : (
-          <div className="">
-            <table className={`w-full min-w-[900px] text-sm ${isRTL ? 'text-right' : 'text-left'} whitespace-nowrap`}>
-              <thead className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800/80">
-                <tr>
-                  <th className="px-6 py-4">{dict.admin?.orders?.orderId || "Order ID"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.customer || "Customer"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.date || "Date"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.status || "Status"}</th>
-                  <th className="px-6 py-4">{dict.admin?.orders?.payment || "Payment"}</th>
-                  <th className={`px-6 py-4 ${isRTL ? 'text-left' : 'text-right'}`}>{dict.admin?.orders?.total || "Total"}</th>
-                  <th className="px-6 py-4 text-center">{dict.admin?.orders?.actions || "Actions"}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-                {orders.map((order) => {
-                  // Status Badge Colors
-                  let badgeClass = "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 backdrop-blur-sm";
-                  if (order.status === "delivered") badgeClass = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 backdrop-blur-sm";
-                  if (order.status === "processing") badgeClass = "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 backdrop-blur-sm";
-                  if (order.status === "cancelled") badgeClass = "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 border border-red-200 dark:border-red-500/20 backdrop-blur-sm";
-                  if (order.status === "pending") badgeClass = "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-500/20 backdrop-blur-sm";
+          <>
+            {/* Phones: one row card per order */}
+            <ul className="divide-y divide-border md:hidden">
+              {orders.map((o) => (
+                <li key={o.id} className="flex gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <Link href={`/admin/orders/${o.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                        {o.order_number}
+                      </Link>
+                      <span className="whitespace-nowrap text-[0.8125rem] font-medium tabular-nums">{formatAmount(o.total, locale, 2)}</span>
+                    </div>
+                    <p className="truncate text-[0.8125rem] text-text-secondary">
+                      <bdi>{o.customer_name || t.orders.guest}</bdi>
+                      <span className="text-text-muted"> · {formatDateTime(o.created_at, locale)}</span>
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <OrderStatusBadge status={o.status} text={t} />
+                      <PaymentStatusBadge status={o.payment_status} text={t} />
+                      <PaymentMethodBadge method={o.payment_method} text={t} />
+                    </div>
+                  </div>
+                  <OrderActionsDropdown orderId={o.id} order={pickState(o)} locale={locale} orderNumber={o.order_number} />
+                </li>
+              ))}
+            </ul>
 
-                  // Match translation status key or fallback
-                  const statusKey = "status" + order.status.charAt(0).toUpperCase() + order.status.slice(1);
-                  const displayStatus = dict.orders?.[statusKey as keyof typeof dict.orders] || order.status;
-
-                  // Dynamic Avatar Colors
-                  const avatarColors = [
-                    "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400",
-                    "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400",
-                    "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400",
-                    "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400",
-                    "bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400",
-                  ];
-                  const initial = (order.user?.full_name?.[0] || order.shipping_name?.[0] || "G").toUpperCase();
-                  const colorIndex = initial.charCodeAt(0) % avatarColors.length;
-                  const avatarColorClass = avatarColors[colorIndex];
-
-                  return (
-                    <tr key={order.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="font-mono text-xs font-semibold text-zinc-900 dark:text-white">
-                          {order.order_number || `#${order.id.split("-")[0]}`}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatarColorClass}`}>
-                             {initial}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-zinc-900 dark:text-white">
-                              {order.user?.full_name || order.shipping_name || dict.admin?.orders?.guestUser || "Guest User"}
-                            </div>
-                            <div className="text-zinc-500 text-xs mt-0.5">
-                              {order.shipping_email || dict.admin?.orders?.noEmail || "No email"}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400 font-medium">
-                        {new Date(order.created_at).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { 
-                          month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
-                        })}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                          {displayStatus}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${
-                          order.payment_status === "paid" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 backdrop-blur-sm" : 
-                          order.payment_status === "failed" ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 border border-red-200 dark:border-red-500/20 backdrop-blur-sm" : 
-                          order.payment_status === "refunded" ? "bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20 backdrop-blur-sm" : 
-                          "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 backdrop-blur-sm"
-                        }`}>
-                          {order.payment_status || "unpaid"}
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 ${isRTL ? 'text-left' : 'text-right'}`}>
-                        <span className="font-bold text-zinc-900 dark:text-white">
-                          {Number(order.total || 0).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
-                        </span>
-                        <span className={`text-zinc-500 text-xs font-medium ${isRTL ? 'mr-1' : 'ml-1'}`}>
-                          {dict.common?.currency || "EGP"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <OrderActionsDropdown
-                          orderId={order.id}
-                          currentStatus={order.status}
-                          currentPaymentStatus={order.payment_status || "unpaid"}
-                          locale={locale}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+            <DataTable
+              className="hidden md:block"
+              caption={L.title}
+              rows={orders}
+              rowKey={(o) => o.id}
+              sort={sortState}
+              columns={[
+                {
+                  key: "order",
+                  header: t.orders.order,
+                  label: t.orders.date,
+                  sortKey: "date",
+                  cell: (o) => (
+                    <div>
+                      <Link href={`/admin/orders/${o.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                        {o.order_number}
+                      </Link>
+                      <p className="whitespace-nowrap text-[0.75rem] text-text-muted">{formatDateTime(o.created_at, locale)}</p>
+                    </div>
+                  ),
+                },
+                { key: "customer", header: t.orders.customer, cell: customerCell },
+                {
+                  key: "region",
+                  header: t.detail.governorate,
+                  hideBelow: "xl",
+                  cell: (o) => <span className="text-text-secondary">{govName(o.governorate) || t.detail.none}</span>,
+                },
+                { key: "status", header: t.orders.status, cell: (o) => <OrderStatusBadge status={o.status} text={t} /> },
+                {
+                  key: "payment",
+                  header: t.orders.payment,
+                  hideBelow: "lg",
+                  cell: (o) => (
+                    <div className="flex flex-col items-start gap-1">
+                      <PaymentStatusBadge status={o.payment_status} text={t} />
+                      <PaymentMethodBadge method={o.payment_method} text={t} />
+                    </div>
+                  ),
+                },
+                {
+                  key: "total",
+                  header: t.orders.total,
+                  align: "end",
+                  sortKey: "total",
+                  cell: (o) => <span className="whitespace-nowrap font-medium tabular-nums">{formatAmount(o.total, locale, 2)}</span>,
+                },
+                {
+                  key: "actions",
+                  header: <span className="sr-only">{t.action.actions}</span>,
+                  align: "end",
+                  className: "w-12",
+                  cell: (o) => <OrderActionsDropdown orderId={o.id} order={pickState(o)} locale={locale} orderNumber={o.order_number} />,
+                },
+              ]}
+            />
+            {totalPages > 1 ? (
+              <div className="border-t border-border">
+                <AdminPagination currentPage={currentPage} totalPages={totalPages} locale={locale} />
+              </div>
+            ) : null}
+          </>
         )}
-
-        <AdminPagination currentPage={currentPage} totalPages={totalPages} />
-      </div>
-    </div>
+      </Panel>
+    </>
   );
 }

@@ -3,125 +3,128 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ═══════════════════════════════════════════════════════════════
-   ShiftSouq Design System — v2.0
-   
-   A centralized token-driven system for colors, typography,
-   spacing, shadows, and reusable component classes.
-   Tailwind v4 — all tokens live in CSS, no tailwind.config.ts.
+   ShiftSouq Design System — "Editorial" (v3)
+   Spec: docs/design-system.md. Tailwind v4: tokens live in CSS.
+   Warm paper, ink type, one clay accent, hairlines, no shadows
+   on the page. Brand colours for a new store: change §1/§2 only.
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── §1 Design Tokens: Light Theme ─────────────────────────── */
 :root {
-  /* ── Surfaces ─────────────────── */
-  --background:         #ffffff;
-  --foreground:         #09090b;
-  --surface:            #f8f9fa;       /* subtle card / section bg      */
-  --surface-elevated:   #f1f3f5;       /* dropdowns, hover fills        */
-  --surface-inset:      #e9ecef;       /* deeply nested / skeleton bg   */
+  color-scheme: light;
 
-  /* ── Borders ──────────────────── */
-  --border:             #e4e4e7;
-  --border-hover:       #d4d4d8;
-  --border-subtle:      #f0f0f2;       /* almost invisible dividers     */
+  /* Surfaces */
+  --background:         #f6f4ef;   /* paper */
+  --foreground:         #161513;   /* ink */
+  --surface:            #eeeae2;   /* sand: image grounds, sections */
+  --surface-elevated:   #fbfaf7;   /* drawers, dropdowns, inputs */
+  --surface-inset:      #e4dfd5;   /* skeletons, pressed */
 
-  /* ── Typography ───────────────── */
-  --text-primary:       #09090b;
-  --text-secondary:     #52525b;
-  --text-muted:         #71717a;
-  --text-faint:         #a1a1aa;
+  /* Lines */
+  --border:             #ddd8ce;
+  --border-hover:       #bdb6a8;
+  --border-subtle:      #e9e5dd;
 
-  /* ── Brand ────────────────────── */
-  --primary:            #18181b;
-  --primary-foreground: #fafafa;
-  --accent:             #2563eb;
-  --accent-foreground:  #ffffff;
-  --accent-hover:       #1d4ed8;
+  /* Text */
+  --text-primary:       #161513;
+  --text-secondary:     #4a4741;
+  --text-muted:         #6f6b63;
+  --text-faint:         #a8a39a;
 
-  /* ── Semantic ──────────────────── */
-  --destructive:            #dc2626;
-  --destructive-foreground: #ffffff;
-  --destructive-bg:         #fef2f2;
-  --destructive-border:     #fee2e2;
-  --success:                #16a34a;
-  --success-foreground:     #ffffff;
-  --success-bg:             #f0fdf4;
-  --warning:                #f59e0b;
-  --warning-bg:             #fffbeb;
+  /* Brand */
+  --primary:            #161513;
+  --primary-foreground: #f6f4ef;
+  --accent:             #9c4a2a;   /* clay */
+  --accent-foreground:  #fbfaf7;
+  --accent-hover:       #843c20;
 
-  /* ── Shadows ──────────────────── */
-  --shadow-xs:   0 1px 2px rgba(0,0,0,0.04);
-  --shadow-sm:   0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.04);
-  --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.03);
-  --shadow-xl:   0 20px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.03);
-  --shadow-glow: 0 0 0 1px rgba(0,0,0,0.03);
+  /* Semantic */
+  --destructive:            #a3352b;
+  --destructive-foreground: #fbfaf7;
+  --destructive-bg:         #f6e7e3;
+  --destructive-border:     #e9c9c2;
+  --success:                #3f6b4b;
+  --success-foreground:     #fbfaf7;
+  --success-bg:             #e6eee6;
+  --warning:                #8f6418;
+  --warning-bg:             #f5ecd9;
 
-  /* ── Radius ───────────────────── */
-  --radius-sm:   6px;
-  --radius-md:   8px;
-  --radius-lg:   12px;
-  --radius-xl:   16px;
-  --radius-2xl:  24px;
+  /* Elevation: the page is flat; only floating layers lift. */
+  --shadow-xs:    none;
+  --shadow-sm:    none;
+  --shadow-md:    none;
+  --shadow-glow:  none;
+  --shadow-lg:    0 12px 32px -12px rgba(22, 21, 19, 0.18);
+  --shadow-xl:    0 24px 48px -16px rgba(22, 21, 19, 0.22);
+  --shadow-float: 0 24px 48px -16px rgba(22, 21, 19, 0.22);
+
+  /* Shape */
+  --radius-sm:   2px;
+  --radius-md:   3px;
+  --radius-lg:   4px;
+  --radius-xl:   6px;
+  --radius-2xl:  8px;
   --radius-full: 9999px;
 
-  /* ── Transitions ──────────────── */
+  /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
   --duration-fast: 150ms;
-  --duration-base: 250ms;
-  --duration-slow: 400ms;
+  --duration-base: 240ms;
+  --duration-slow: 420ms;
+
+  /* Layout */
+  --header-height: 64px;
+  --announcement-height: 32px;
+  --container-max: 1600px;
+  --gutter: 20px;
 }
 
-/* ── §2 Design Tokens: Dark Theme (Premium Zinc) ──────────── */
+@media (min-width: 768px)  { :root { --gutter: 32px; } }
+@media (min-width: 1280px) { :root { --gutter: 48px; } }
+
+/* ── §2 Design Tokens: Dark Theme ─────────────────────────── */
 .dark {
-  /* ── Surfaces ─────────────────── */
-  --background:         #09090b;       /* zinc-950                       */
-  --foreground:         #fafafa;       /* zinc-50                        */
-  --surface:            #111113;       /* between zinc-950 and zinc-900  */
-  --surface-elevated:   #18181b;       /* zinc-900                       */
-  --surface-inset:      #1f1f23;       /* slightly lighter than zinc-900 */
+  color-scheme: dark;
 
-  /* ── Borders ──────────────────── */
-  --border:             #27272a;       /* zinc-800                       */
-  --border-hover:       #3f3f46;       /* zinc-700                       */
-  --border-subtle:      #1e1e22;       /* barely visible dividers        */
+  --background:         #121110;
+  --foreground:         #edeae3;
+  --surface:            #1b1a18;
+  --surface-elevated:   #22201e;
+  --surface-inset:      #2a2724;
 
-  /* ── Typography ───────────────── */
-  --text-primary:       #fafafa;       /* pure white for headings        */
-  --text-secondary:     #d4d4d8;       /* zinc-300                       */
-  --text-muted:         #a1a1aa;       /* zinc-400                       */
-  --text-faint:         #71717a;       /* zinc-500                       */
+  --border:             #2e2b27;
+  --border-hover:       #4a453f;
+  --border-subtle:      #24221f;
 
-  /* ── Brand ────────────────────── */
-  --primary:            #fafafa;
-  --primary-foreground: #18181b;
-  --accent:             #3b82f6;
-  --accent-foreground:  #ffffff;
-  --accent-hover:       #60a5fa;
+  --text-primary:       #edeae3;
+  --text-secondary:     #bdb8ae;
+  --text-muted:         #948f85;
+  --text-faint:         #6a665e;
 
-  /* ── Semantic ──────────────────── */
-  --destructive:            #ef4444;
-  --destructive-foreground: #ffffff;
-  --destructive-bg:         rgba(220, 38, 38, 0.12);
-  --destructive-border:     rgba(220, 38, 38, 0.25);
-  --success:                #22c55e;
-  --success-foreground:     #ffffff;
-  --success-bg:             rgba(34, 197, 94, 0.12);
-  --warning:                #fbbf24;
-  --warning-bg:             rgba(245, 158, 11, 0.12);
+  --primary:            #edeae3;
+  --primary-foreground: #121110;
+  --accent:             #d27a55;
+  --accent-foreground:  #121110;
+  --accent-hover:       #e08d69;
 
-  /* ── Shadows — soft ambient glow instead of harsh black ──── */
-  --shadow-xs:   0 1px 2px rgba(0,0,0,0.2);
-  --shadow-sm:   0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.4), 0 2px 4px -2px rgba(0,0,0,0.3);
-  --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.45), 0 4px 6px -4px rgba(0,0,0,0.3);
-  --shadow-xl:   0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.3);
-  --shadow-glow: 0 0 0 1px rgba(255,255,255,0.04), inset 0 0 20px rgba(255,255,255,0.015);
+  --destructive:            #e07a6e;
+  --destructive-foreground: #121110;
+  --destructive-bg:         rgba(224, 122, 110, 0.12);
+  --destructive-border:     rgba(224, 122, 110, 0.28);
+  --success:                #7fb08c;
+  --success-foreground:     #121110;
+  --success-bg:             rgba(127, 176, 140, 0.12);
+  --warning:                #e0b35a;
+  --warning-bg:             rgba(224, 179, 90, 0.12);
+
+  --shadow-lg:    0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  --shadow-xl:    0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  --shadow-float: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
 }
 
 /* ── §3 Tailwind v4 Theme Mapping ─────────────────────────── */
 @theme inline {
-  /* Colors */
   --color-background:         var(--background);
   --color-foreground:         var(--foreground);
   --color-surface:            var(--surface);
@@ -147,21 +150,32 @@
   --color-warning:            var(--warning);
   --color-warning-bg:         var(--warning-bg);
 
-  /* Fonts */
-  --font-sans: var(--font-inter), var(--font-alexandria), system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), monospace;
+  /* Real faces first, size-adjusted fallbacks after. Each Google font only
+     covers its own script (unicode-range), so Latin text uses Instrument and
+     Arabic falls through to IBM Plex Sans Arabic. The "… Fallback" faces that
+     next/font generates are local Arial and cover every script, so they must
+     come after both real fonts or they swallow the Arabic text. */
+  --font-sans:    "Instrument Sans", "IBM Plex Sans Arabic", "Instrument Sans Fallback", "IBM Plex Sans Arabic Fallback", system-ui, sans-serif;
+  --font-display: "Instrument Serif", "IBM Plex Sans Arabic", "Instrument Serif Fallback", "IBM Plex Sans Arabic Fallback", Georgia, serif;
+  --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Shadows as Tailwind utilities */
-  --shadow-xs:  var(--shadow-xs);
-  --shadow-sm:  var(--shadow-sm);
-  --shadow-md:  var(--shadow-md);
-  --shadow-lg:  var(--shadow-lg);
-  --shadow-xl:  var(--shadow-xl);
-  --shadow-glow: var(--shadow-glow);
+  --shadow-xs:    var(--shadow-xs);
+  --shadow-sm:    var(--shadow-sm);
+  --shadow-md:    var(--shadow-md);
+  --shadow-lg:    var(--shadow-lg);
+  --shadow-xl:    var(--shadow-xl);
+  --shadow-glow:  var(--shadow-glow);
+  --shadow-float: var(--shadow-float);
+
+  --radius-sm:  var(--radius-sm);
+  --radius-md:  var(--radius-md);
+  --radius-lg:  var(--radius-lg);
+  --radius-xl:  var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   §4 Global Reset & Base Styles
+   §4 Base
    ═══════════════════════════════════════════════════════════════ */
 
 * {
@@ -169,46 +183,117 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Arabic font override */
-[dir="rtl"] body {
-  font-family: var(--font-alexandria), var(--font-sans), system-ui, sans-serif;
+/* Arabic reads better slightly larger and looser. */
+:lang(ar) body { font-size: 1rem; line-height: 1.75; }
+
+:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+/* Text fields show focus with their own border/ring (or their container's), not a box. */
+input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
-/* ── Selection ─────────────────────────────────────────────── */
 ::selection {
-  background-color: var(--primary);
-  color: var(--primary-foreground);
+  background-color: var(--text-primary);
+  color: var(--background);
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ── Typography utilities (docs/design-system.md §3) ──────── */
+.t-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.75rem, 7vw, 6.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.t-h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2rem, 4.2vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+.t-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.5rem, 2.6vw, 2.25rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.t-h3 {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+.t-small { font-size: 0.8125rem; line-height: 1.5; }
+.t-eyebrow {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.t-price { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Arabic display: the Latin serif has no Arabic glyphs, so use Plex Arabic semibold without tracking. */
+:lang(ar) .t-display,
+:lang(ar) .t-h1,
+:lang(ar) .t-h2 {
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+:lang(ar) .t-display { font-size: clamp(2.25rem, 6vw, 5rem); }
+/* Letter-spacing and uppercase break Arabic joining. */
+:lang(ar) .t-eyebrow { letter-spacing: 0; text-transform: none; font-size: 0.75rem; }
+/* Clamped and truncated text is clipped at its line box; Arabic descenders (the dots under a final ي)
+   fall below a tight one, so give those lines the room Arabic needs. */
+:lang(ar) :is(.line-clamp-1, .line-clamp-2, .line-clamp-3, .truncate) { line-height: 1.7; }
+/* Paragraphs avoid a lone word on their last line (in the base layer, so text-balance etc. still win). */
+@layer base {
+  p { text-wrap: pretty; }
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+.container-x {
+  width: 100%;
+  max-width: var(--container-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: var(--radius-full);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+/* ── Scrollbars ────────────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: var(--border-hover) transparent; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ═══════════════════════════════════════════════════════════════
    §5 Reusable Component Classes
@@ -1368,4 +1453,172 @@ select.input-field {
 .payment-method-radio-disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   §DS Overlays (components/ds/Overlay.tsx) — native <dialog>
+   ═══════════════════════════════════════════════════════════════ */
+.ds-overlay {
+  border: 0;
+  color: var(--text-primary);
+  box-shadow: var(--shadow-float);
+  transition:
+    translate var(--duration-slow) var(--ease-out-expo),
+    opacity var(--duration-base) ease,
+    overlay var(--duration-slow) allow-discrete,
+    display var(--duration-slow) allow-discrete;
+}
+.ds-overlay::backdrop {
+  background: rgb(22 21 19 / 0);
+  transition:
+    background-color var(--duration-base) ease,
+    overlay var(--duration-slow) allow-discrete,
+    display var(--duration-slow) allow-discrete;
+}
+.ds-overlay[open]::backdrop { background: rgb(22 21 19 / 0.38); }
+@starting-style { .ds-overlay[open]::backdrop { background: rgb(22 21 19 / 0); } }
+
+/* Drawer slides in from its side (logical: end = right in LTR, left in RTL). */
+.ds-drawer { inset-block: 0; max-height: 100dvh; }
+.ds-drawer[data-side="end"] { translate: 100% 0; }
+.ds-drawer[data-side="start"] { translate: -100% 0; }
+[dir="rtl"] .ds-drawer[data-side="end"] { translate: -100% 0; }
+[dir="rtl"] .ds-drawer[data-side="start"] { translate: 100% 0; }
+/* Must out-rank the [dir="rtl"] closed positions above, or RTL drawers stay off-screen. */
+.ds-drawer[open],
+[dir="rtl"] .ds-drawer[open] { translate: 0 0; }
+@starting-style {
+  .ds-drawer[open][data-side="end"] { translate: 100% 0; }
+  .ds-drawer[open][data-side="start"] { translate: -100% 0; }
+  [dir="rtl"] .ds-drawer[open][data-side="end"] { translate: -100% 0; }
+  [dir="rtl"] .ds-drawer[open][data-side="start"] { translate: 100% 0; }
+}
+
+.ds-dialog { opacity: 0; translate: 0 12px; }
+.ds-dialog[open] { opacity: 1; translate: 0 0; }
+@starting-style { .ds-dialog[open] { opacity: 0; translate: 0 12px; } }
+
+html:has(.ds-overlay[open]) { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-overlay, .ds-overlay::backdrop { transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   §DS Selects — every <select> on the site
+   Where the browser supports customizable selects (Chromium 135+),
+   the open list follows the design system: paper surface, hairline,
+   square corners, hover/selected states, a quiet check mark and a
+   short fade. Elsewhere the native list is kept (phones show their
+   own picker, which is the best experience there). Unlayered, so it
+   applies over Tailwind's appearance-none on purpose; selects that
+   carry `appearance-none` draw their own chevron, the rest get the
+   styled built-in one.
+   ═══════════════════════════════════════════════════════════════ */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  /* Defaults only (base layer), so each select's own Tailwind classes for
+     size, weight and colour still win. */
+  @layer base {
+    select {
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      /* base-select renders as inline-flex: keep the chosen text vertically centred. */
+      align-items: center;
+    }
+  }
+
+  /* Built-in chevron for selects that don't draw their own. */
+  select::picker-icon {
+    color: var(--text-muted);
+    transition: rotate var(--duration-fast) ease;
+  }
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+  select.appearance-none::picker-icon {
+    display: none;
+  }
+
+  ::picker(select) {
+    margin-block: 4px;
+    padding: 4px;
+    min-inline-size: anchor-size(inline);
+    max-block-size: min(22rem, 60dvh);
+    overflow-y: auto;
+    color: var(--text-primary);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-float);
+    font-size: 0.875rem;
+    opacity: 0;
+    translate: 0 -4px;
+    transition:
+      opacity var(--duration-fast) ease,
+      translate var(--duration-fast) ease,
+      overlay var(--duration-fast) allow-discrete,
+      display var(--duration-fast) allow-discrete;
+  }
+  select:open::picker(select) {
+    opacity: 1;
+    translate: 0 0;
+  }
+  @starting-style {
+    select:open::picker(select) {
+      opacity: 0;
+      translate: 0 -4px;
+    }
+  }
+
+  select option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-block-size: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    background: transparent;
+    /* Don't inherit a medium/bold trigger: only the chosen row is emphasised. */
+    font-weight: 400;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  select option:hover,
+  select option:focus-visible {
+    background: var(--surface);
+    outline: none;
+  }
+  select option:checked {
+    font-weight: 500;
+  }
+  select option:disabled {
+    color: var(--text-faint);
+    cursor: not-allowed;
+  }
+  /* Check mark at the end of the row (start-to-end, so it mirrors in Arabic). */
+  select option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+    color: var(--text-primary);
+  }
+  select optgroup {
+    padding-block-start: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::picker(select),
+    select::picker-icon {
+      transition: none;
+    }
+  }
 }
