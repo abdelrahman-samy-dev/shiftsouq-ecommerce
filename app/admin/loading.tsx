@@ -1,5 +1,3 @@
-import { Package, ShoppingBag, Users, DollarSign } from "lucide-react";
-
 export default function AdminDashboardLoading() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

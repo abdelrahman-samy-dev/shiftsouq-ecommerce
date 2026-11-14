@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Plus, PackageOpen, Eye, Edit, Trash2 } from "lucide-react";
 import { AdminSearchInput } from "../components/AdminSearchInput";
@@ -11,6 +12,12 @@ import { AdminPagination } from "../components/AdminPagination";
 import { ProductModal } from "../components/ProductModal";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { getAllProductsForExport } from "@/lib/actions/admin";
+import type { Dictionary } from "@/lib/i18n/get-dictionary";
+import { getAdminText } from "@/lib/admin/i18n";
+import { isAllowedImageUrl } from "@/lib/admin/products";
+import type { AdminCategory, AdminProduct } from "@/lib/admin/types";
+
+const LOW_STOCK = 5;
 
 export function ProductsClient({
   products,
@@ -20,32 +27,49 @@ export function ProductsClient({
   currentPage,
   dict,
   locale,
+  editId = null,
 }: {
-  products: any[];
-  categories: any[];
+  products: AdminProduct[];
+  categories: AdminCategory[];
   count: number;
   totalPages: number;
   currentPage: number;
-  dict: any;
+  dict: Dictionary;
   locale: string;
+  /** Opens the edit form for this product on load (links from the low-stock list). */
+  editId?: string | null;
 }) {
   const isRTL = locale === "ar";
-  
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const t = getAdminText(locale).products;
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const linked = editId ? (products.find((p) => p.id === editId) ?? null) : null;
+
+  const [isModalOpen, setIsModalOpen] = useState(Boolean(linked));
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [selectedProduct, setSelectedProduct] = useState<AdminProduct | null>(linked);
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    if (searchParams.has("edit")) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("edit");
+      router.replace(`${pathname}?${params.toString()}`);
+    }
+  };
 
   const openAddModal = () => {
     setSelectedProduct(null);
     setIsModalOpen(true);
   };
 
-  const openEditModal = (product: any) => {
+  const openEditModal = (product: AdminProduct) => {
     setSelectedProduct(product);
     setIsModalOpen(true);
   };
 
-  const openDeleteDialog = (product: any) => {
+  const openDeleteDialog = (product: AdminProduct) => {
     setSelectedProduct(product);
     setIsDeleteDialogOpen(true);
   };
@@ -76,9 +100,9 @@ export function ProductsClient({
             />
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <ExportCsvButton 
-                data={products} 
                 fetchData={getAllProductsForExport}
                 filename="products" 
+                locale={locale}
                 label={dict.admin?.products?.exportCsv || "Export CSV"} 
                 className="flex-1 sm:flex-none justify-center"
               />
@@ -123,6 +147,7 @@ export function ProductsClient({
                     <th className="px-6 py-4">{dict.admin?.products?.productName || "Product Name"}</th>
                     <th className="px-6 py-4">{dict.admin?.products?.category || "Category"}</th>
                     <th className="px-6 py-4">{dict.admin?.products?.price || "Price"}</th>
+                    <th className="px-6 py-4">{t.stock}</th>
                     <th className="px-6 py-4">{dict.admin?.products?.status || "Status"}</th>
                     <th className="px-6 py-4 text-center">{dict.admin?.products?.actions || "Actions"}</th>
                   </tr>
@@ -133,9 +158,9 @@ export function ProductsClient({
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                            <div className="w-10 h-10 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0 overflow-hidden">
-                             {(product.product_images?.find((img: any) => img.is_primary)?.url || product.product_images?.[0]?.url) ? (
-                                <Image 
-                                  src={product.product_images.find((img: any) => img.is_primary)?.url || product.product_images[0].url} 
+                             {product.images[0] && isAllowedImageUrl(product.images[0].url) ? (
+                                <Image
+                                  src={(product.images.find((img) => img.is_primary) ?? product.images[0]).url}
                                   alt={product.name_en}
                                   width={40}
                                   height={40}
@@ -161,14 +186,29 @@ export function ProductsClient({
                          </span>
                       </td>
                       <td className="px-6 py-4">
+                        {/* The price customers pay (sale price when set), then the regular price struck through */}
                         <div className="font-bold text-zinc-900 dark:text-white">
-                          {dict.common?.currency || "EGP"} {Number(product.base_price).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
+                          {dict.common?.currency || "EGP"} {Number(product.sale_price ?? product.base_price).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
                         </div>
-                        {product.sale_price && (
-                          <div className="text-xs font-semibold text-rose-500 line-through opacity-80 mt-0.5">
-                            {dict.common?.currency || "EGP"} {Number(product.sale_price).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
+                        {product.sale_price != null && (
+                          <div className="text-xs font-semibold text-zinc-400 line-through mt-0.5">
+                            {dict.common?.currency || "EGP"} {Number(product.base_price).toLocaleString(locale === 'ar' ? 'ar-EG' : undefined, { minimumFractionDigits: 2 })}
                           </div>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`font-semibold ${
+                            product.total_stock === 0
+                              ? "text-red-600 dark:text-red-400"
+                              : product.variants.some((v) => v.stock <= LOW_STOCK)
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-zinc-900 dark:text-white"
+                          }`}
+                        >
+                          {product.total_stock}
+                        </span>
+                        {product.variants.length > 1 && <span className="text-xs text-zinc-500 ms-1">/ {product.variants.length}</span>}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
@@ -221,20 +261,23 @@ export function ProductsClient({
       </div>
 
       {/* Modals (Outside of the animated/transform container) */}
-      <ProductModal 
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        product={selectedProduct}
-        categories={categories}
-        dict={dict}
-        locale={locale}
-      />
+      {isModalOpen && (
+        <ProductModal
+          key={selectedProduct?.id ?? "new"}
+          onClose={closeModal}
+          product={selectedProduct}
+          categories={categories}
+          dict={dict}
+          locale={locale}
+        />
+      )}
       
       <DeleteProductDialog 
         isOpen={isDeleteDialogOpen}
         onClose={() => setIsDeleteDialogOpen(false)}
         product={selectedProduct}
         dict={dict}
+        locale={locale}
       />
     </>
   );

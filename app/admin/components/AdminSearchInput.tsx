@@ -15,14 +15,11 @@ export function AdminSearchInput({ placeholder }: { placeholder: string }) {
   useEffect(() => {
     const timer = setTimeout(() => {
       const currentSearch = searchParams.get("search") || "";
-      if (searchTerm === currentSearch) return; // Fix: Prevent redundant pushes and infinite loading loops
-      
+      if (searchTerm.trim() === currentSearch) return; // avoid redundant navigations
+
       const params = new URLSearchParams(searchParams.toString());
-      if (searchTerm) {
-        params.set("search", searchTerm);
-      } else {
-        params.delete("search");
-      }
+      if (searchTerm.trim()) params.set("search", searchTerm.trim());
+      else params.delete("search");
       params.set("page", "1"); // Reset to page 1 on new search
 
       startTransition(() => {
@@ -35,16 +32,18 @@ export function AdminSearchInput({ placeholder }: { placeholder: string }) {
 
   return (
     <div className="relative w-full sm:w-96">
-      <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+      <Search size={18} className="absolute start-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
       <input
-        type="text"
+        type="search"
         placeholder={placeholder}
+        aria-label={placeholder}
         value={searchTerm}
+        maxLength={80}
         onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white transition-all"
+        className="w-full ps-10 pe-10 py-2 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white transition-all"
       />
       {isPending && (
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-white rounded-full animate-spin" />
+        <div className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-white rounded-full animate-spin" />
       )}
     </div>
   );
