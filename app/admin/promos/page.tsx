@@ -1,21 +1,26 @@
-/* Admin Promo codes — /admin/promos: list, create, edit, activate / deactivate. */
+/* Admin — Promo codes: /admin/promos (list, create, edit, activate / deactivate). */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { PromosManager } from "@/components/admin-catalog/PromosManager";
+import { fmt, formatCount, getCatalogText } from "@/lib/admin/i18n-catalog";
 import { getPromoCodes } from "@/lib/dal/admin";
-import { APP_NAME } from "@/lib/constants";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import type { Locale } from "@/lib/types";
-import { PromosClient } from "./PromosClient";
+import { getLocale } from "@/lib/i18n/server";
 
-export const metadata: Metadata = {
-  title: `Promo codes | ${APP_NAME} Admin`,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getCatalogText(await getLocale());
+  return { title: t.promos.title };
+}
 
 export default async function AdminPromosPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en") as Locale;
-  const dict = await getDictionary(locale);
-  const promos = await getPromoCodes();
-  return <PromosClient promos={promos} locale={locale} currency={dict.common?.currency || "EGP"} />;
+  const [locale, promos] = await Promise.all([getLocale(), getPromoCodes()]);
+  const t = getCatalogText(locale);
+  return (
+    <div className="pb-16">
+      <PromosManager
+        promos={promos}
+        locale={locale}
+        meta={<span className="tabular-nums">{fmt(t.promos.count, { count: formatCount(promos.length, locale) })}</span>}
+      />
+    </div>
+  );
 }

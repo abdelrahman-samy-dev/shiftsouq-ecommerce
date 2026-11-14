@@ -12,15 +12,15 @@ test.describe("checkout", () => {
     await addTestProductToCart(page);
     await fillCheckoutDetails(page, email);
 
-    // Summary before placing: 120 (sale price) + 50 delivery to Cairo.
-    await expect(page.getByText("EGP 170").filter({ visible: true }).first()).toBeVisible();
+    // Summary before placing: 490 (sale price) + 50 delivery to Cairo.
+    await expect(page.getByText("EGP 540").filter({ visible: true }).first()).toBeVisible();
     await chooseOption(page, /cash on delivery/i);
     await page.getByRole("button", { name: /place order/i }).click();
 
     await expect(page).toHaveURL(/\/checkout\/success\?order=SS-\d{8}-[0-9A-F]{6}/, { timeout: 30_000 });
     const orderNumber = new URL(page.url()).searchParams.get("order")!;
     await expect(page.getByText(orderNumber).first()).toBeVisible();
-    await expect(page.getByText("EGP 170").filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByText("EGP 540").filter({ visible: true }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /create account/i })).toBeVisible();
 
     // Tracking needs the order's email: a wrong one gets the same "not found" as a wrong number.
