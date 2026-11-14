@@ -28,6 +28,8 @@ export function CategoryTiles({
   const cols = n === 1 ? "md:grid-cols-1" : n === 2 ? "md:grid-cols-2" : n === 3 ? "md:grid-cols-3" : "md:grid-cols-3 xl:grid-cols-4";
   // Odd counts on phones: the first tile runs full width.
   const oddFirst = n % 2 === 1;
+  // Image widths follow the same column count (1–3 columns, or 3 then 4 from xl).
+  const desktopSizes = n >= 4 ? "(max-width: 1279px) 33vw, 25vw" : `${Math.round(100 / n)}vw`;
 
   return (
     <section aria-labelledby="home-categories" className="py-16 md:py-24">
@@ -45,11 +47,7 @@ export function CategoryTiles({
                         src={tile.image}
                         alt=""
                         fill
-                        sizes={
-                          wide
-                            ? "(max-width: 767px) 100vw, (max-width: 1279px) 33vw, 25vw"
-                            : "(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 25vw"
-                        }
+                        sizes={`(max-width: 767px) ${wide ? 100 : 50}vw, ${desktopSizes}`}
                         className="object-cover transition-transform duration-700 ease-[var(--ease-out-expo)] group-hover:scale-[1.03] motion-reduce:transition-none"
                       />
                     ) : null}
@@ -58,7 +56,13 @@ export function CategoryTiles({
                     <span className="font-display text-[1.375rem] leading-tight md:text-[1.625rem] rtl:text-[1.125rem] rtl:font-semibold md:rtl:text-[1.3125rem]">
                       {tile.name}
                     </span>
-                    <span className="shrink-0 text-[0.8125rem] text-text-muted underline decoration-transparent underline-offset-4 transition-colors group-hover:text-text-primary group-hover:decoration-current">
+                    {/* Half-width phone tiles keep just the name; the whole tile is the link. */}
+                    <span
+                      className={cn(
+                        "shrink-0 text-[0.8125rem] text-text-muted underline decoration-transparent underline-offset-4 transition-colors group-hover:text-text-primary group-hover:decoration-current",
+                        !wide && "max-md:hidden",
+                      )}
+                    >
                       {cta}
                     </span>
                   </div>

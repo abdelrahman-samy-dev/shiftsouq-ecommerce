@@ -80,10 +80,10 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
       <section aria-labelledby="newsletter-title" className="border-b border-border">
         <div className="container-x grid gap-8 py-14 md:grid-cols-2 md:items-end md:gap-16 md:py-20">
           <div className="flex max-w-lg flex-col gap-3">
-            <h2 id="newsletter-title" className="t-h2">
+            <h2 id="newsletter-title" className="t-h2 text-balance">
               {copy.newsletterTitle}
             </h2>
-            <p className="text-text-secondary">{copy.newsletterBody}</p>
+            <p className="max-w-[44ch] text-pretty text-text-secondary">{copy.newsletterBody}</p>
           </div>
           <div className="md:justify-self-end md:w-full md:max-w-md">
             <NewsletterForm

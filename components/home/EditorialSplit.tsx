@@ -21,7 +21,7 @@ export function EditorialSplit({ content }: { content: EditorialContent }) {
       <div className="grid bg-surface md:grid-cols-2">
         <div className="relative aspect-[4/5] overflow-hidden bg-surface-inset md:aspect-auto md:min-h-[42rem]">
           {image ? (
-            <Image src={image} alt="" fill sizes="(max-width: 767px) 100vw, 50vw" className="object-cover" />
+            <Image src={image} alt="" fill sizes="(max-width: 767px) 100vw, 50vw" className="object-cover object-[50%_15%]" />
           ) : null}
         </div>
         <div className="flex flex-col justify-center gap-5 px-[var(--gutter)] py-14 md:px-12 md:py-20 xl:px-24">
@@ -29,7 +29,7 @@ export function EditorialSplit({ content }: { content: EditorialContent }) {
           <h2 id="home-editorial" className="t-h1 max-w-[14ch] text-balance">
             {title}
           </h2>
-          {body ? <p className="max-w-md text-text-secondary md:text-lg md:leading-relaxed">{body}</p> : null}
+          {body ? <p className="max-w-md text-pretty text-text-secondary md:text-lg md:leading-relaxed">{body}</p> : null}
           {meta ? <p className="text-[0.8125rem] text-text-secondary tabular-nums">{meta}</p> : null}
           <Link href={href} prefetch={false} className={buttonClasses("secondary", "lg", false, "mt-3 self-start")}>
             {cta}
