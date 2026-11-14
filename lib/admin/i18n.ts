@@ -1,13 +1,17 @@
 /* ══════════════════════════════════════════════════════════════
    Admin — UI text (English + Modern Standard Arabic)
    ──────────────────────────────────────────────────────────────
-   Text for the admin screens added in the 2026-11 admin pass and
-   for the error keys returned by lib/actions/admin.ts. Older admin
-   text still lives in lib/i18n/dictionaries (dict.admin.*).
+   Text for the admin screens and for the error keys returned by
+   the admin server actions. The shell and operations screens
+   (overview, customers, reviews, newsletter, settings, team,
+   activity) live in ./i18n-ops.ts and are merged in here, so
+   getAdminText(locale) returns everything.
    ══════════════════════════════════════════════════════════════ */
 
 import type { OrderStatus, PaymentStatus } from "@/lib/types";
 import type { PaymentMethod } from "./orders";
+import { brand } from "@/lib/brand/config";
+import { opsAr, opsEn, type OpsText } from "./i18n-ops";
 
 const en = {
   nav: { messages: "Messages", promos: "Promo codes" },
@@ -263,9 +267,9 @@ const en = {
   bell: { title: "Notifications", unread: "{count} unread messages", none: "No new messages", open: "Open inbox" },
 };
 
-export type AdminText = typeof en;
+type BaseText = typeof en;
 
-const ar: AdminText = {
+const ar: BaseText = {
   nav: { messages: "الرسائل", promos: "رموز الخصم" },
   status: {
     pending: "قيد الانتظار",
@@ -517,8 +521,13 @@ const ar: AdminText = {
   bell: { title: "الإشعارات", unread: "{count} رسائل غير مقروءة", none: "لا توجد رسائل جديدة", open: "فتح الوارد" },
 };
 
+export type AdminText = BaseText & OpsText;
+
+const EN: AdminText = { ...en, ...opsEn };
+const AR: AdminText = { ...ar, ...opsAr };
+
 export function getAdminText(locale: string): AdminText {
-  return locale === "ar" ? ar : en;
+  return locale === "ar" ? AR : EN;
 }
 
 /** Replaces {name} placeholders. */
@@ -531,7 +540,27 @@ export function errorText(map: Record<string, string>, key: string | undefined):
   return (key && map[key]) || map.generic || "Something went wrong.";
 }
 
-export const numberLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-EG");
+/** Number/date locale: Arabic text with Western digits (as on the storefront), English (Egypt). */
+export const numberLocale = (locale: string) => (locale === "ar" ? "ar-EG-u-nu-latn" : "en-EG");
+
+/** Currency label of the store ("EGP" / "ج.م"). */
+export const currencyLabel = (locale: string) => (locale === "ar" ? brand.currency.label.ar : brand.currency.label.en);
+
+/** Whole-currency amount for KPIs and lists ("EGP 1,250" / "1,250 ج.م"). */
+export function formatAmount(value: number, locale: string, decimals = 0): string {
+  const n = value.toLocaleString(numberLocale(locale), { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return locale === "ar" ? `${n} ${currencyLabel(locale)}` : `${currencyLabel(locale)} ${n}`;
+}
+
+/** Plain integer with grouping, Western digits in both languages. */
+export const formatInt = (value: number, locale: string) => Math.round(value).toLocaleString(numberLocale(locale));
+
+/** "+12%" / "−8%" with Western digits. */
+export function formatPercent(fraction: number, locale: string): string {
+  const pct = Math.abs(fraction * 100);
+  const text = pct.toLocaleString(numberLocale(locale), { maximumFractionDigits: pct < 10 ? 1 : 0 });
+  return `${text}%`;
+}
 
 export function formatMoney(value: number, locale: string, currency: string): string {
   const n = value.toLocaleString(numberLocale(locale), { minimumFractionDigits: 2, maximumFractionDigits: 2 });

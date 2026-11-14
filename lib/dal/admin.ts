@@ -12,12 +12,27 @@ import "server-only";
    show — no order access tokens or other secrets.
    ══════════════════════════════════════════════════════════════ */
 
+import { cache } from "react";
 import { getAdminContext } from "@/lib/admin/auth";
+import { STORE_TIME_ZONE, fillDailySeries, periodRange, zonedMidnight, type DailyPoint, type KpiPeriod } from "@/lib/admin/kpi";
 import { isOrderStatus, isPaymentMethod, isPaymentStatus, toOrderState } from "@/lib/admin/orders";
 import { cleanSearchTerm, ilikeAny, phoneDigits } from "@/lib/admin/search";
 import type { PromoRow } from "@/lib/admin/promos";
 import type {
   AdminCategory,
+  AdminCustomerAddress,
+  AdminCustomerDetail,
+  AdminCustomerListItem,
+  AdminReview,
+  AuditEntry,
+  NewsletterSubscriber,
+  NewsletterView,
+  PeriodStats,
+  QueueCounts,
+  QuickSearchResults,
+  ReviewStatus,
+  TeamMember,
+  TopProduct,
   AdminContactMessage,
   AdminDashboardStats,
   AdminOrderDetail,
@@ -100,20 +115,44 @@ function orderSearchFilter(raw: string | undefined): string | null {
 /** The part of a PostgREST filter builder used by applyOrderFilters. */
 interface FilterBuilder {
   eq(column: string, value: string): FilterBuilder;
+  in(column: string, values: string[]): FilterBuilder;
   or(filters: string): FilterBuilder;
 }
 
+/** Work queues on the orders list (same definitions as admin_queue_counts() in the database). */
+export const ORDER_QUEUES = ["fulfil", "awaiting", "cash"] as const;
+export type OrderQueue = (typeof ORDER_QUEUES)[number];
+export const isOrderQueue = (v: unknown): v is OrderQueue =>
+  typeof v === "string" && (ORDER_QUEUES as readonly string[]).includes(v);
+
 /** Applies the order list filters (only known values; anything else is ignored). */
 function applyOrderFilters<Q>(query: Q, f: OrderFilters): Q {
-  // Supabase's builder types are too deep to constrain generically; it has eq/or.
+  // Supabase's builder types are too deep to constrain generically; it has eq/in/or.
   let q = query as unknown as FilterBuilder;
   const search = orderSearchFilter(f.search);
   if (search) q = q.or(search);
   if (isOrderStatus(f.status)) q = q.eq("status", f.status);
   if (isPaymentStatus(f.payment)) q = q.eq("payment_status", f.payment);
   if (isPaymentMethod(f.method)) q = q.eq("payment_method", f.method);
+  if (f.customer && GUID.test(f.customer)) q = q.eq("user_id", f.customer);
+  if (f.queue === "fulfil") {
+    q = q.in("status", ["pending", "confirmed", "processing"]).or("payment_status.eq.paid,payment_method.is.null,payment_method.eq.cod");
+  } else if (f.queue === "awaiting") {
+    q = q.eq("status", "pending").in("payment_method", ["card", "wallet"]).in("payment_status", ["unpaid", "failed"]);
+  } else if (f.queue === "cash") {
+    q = q.eq("payment_method", "cod").eq("payment_status", "unpaid").in("status", ["shipped", "delivered"]);
+  }
   return q as unknown as Q;
 }
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const ORDER_SORTS: Record<string, { column: string; ascending: boolean }> = {
+  newest: { column: "created_at", ascending: false },
+  oldest: { column: "created_at", ascending: true },
+  total_desc: { column: "total", ascending: false },
+  total_asc: { column: "total", ascending: true },
+};
 
 export async function getAllOrders({
   page = 1,
@@ -123,12 +162,14 @@ export async function getAllOrders({
   const ctx = await getAdminContext();
   if (!ctx) return { orders: [], count: 0, totalPages: 0 };
   const offset = (clampPage(page) - 1) * pageSize;
+  const sort = ORDER_SORTS[filters.sort ?? ""] ?? ORDER_SORTS.newest;
 
   const query = applyOrderFilters(
     ctx.supabase.from("orders").select(ORDER_LIST_COLUMNS, { count: "exact" }),
     filters,
   );
   const { data, count, error } = await query
+    .order(sort.column, { ascending: sort.ascending })
     .order("created_at", { ascending: false })
     .range(offset, offset + pageSize - 1);
 
@@ -208,6 +249,7 @@ export async function getOrderForAdmin(id: string): Promise<AdminOrderDetail | n
     paymob_order_id: row.paymob_order_id,
     stock_released: Boolean(row.stock_released),
     has_account: Boolean(row.user_id),
+    customer_id: row.user_id,
     items: (row.items ?? [])
       .slice()
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
@@ -301,13 +343,16 @@ const EMPTY_STATS: AdminDashboardStats = {
   lowStockCount: 0,
 };
 
-export async function getLowStockVariants(limit = 8): Promise<{ items: LowStockVariant[]; count: number }> {
+export async function getLowStockVariants(
+  limit = 8,
+  threshold = LOW_STOCK_THRESHOLD,
+): Promise<{ items: LowStockVariant[]; count: number }> {
   const ctx = await getAdminContext();
   if (!ctx) return { items: [], count: 0 };
   const { data, count, error } = await ctx.supabase
     .from("product_variants")
     .select("id, sku, size, color_en, stock, product:products(id, name_en, name_ar, is_active)", { count: "exact" })
-    .lte("stock", LOW_STOCK_THRESHOLD)
+    .lte("stock", threshold)
     .order("stock", { ascending: true })
     .order("sku", { ascending: true })
     .limit(limit);
@@ -578,4 +623,665 @@ export async function getPromoCodes(): Promise<PromoRow[]> {
     discount_value: num(p.discount_value),
     min_order_amount: p.min_order_amount == null ? null : num(p.min_order_amount),
   }));
+}
+
+/* ══ Operations: queues, KPIs, customers, engagement, team, activity ══ */
+
+const EMPTY_QUEUES: QueueCounts = {
+  toFulfil: 0,
+  awaitingPayment: 0,
+  cashToCollect: 0,
+  lowStock: 0,
+  pendingReviews: 0,
+  unreadMessages: 0,
+  lowStockThreshold: LOW_STOCK_THRESHOLD,
+};
+
+/** Work queues for the dashboard and the sidebar counters (one query, cached per request). */
+export const getQueueCounts = cache(async (): Promise<QueueCounts> => {
+  const ctx = await getAdminContext();
+  if (!ctx) return EMPTY_QUEUES;
+  const { data, error } = await ctx.supabase.rpc("admin_queue_counts").maybeSingle();
+  if (error || !data) {
+    if (error) console.error("[getQueueCounts]", error.message);
+    return EMPTY_QUEUES;
+  }
+  const r = data as Record<string, unknown>;
+  return {
+    toFulfil: num(r.to_fulfil),
+    awaitingPayment: num(r.awaiting_payment),
+    cashToCollect: num(r.cash_to_collect),
+    lowStock: num(r.low_stock),
+    pendingReviews: num(r.pending_reviews),
+    unreadMessages: num(r.unread_messages),
+    lowStockThreshold: num(r.low_stock_threshold),
+  };
+});
+
+const EMPTY_PERIOD: PeriodStats = { orders: 0, revenue: 0, revenueOrders: 0, newCustomers: 0 };
+
+async function getPeriodStats(from: Date, to: Date): Promise<PeriodStats> {
+  const ctx = await getAdminContext();
+  if (!ctx) return EMPTY_PERIOD;
+  const { data, error } = await ctx.supabase
+    .rpc("admin_period_stats", { p_from: from.toISOString(), p_to: to.toISOString() })
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error("[getPeriodStats]", error.message);
+    return EMPTY_PERIOD;
+  }
+  const r = data as Record<string, unknown>;
+  return { orders: num(r.orders), revenue: num(r.revenue), revenueOrders: num(r.revenue_orders), newCustomers: num(r.new_customers) };
+}
+
+export interface KpiSnapshot {
+  period: KpiPeriod;
+  current: PeriodStats;
+  previous: PeriodStats;
+}
+
+/** KPIs for a period and the period before it (store time zone). */
+export async function getKpis(period: KpiPeriod, now: Date = new Date()): Promise<KpiSnapshot> {
+  const range = periodRange(period, now, STORE_TIME_ZONE);
+  const [current, previous] = await Promise.all([getPeriodStats(range.from, range.to), getPeriodStats(range.prevFrom, range.prevTo)]);
+  return { period, current, previous };
+}
+
+/** Revenue and orders per day for the last `days` days, oldest first, no gaps. */
+export async function getDailyRevenue(days = 30): Promise<DailyPoint[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return fillDailySeries([], days);
+  const { data, error } = await ctx.supabase.rpc("admin_daily_revenue", { p_days: days, p_tz: STORE_TIME_ZONE });
+  if (error) console.error("[getDailyRevenue]", error.message);
+  const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    day: String(r.day),
+    revenue: num(r.revenue),
+    orders: num(r.orders),
+  }));
+  return fillDailySeries(rows, days);
+}
+
+/** Best sellers by units over a KPI period (default: the last 30 days). */
+export async function getTopProducts(period: KpiPeriod = "30d", limit = 5): Promise<TopProduct[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const range = periodRange(period);
+  const { data, error } = await ctx.supabase.rpc("admin_top_products", {
+    p_from: range.from.toISOString(),
+    p_to: range.to.toISOString(),
+    p_limit: limit,
+  });
+  if (error) console.error("[getTopProducts]", error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    productId: (r.product_id as string | null) ?? null,
+    nameEn: String(r.name_en ?? ""),
+    nameAr: String(r.name_ar ?? r.name_en ?? ""),
+    slug: (r.slug as string | null) ?? null,
+    imageUrl: (r.image_url as string | null) ?? null,
+    units: num(r.units),
+    revenue: num(r.revenue),
+  }));
+}
+
+export async function getRecentOrders(limit = 6): Promise<AdminOrderListItem[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const { data, error } = await ctx.supabase
+    .from("orders")
+    .select(ORDER_LIST_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) console.error("[getRecentOrders]", error.message);
+  return ((data ?? []) as unknown as OrderListRow[]).map(toOrderListItem);
+}
+
+/* ── Audit log: order timeline and the activity viewer ────────── */
+
+type AuditRow = {
+  id: number;
+  created_at: string;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  data: Record<string, unknown> | null;
+  actor_id: string | null;
+  actor: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null;
+};
+
+const AUDIT_COLUMNS = "id, created_at, action, entity, entity_id, data, actor_id, actor:profiles(id, full_name)";
+
+/** E-mail + last sign-in for profile ids (admins only; e-mail lives in the auth schema). */
+async function profileEmails(ids: string[]): Promise<Map<string, { email: string | null; lastSignInAt: string | null }>> {
+  const out = new Map<string, { email: string | null; lastSignInAt: string | null }>();
+  const unique = [...new Set(ids.filter(Boolean))].slice(0, 500);
+  if (!unique.length) return out;
+  const ctx = await getAdminContext();
+  if (!ctx) return out;
+  const { data, error } = await ctx.supabase.rpc("admin_profile_emails", { p_ids: unique });
+  if (error) console.error("[profileEmails]", error.message);
+  for (const r of (data ?? []) as { profile_id: string; email: string | null; last_sign_in_at: string | null }[]) {
+    out.set(r.profile_id, { email: r.email, lastSignInAt: r.last_sign_in_at });
+  }
+  return out;
+}
+
+async function toAuditEntries(rows: AuditRow[]): Promise<AuditEntry[]> {
+  const emails = await profileEmails(rows.map((r) => r.actor_id ?? ""));
+  return rows.map((r) => {
+    const actor = one(r.actor);
+    return {
+      id: r.id,
+      createdAt: r.created_at,
+      action: r.action,
+      entity: r.entity,
+      entityId: r.entity_id,
+      data: r.data && typeof r.data === "object" ? r.data : {},
+      actor: actor ? { id: actor.id, name: actor.full_name, email: emails.get(actor.id)?.email ?? null } : null,
+    };
+  });
+}
+
+/** What admins did to one order, oldest first. */
+export async function getOrderTimeline(orderId: string): Promise<AuditEntry[]> {
+  const ctx = await getAdminContext();
+  if (!ctx || !GUID.test(orderId)) return [];
+  const { data, error } = await ctx.supabase
+    .from("audit_log")
+    .select(AUDIT_COLUMNS)
+    .eq("entity", "orders")
+    .eq("entity_id", orderId)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) console.error("[getOrderTimeline]", error.message);
+  return toAuditEntries((data ?? []) as unknown as AuditRow[]);
+}
+
+export interface AuditFilters {
+  entity?: string;
+  actor?: string;
+  from?: string; // YYYY-MM-DD (store time)
+  to?: string; // YYYY-MM-DD (store time), inclusive
+}
+
+const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Local midnight (store time) at the start of a YYYY-MM-DD day (+ addDays), as ISO; null if invalid. */
+function dayStart(ymd: string | undefined, addDays = 0): string | null {
+  const m = ymd ? YMD.exec(ymd) : null;
+  if (!m) return null;
+  const date = zonedMidnight(Number(m[1]), Number(m[2]), Number(m[3]) + addDays, STORE_TIME_ZONE);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+export async function getAuditLog({
+  page = 1,
+  pageSize = 30,
+  ...f
+}: AuditFilters & Partial<PaginationParams>): Promise<{ entries: AuditEntry[]; count: number; totalPages: number }> {
+  const ctx = await getAdminContext();
+  if (!ctx) return { entries: [], count: 0, totalPages: 0 };
+  const offset = (clampPage(page) - 1) * pageSize;
+
+  let query = ctx.supabase.from("audit_log").select(AUDIT_COLUMNS, { count: "exact" });
+  if (f.entity && /^[a-z_]{1,40}$/.test(f.entity)) query = query.eq("entity", f.entity);
+  if (f.actor && GUID.test(f.actor)) query = query.eq("actor_id", f.actor);
+  const from = dayStart(f.from);
+  const to = dayStart(f.to, 1);
+  if (from) query = query.gte("created_at", from);
+  if (to) query = query.lt("created_at", to);
+
+  const { data, count, error } = await query
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(offset, offset + pageSize - 1);
+  if (error) {
+    console.error("[getAuditLog]", error.message);
+    return { entries: [], count: 0, totalPages: 0 };
+  }
+  return {
+    entries: await toAuditEntries((data ?? []) as unknown as AuditRow[]),
+    count: count ?? 0,
+    totalPages: count ? Math.ceil(count / pageSize) : 0,
+  };
+}
+
+/* ── Customers ────────────────────────────────────────────────── */
+
+export const CUSTOMER_SORTS = ["joined", "name", "email", "orders", "spent", "last_order"] as const;
+export type CustomerSort = (typeof CUSTOMER_SORTS)[number];
+export const isCustomerSort = (v: unknown): v is CustomerSort =>
+  typeof v === "string" && (CUSTOMER_SORTS as readonly string[]).includes(v);
+
+type CustomerRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  joined_at: string | null;
+  last_sign_in_at: string | null;
+  orders_count: number | string | null;
+  total_spent: number | string | null;
+  last_order_at: string | null;
+  total_count: number | string | null;
+};
+
+const toCustomer = (r: CustomerRow): AdminCustomerListItem => ({
+  id: r.id,
+  name: r.full_name,
+  email: r.email,
+  phone: r.phone,
+  joinedAt: r.joined_at,
+  lastSignInAt: r.last_sign_in_at,
+  ordersCount: num(r.orders_count),
+  totalSpent: num(r.total_spent),
+  lastOrderAt: r.last_order_at,
+});
+
+export interface CustomerQuery {
+  search?: string;
+  sort?: string;
+  dir?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function getCustomers({
+  search,
+  sort,
+  dir,
+  page = 1,
+  pageSize = 25,
+}: CustomerQuery): Promise<{ customers: AdminCustomerListItem[]; count: number; totalPages: number }> {
+  const ctx = await getAdminContext();
+  if (!ctx) return { customers: [], count: 0, totalPages: 0 };
+  const term = cleanSearchTerm(search);
+  const { data, error } = await ctx.supabase.rpc("admin_customers", {
+    p_search: term || null,
+    p_digits: term ? phoneDigits(term) : null,
+    p_sort: isCustomerSort(sort) ? sort : "joined",
+    p_desc: dir !== "asc",
+    p_limit: pageSize,
+    p_offset: (clampPage(page) - 1) * pageSize,
+  });
+  if (error) {
+    console.error("[getCustomers]", error.message);
+    return { customers: [], count: 0, totalPages: 0 };
+  }
+  const rows = (data ?? []) as CustomerRow[];
+  const count = rows.length ? num(rows[0].total_count) : 0;
+  return { customers: rows.map(toCustomer), count, totalPages: Math.ceil(count / pageSize) };
+}
+
+/** Every customer matching the search (up to 10 000), for CSV export. */
+export async function getCustomersForExport(search?: string): Promise<AdminCustomerListItem[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const term = cleanSearchTerm(search);
+  const out: AdminCustomerListItem[] = [];
+  for (let offset = 0; offset < 10_000; offset += 1000) {
+    const { data, error } = await ctx.supabase.rpc("admin_customers", {
+      p_search: term || null,
+      p_digits: term ? phoneDigits(term) : null,
+      p_sort: "joined",
+      p_desc: true,
+      p_limit: 1000,
+      p_offset: offset,
+    });
+    if (error) {
+      console.error("[getCustomersForExport]", error.message);
+      break;
+    }
+    const rows = (data ?? []) as CustomerRow[];
+    out.push(...rows.map(toCustomer));
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
+type AddressJson = Partial<Record<"governorate" | "city" | "address" | "apartment" | "postalCode", unknown>>;
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
+
+export async function getCustomerDetail(id: string): Promise<AdminCustomerDetail | null> {
+  const ctx = await getAdminContext();
+  if (!ctx || !GUID.test(id)) return null;
+
+  const [summary, profile, book, orders] = await Promise.all([
+    ctx.supabase.rpc("admin_customers", { p_id: id, p_limit: 1 }),
+    ctx.supabase.from("profiles").select("id, country, city, default_address").eq("id", id).maybeSingle(),
+    ctx.supabase
+      .from("user_addresses")
+      .select("id, label, full_name, phone, governorate, city, address, apartment, postal_code, is_default, created_at")
+      .eq("user_id", id)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: false }),
+    ctx.supabase.from("orders").select(ORDER_LIST_COLUMNS).eq("user_id", id).order("created_at", { ascending: false }).limit(100),
+  ]);
+  for (const r of [summary, profile, book, orders]) if (r.error) console.error("[getCustomerDetail]", r.error.message);
+
+  const row = ((summary.data ?? []) as CustomerRow[])[0];
+  if (!row || !profile.data) return null;
+
+  type BookRow = {
+    id: string;
+    label: string | null;
+    full_name: string | null;
+    phone: string | null;
+    governorate: string | null;
+    city: string | null;
+    address: string | null;
+    apartment: string | null;
+    postal_code: string | null;
+    is_default: boolean | null;
+  };
+  const addresses: AdminCustomerAddress[] = ((book.data ?? []) as BookRow[]).map((a) => ({
+    id: a.id,
+    label: a.label,
+    fullName: a.full_name,
+    phone: a.phone,
+    governorate: a.governorate,
+    city: a.city,
+    address: a.address,
+    apartment: a.apartment,
+    postalCode: a.postal_code,
+    isDefault: Boolean(a.is_default),
+    source: "book",
+  }));
+  const saved = profile.data.default_address as AddressJson | null;
+  if (saved && typeof saved === "object" && textOrNull(saved.address)) {
+    addresses.push({
+      id: "checkout",
+      label: null,
+      fullName: row.full_name,
+      phone: row.phone,
+      governorate: textOrNull(saved.governorate),
+      city: textOrNull(saved.city),
+      address: textOrNull(saved.address),
+      apartment: textOrNull(saved.apartment),
+      postalCode: textOrNull(saved.postalCode),
+      isDefault: addresses.length === 0,
+      source: "checkout",
+    });
+  }
+
+  return {
+    ...toCustomer(row),
+    country: (profile.data.country as string | null) ?? null,
+    city: (profile.data.city as string | null) ?? null,
+    addresses,
+    orders: ((orders.data ?? []) as unknown as OrderListRow[]).map(toOrderListItem),
+  };
+}
+
+/* ── Reviews ──────────────────────────────────────────────────── */
+
+export const REVIEW_STATUSES: readonly ReviewStatus[] = ["pending", "approved", "rejected"];
+export const isReviewStatus = (v: unknown): v is ReviewStatus =>
+  typeof v === "string" && (REVIEW_STATUSES as readonly string[]).includes(v);
+
+export async function getReviews({
+  status = "pending",
+  page = 1,
+  pageSize = 20,
+}: { status?: ReviewStatus } & Partial<PaginationParams>): Promise<{
+  reviews: AdminReview[];
+  count: number;
+  totalPages: number;
+  counts: Record<ReviewStatus, number>;
+}> {
+  const empty = { reviews: [], count: 0, totalPages: 0, counts: { pending: 0, approved: 0, rejected: 0 } };
+  const ctx = await getAdminContext();
+  if (!ctx) return empty;
+  const offset = (clampPage(page) - 1) * pageSize;
+
+  const countOf = (s: ReviewStatus) => ctx.supabase.from("reviews").select("id", { count: "exact", head: true }).eq("status", s);
+  const [list, ...counts] = await Promise.all([
+    ctx.supabase
+      .from("reviews")
+      .select(
+        `id, status, rating, title, comment, is_verified, created_at,
+         author:profiles(id, full_name),
+         product:products(id, name_en, name_ar, slug, images:product_images(url, is_primary, sort_order))`,
+        { count: "exact" },
+      )
+      .eq("status", status)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + pageSize - 1),
+    ...REVIEW_STATUSES.map(countOf),
+  ]);
+  if (list.error) {
+    console.error("[getReviews]", list.error.message);
+    return empty;
+  }
+
+  type Img = { url: string; is_primary: boolean | null; sort_order: number | null };
+  type ProductRow = { id: string; name_en: string; name_ar: string; slug: string; images: Img[] | null };
+  type Row = {
+    id: string;
+    status: string;
+    rating: number;
+    title: string | null;
+    comment: string | null;
+    is_verified: boolean | null;
+    created_at: string;
+    author: { id: string; full_name: string | null } | { id: string; full_name: string | null }[] | null;
+    product: ProductRow | ProductRow[] | null;
+  };
+  const reviews = ((list.data ?? []) as unknown as Row[]).map((r): AdminReview => {
+    const author = one(r.author);
+    const product = one(r.product);
+    const image = (product?.images ?? [])
+      .slice()
+      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
+    return {
+      id: r.id,
+      status: isReviewStatus(r.status) ? r.status : "pending",
+      rating: r.rating,
+      title: r.title,
+      comment: r.comment,
+      isVerified: Boolean(r.is_verified),
+      createdAt: r.created_at,
+      author: author ? { id: author.id, name: author.full_name } : null,
+      product: product
+        ? { id: product.id, nameEn: product.name_en, nameAr: product.name_ar, slug: product.slug, imageUrl: image?.url ?? null }
+        : null,
+    };
+  });
+  const [pending, approved, rejected] = counts.map((c) => c.count ?? 0);
+  return {
+    reviews,
+    count: list.count ?? 0,
+    totalPages: list.count ? Math.ceil(list.count / pageSize) : 0,
+    counts: { pending, approved, rejected },
+  };
+}
+
+/* ── Newsletter ───────────────────────────────────────────────── */
+
+const NEWSLETTER_COLUMNS = "id, email, locale, source, created_at, unsubscribed_at";
+type NewsletterRow = {
+  id: string;
+  email: string;
+  locale: string | null;
+  source: string | null;
+  created_at: string;
+  unsubscribed_at: string | null;
+};
+const toSubscriber = (r: NewsletterRow): NewsletterSubscriber => ({
+  id: r.id,
+  email: r.email,
+  locale: r.locale === "ar" ? "ar" : "en",
+  source: r.source,
+  createdAt: r.created_at,
+  unsubscribedAt: r.unsubscribed_at,
+});
+
+interface NewsletterFilter {
+  is(column: string, value: null): NewsletterFilter;
+  not(column: string, op: string, value: null): NewsletterFilter;
+  ilike(column: string, pattern: string): NewsletterFilter;
+}
+
+function applyNewsletterFilters<Q>(query: Q, view: NewsletterView, search?: string): Q {
+  let q = query as unknown as NewsletterFilter;
+  if (view === "subscribed") q = q.is("unsubscribed_at", null);
+  if (view === "unsubscribed") q = q.not("unsubscribed_at", "is", null);
+  const term = cleanSearchTerm(search);
+  if (term) q = q.ilike("email", `%${term.replace(/[%_\\]/g, "\\$&")}%`);
+  return q as unknown as Q;
+}
+
+export async function getNewsletterSubscribers({
+  view = "subscribed",
+  search,
+  page = 1,
+  pageSize = 30,
+}: { view?: NewsletterView; search?: string } & Partial<PaginationParams>): Promise<{
+  subscribers: NewsletterSubscriber[];
+  count: number;
+  totalPages: number;
+  active: number;
+}> {
+  const ctx = await getAdminContext();
+  if (!ctx) return { subscribers: [], count: 0, totalPages: 0, active: 0 };
+  const offset = (clampPage(page) - 1) * pageSize;
+  const [list, active] = await Promise.all([
+    applyNewsletterFilters(ctx.supabase.from("newsletter_subscribers").select(NEWSLETTER_COLUMNS, { count: "exact" }), view, search)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + pageSize - 1),
+    ctx.supabase.from("newsletter_subscribers").select("id", { count: "exact", head: true }).is("unsubscribed_at", null),
+  ]);
+  if (list.error) console.error("[getNewsletterSubscribers]", list.error.message);
+  return {
+    subscribers: ((list.data ?? []) as NewsletterRow[]).map(toSubscriber),
+    count: list.count ?? 0,
+    totalPages: list.count ? Math.ceil(list.count / pageSize) : 0,
+    active: active.count ?? 0,
+  };
+}
+
+export async function getNewsletterForExport(view: NewsletterView, search?: string): Promise<NewsletterSubscriber[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const out: NewsletterSubscriber[] = [];
+  for (let offset = 0; offset < 50_000; offset += 1000) {
+    const { data, error } = await applyNewsletterFilters(ctx.supabase.from("newsletter_subscribers").select(NEWSLETTER_COLUMNS), view, search)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + 999);
+    if (error) {
+      console.error("[getNewsletterForExport]", error.message);
+      break;
+    }
+    out.push(...((data ?? []) as NewsletterRow[]).map(toSubscriber));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+/* ── Team ─────────────────────────────────────────────────────── */
+
+export async function getTeam(): Promise<TeamMember[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const { data, error } = await ctx.supabase
+    .from("profiles")
+    .select("id, full_name, role, created_at, auth_user_id")
+    .in("role", ["super_admin", "admin"])
+    .order("created_at", { ascending: true });
+  if (error) console.error("[getTeam]", error.message);
+  type Row = { id: string; full_name: string | null; role: string; created_at: string | null; auth_user_id: string | null };
+  const rows = (data ?? []) as Row[];
+  const emails = await profileEmails(rows.map((r) => r.id));
+  return rows
+    .map(
+      (r): TeamMember => ({
+        id: r.id,
+        name: r.full_name,
+        email: emails.get(r.id)?.email ?? null,
+        role: r.role === "super_admin" ? "super_admin" : "admin",
+        joinedAt: r.created_at,
+        lastSignInAt: emails.get(r.id)?.lastSignInAt ?? null,
+        hasAccount: Boolean(r.auth_user_id),
+      }),
+    )
+    .sort((a, b) => (a.role === b.role ? 0 : a.role === "super_admin" ? -1 : 1));
+}
+
+/* ── Quick search (top bar) ───────────────────────────────────── */
+
+export async function quickSearch(raw: string): Promise<QuickSearchResults> {
+  const empty: QuickSearchResults = { orders: [], customers: [], products: [] };
+  const ctx = await getAdminContext();
+  const term = cleanSearchTerm(raw);
+  if (!ctx || term.length < 2) return empty;
+
+  const orderFilter = orderSearchFilter(term);
+  const [orders, customers, products] = await Promise.all([
+    orderFilter
+      ? ctx.supabase.from("orders").select(ORDER_LIST_COLUMNS).or(orderFilter).order("created_at", { ascending: false }).limit(5)
+      : Promise.resolve({ data: [], error: null }),
+    ctx.supabase.rpc("admin_customers", { p_search: term, p_digits: phoneDigits(term), p_sort: "last_order", p_limit: 5 }),
+    ctx.supabase
+      .from("products")
+      .select("id, name_en, name_ar, slug, is_active")
+      .or(ilikeAny(["name_en", "name_ar", "slug"], term))
+      .order("is_active", { ascending: false })
+      .limit(5),
+  ]);
+  for (const r of [orders, customers, products]) if (r.error) console.error("[quickSearch]", r.error.message);
+
+  return {
+    orders: ((orders.data ?? []) as unknown as OrderListRow[]).map((r) => {
+      const o = toOrderListItem(r);
+      return { id: o.id, orderNumber: o.order_number, customer: o.customer_name, total: o.total, status: o.status };
+    }),
+    customers: ((customers.data ?? []) as CustomerRow[]).map((c) => ({ id: c.id, name: c.full_name, email: c.email, phone: c.phone })),
+    products: ((products.data ?? []) as { id: string; name_en: string; name_ar: string; slug: string; is_active: boolean | null }[]).map(
+      (p) => ({ id: p.id, nameEn: p.name_en, nameAr: p.name_ar, slug: p.slug, active: p.is_active !== false }),
+    ),
+  };
+}
+
+/* ── Low stock for the dashboard (live products, threshold from settings) ── */
+
+export async function getLowStockLive(limit: number, threshold: number): Promise<LowStockVariant[]> {
+  const ctx = await getAdminContext();
+  if (!ctx) return [];
+  const { data, error } = await ctx.supabase
+    .from("product_variants")
+    .select("id, sku, size, color_en, stock, product:products!inner(id, name_en, name_ar, is_active)")
+    .lte("stock", threshold)
+    .eq("product.is_active", true)
+    .order("stock", { ascending: true })
+    .order("sku", { ascending: true })
+    .limit(limit);
+  if (error) console.error("[getLowStockLive]", error.message);
+  type P = { id: string; name_en: string; name_ar: string; is_active: boolean | null };
+  type Row = { id: string; sku: string; size: string | null; color_en: string | null; stock: number | null; product: P | P[] | null };
+  return ((data ?? []) as unknown as Row[]).flatMap((r) => {
+    const p = one(r.product);
+    return p
+      ? [
+          {
+            id: r.id,
+            sku: r.sku,
+            size: r.size,
+            color_en: r.color_en,
+            stock: r.stock ?? 0,
+            product_id: p.id,
+            product_name_en: p.name_en,
+            product_name_ar: p.name_ar,
+            product_active: p.is_active !== false,
+          },
+        ]
+      : [];
+  });
+}
+
+/** Display name of the signed-in admin (top bar). */
+export async function getAdminProfileName(): Promise<string | null> {
+  const ctx = await getAdminContext();
+  if (!ctx) return null;
+  const { data } = await ctx.supabase.from("profiles").select("full_name").eq("id", ctx.profileId).maybeSingle();
+  const name = (data?.full_name as string | null | undefined)?.trim();
+  return name || null;
 }

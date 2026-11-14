@@ -1,226 +1,227 @@
 /* ══════════════════════════════════════════════════════════════
-   Admin Orders — /admin/orders
+   Admin orders — /admin/orders
    ──────────────────────────────────────────────────────────────
-   Orders with status, payment method and payment status; filters
-   for all three, search by order number / name / email / phone,
-   CSV export of the filtered list, and per-order actions.
+   Work-queue tabs (to fulfil, awaiting payment, cash to collect),
+   search by order number / name / email / phone, filters for
+   status, payment and method, sortable date and total, CSV export
+   of the filtered list, and per-order actions (rules in
+   lib/admin/orders.ts, re-checked by the server action).
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { Search, X } from "lucide-react";
-import { getAllOrders, clampPage } from "@/lib/dal/admin";
+import { ShoppingBag } from "lucide-react";
+import { getAllOrders, clampPage, isOrderQueue } from "@/lib/dal/admin";
 import { getAllOrdersForExport } from "@/lib/actions/admin";
-import { APP_NAME } from "@/lib/constants";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import { Locale } from "@/lib/types";
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES, type OrderState } from "@/lib/admin/orders";
-import { fill, formatDateTime, formatMoney, getAdminText } from "@/lib/admin/i18n";
-import type { OrderFilters } from "@/lib/admin/types";
-import { ExportCsvButton } from "../components/ExportCsvButton";
-import { AdminSearchInput } from "../components/AdminSearchInput";
+import { fill, formatAmount, formatDateTime, formatInt, getAdminText } from "@/lib/admin/i18n";
+import type { AdminOrderListItem, OrderFilters } from "@/lib/admin/types";
+import { getLocale } from "@/lib/i18n/server";
+import { GOVERNORATES } from "@/lib/store/useCheckoutStore";
 import { AdminFilterDropdown } from "../components/AdminFilterDropdown";
 import { AdminPagination } from "../components/AdminPagination";
+import { AdminSearchInput } from "../components/AdminSearchInput";
+import { DataTable, type SortDir } from "../components/DataTable";
+import { ExportCsvButton } from "../components/ExportCsvButton";
 import { OrderActionsDropdown } from "../components/OrderActionsDropdown";
 import { OrderStatusBadge, PaymentMethodBadge, PaymentStatusBadge } from "../components/StatusBadges";
+import { AdminEmptyState, FilterBar, PageHeader, Panel, TabsNav } from "../components/ui";
+import { adminButton } from "../components/buttons";
 
-export const metadata: Metadata = {
-  title: `Orders | ${APP_NAME} Admin`,
-};
+export const metadata: Metadata = { title: "Orders" };
 
-type SP = { page?: string; search?: string; status?: string; payment?: string; method?: string };
+type SP = { page?: string; search?: string; status?: string; payment?: string; method?: string; queue?: string; sort?: string };
+const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 const pickState = (o: OrderState): OrderState => ({ status: o.status, payment_status: o.payment_status, payment_method: o.payment_method });
-const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+const PAGE_SIZE = 20;
 
 export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en") as Locale;
-  const dict = await getDictionary(locale);
+  const [sp, locale] = await Promise.all([searchParams, getLocale()]);
   const t = getAdminText(locale);
-  const currency = dict.common?.currency || "EGP";
-
-  const sp = await searchParams;
+  const L = t.orderList;
   const currentPage = clampPage(sp.page);
+  const queue = isOrderQueue(sp.queue) ? sp.queue : undefined;
+  const sort = ["newest", "oldest", "total_desc", "total_asc"].includes(sp.sort ?? "") ? (sp.sort as string) : "newest";
   const filters: OrderFilters = {
     search: str(sp.search),
     status: str(sp.status),
     payment: str(sp.payment),
     method: str(sp.method),
+    queue,
+    sort,
   };
   const hasFilters = Boolean(filters.search || filters.status || filters.payment || filters.method);
 
-  const { orders, totalPages, count } = await getAllOrders({ page: currentPage, pageSize: 10, ...filters });
+  const { orders, totalPages, count } = await getAllOrders({ page: currentPage, pageSize: PAGE_SIZE, ...filters });
   const exportOrders = getAllOrdersForExport.bind(null, filters);
 
+  const qs = (patch: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    const merged = { search: filters.search, status: filters.status, payment: filters.payment, method: filters.method, queue, sort: sort === "newest" ? undefined : sort, ...patch };
+    for (const [k, v] of Object.entries(merged)) if (v) params.set(k, v);
+    const s = params.toString();
+    return `/admin/orders${s ? `?${s}` : ""}`;
+  };
+  const sortState = {
+    key: sort.startsWith("total") ? "total" : "date",
+    dir: (sort === "oldest" || sort === "total_asc" ? "asc" : "desc") as SortDir,
+    href: (key: string, dir: SortDir) => qs({ sort: key === "total" ? (dir === "asc" ? "total_asc" : "total_desc") : dir === "asc" ? "oldest" : undefined }),
+    sortLabel: t.common.sortBy,
+  };
+  const govName = (key: string | null) => {
+    const g = GOVERNORATES.find((x) => x.value === key);
+    return g ? (locale === "ar" ? g.ar : g.en) : key;
+  };
+
+  const tabs = [
+    { href: qs({ queue: undefined }), label: L.tabs.all, current: !queue },
+    { href: qs({ queue: "fulfil" }), label: L.tabs.fulfil, current: queue === "fulfil" },
+    { href: qs({ queue: "awaiting" }), label: L.tabs.awaiting, current: queue === "awaiting" },
+    { href: qs({ queue: "cash" }), label: L.tabs.cash, current: queue === "cash" },
+  ];
+
+  const customerCell = (o: AdminOrderListItem) => (
+    <div className="min-w-0 max-w-64">
+      <p className="truncate text-text-primary">{o.customer_name || t.orders.guest}</p>
+      <p className="truncate text-[0.75rem] text-text-muted" dir="ltr">
+        {o.email || o.phone || t.orders.noEmail}
+      </p>
+    </div>
+  );
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mb-1.5">
-            {dict.admin?.orders?.title || "Orders"}
-          </h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">
-            {(dict.admin?.orders?.description || "Manage your store's orders ({count} total).").replace("{count}", count.toString())}
-          </p>
-        </div>
-        <ExportCsvButton
-          fetchData={exportOrders}
-          filename="orders"
-          locale={locale}
-          label={dict.admin?.orders?.exportCsv || "Export CSV"}
-          className="w-full sm:w-auto"
-        />
-      </div>
+    <>
+      <PageHeader
+        title={L.title}
+        description={fill(L.description, { count: formatInt(count, locale) })}
+        actions={<ExportCsvButton fetchData={exportOrders} filename="orders" locale={locale} label={t.common.exportCsv} />}
+      />
 
-      {/* ── Filters & Search Bar ───────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-2 shadow-sm flex flex-col lg:flex-row lg:items-center gap-2">
-        <AdminSearchInput placeholder={t.filters.search} />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:ms-auto">
-          <AdminFilterDropdown
-            param="status"
-            options={ORDER_STATUSES.map((s) => ({ value: s, label: t.status[s] }))}
-            defaultLabel={t.filters.allStatuses}
-          />
-          <AdminFilterDropdown
-            param="payment"
-            options={PAYMENT_STATUSES.map((s) => ({ value: s, label: t.payment[s] }))}
-            defaultLabel={t.filters.allPayments}
-          />
-          <AdminFilterDropdown
-            param="method"
-            options={PAYMENT_METHODS.map((m) => ({ value: m, label: t.method[m] }))}
-            defaultLabel={t.filters.allMethods}
-          />
-        </div>
-        {hasFilters && (
-          <Link
-            href="/admin/orders"
-            className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
-          >
-            <X size={14} /> {t.filters.clear}
-          </Link>
-        )}
-      </div>
+      <TabsNav label={L.title} tabs={tabs} className="mb-4" />
 
-      {/* ── Orders ─────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm">
+      <FilterBar
+        end={
+          hasFilters ? (
+            <Link href={qs({ search: undefined, status: undefined, payment: undefined, method: undefined })} className="hover:text-text-primary">
+              {t.common.clearFilters}
+            </Link>
+          ) : null
+        }
+      >
+        <AdminSearchInput placeholder={t.filters.search} className="sm:w-96" />
+        <AdminFilterDropdown param="status" options={ORDER_STATUSES.map((s) => ({ value: s, label: t.status[s] }))} defaultLabel={t.filters.allStatuses} />
+        <AdminFilterDropdown param="payment" options={PAYMENT_STATUSES.map((s) => ({ value: s, label: t.payment[s] }))} defaultLabel={t.filters.allPayments} />
+        <AdminFilterDropdown param="method" options={PAYMENT_METHODS.map((m) => ({ value: m, label: t.method[m] }))} defaultLabel={t.filters.allMethods} />
+      </FilterBar>
+
+      <Panel padded={false}>
         {orders.length === 0 ? (
-          <div className="p-16 text-center flex flex-col items-center justify-center">
-            <div className="w-20 h-20 bg-zinc-50 dark:bg-zinc-800/50 rounded-full flex items-center justify-center mb-5 ring-8 ring-zinc-50/50 dark:ring-zinc-800/20">
-              <Search size={28} className="text-zinc-400" />
-            </div>
-            <h3 className="text-base font-semibold text-zinc-900 dark:text-white mb-1">
-              {dict.admin?.orders?.noOrdersFound || "No orders found"}
-            </h3>
-            <p className="text-zinc-500 text-sm max-w-sm mx-auto">
-              {dict.admin?.orders?.noOrdersDesc || "Try adjusting your search or filters to find what you're looking for."}
-            </p>
-          </div>
+          hasFilters || queue ? (
+            <AdminEmptyState
+              icon={<ShoppingBag />}
+              title={L.emptyTitle}
+              body={L.emptyBody}
+              action={
+                <Link href="/admin/orders" className={adminButton("outline", "sm")}>
+                  {t.common.clearFilters}
+                </Link>
+              }
+            />
+          ) : (
+            <AdminEmptyState icon={<ShoppingBag />} title={L.emptyAllTitle} body={L.emptyAllBody} />
+          )
         ) : (
           <>
-            {/* Phones: one card per order */}
-            <ul className="md:hidden divide-y divide-zinc-200 dark:divide-zinc-800/80">
-              {orders.map((order) => (
-                <li key={order.id} className="p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/admin/orders/${order.id}`}
-                        className="font-mono text-xs font-semibold text-zinc-900 dark:text-white hover:underline"
-                      >
-                        {order.order_number}
+            {/* Phones: one row card per order */}
+            <ul className="divide-y divide-border md:hidden">
+              {orders.map((o) => (
+                <li key={o.id} className="flex gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <Link href={`/admin/orders/${o.id}`} className="font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                        {o.order_number}
                       </Link>
-                      <div className="text-xs text-zinc-500 mt-0.5">{formatDateTime(order.created_at, locale)}</div>
+                      <span className="whitespace-nowrap text-[0.8125rem] font-medium tabular-nums">{formatAmount(o.total, locale, 2)}</span>
                     </div>
-                    <div className="font-bold text-zinc-900 dark:text-white whitespace-nowrap">
-                      {formatMoney(order.total, locale, currency)}
-                    </div>
-                  </div>
-                  <div className="text-sm">
-                    <div className="font-semibold text-zinc-900 dark:text-white truncate">{order.customer_name || t.orders.guest}</div>
-                    <div className="text-xs text-zinc-500 truncate" dir="ltr">
-                      {order.email || t.orders.noEmail}
-                      {order.phone ? ` · ${order.phone}` : ""}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <OrderStatusBadge status={order.status} text={t} />
-                    <PaymentStatusBadge status={order.payment_status} text={t} />
-                    <PaymentMethodBadge method={order.payment_method} text={t} />
-                    <div className="ms-auto">
-                      <OrderActionsDropdown orderId={order.id} order={pickState(order)} locale={locale} />
+                    <p className="truncate text-[0.8125rem] text-text-secondary">
+                      <bdi>{o.customer_name || t.orders.guest}</bdi>
+                      <span className="text-text-muted"> · {formatDateTime(o.created_at, locale)}</span>
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <OrderStatusBadge status={o.status} text={t} />
+                      <PaymentStatusBadge status={o.payment_status} text={t} />
+                      <PaymentMethodBadge method={o.payment_method} text={t} />
                     </div>
                   </div>
+                  <OrderActionsDropdown orderId={o.id} order={pickState(o)} locale={locale} orderNumber={o.order_number} />
                 </li>
               ))}
             </ul>
 
-            {/* Tablets and up: table */}
-            <table className="hidden md:table w-full text-sm text-start">
-              <thead className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800/80">
-                <tr>
-                  <th className="px-4 lg:px-6 py-4 text-start">{t.orders.order}</th>
-                  <th className="px-4 lg:px-6 py-4 text-start">{t.orders.customer}</th>
-                  <th className="px-4 lg:px-6 py-4 text-start">{t.orders.status}</th>
-                  <th className="px-4 lg:px-6 py-4 text-start">{t.orders.payment}</th>
-                  <th className="px-4 lg:px-6 py-4 text-end">{t.orders.total}</th>
-                  <th className="px-4 lg:px-6 py-4 text-end">
-                    <span className="sr-only">{t.action.actions}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-                {orders.map((order) => (
-                  <tr key={order.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors">
-                    <td className="px-4 lg:px-6 py-4 align-top">
-                      <Link
-                        href={`/admin/orders/${order.id}`}
-                        className="font-mono text-xs font-semibold text-zinc-900 dark:text-white hover:underline whitespace-nowrap"
-                      >
-                        {order.order_number}
+            <DataTable
+              className="hidden md:block"
+              caption={L.title}
+              rows={orders}
+              rowKey={(o) => o.id}
+              sort={sortState}
+              columns={[
+                {
+                  key: "order",
+                  header: t.orders.order,
+                  label: t.orders.date,
+                  sortKey: "date",
+                  cell: (o) => (
+                    <div>
+                      <Link href={`/admin/orders/${o.id}`} className="font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                        {o.order_number}
                       </Link>
-                      <div className="text-xs text-zinc-500 mt-1 whitespace-nowrap">{formatDateTime(order.created_at, locale)}</div>
-                    </td>
-                    <td className="px-4 lg:px-6 py-4 align-top max-w-[16rem]">
-                      <div className="font-semibold text-zinc-900 dark:text-white truncate">{order.customer_name || t.orders.guest}</div>
-                      <div className="text-zinc-500 text-xs mt-0.5 truncate" dir="ltr">
-                        {order.email || t.orders.noEmail}
-                      </div>
-                      {order.phone && (
-                        <div className="text-zinc-500 text-xs truncate" dir="ltr">
-                          {order.phone}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 lg:px-6 py-4 align-top">
-                      <OrderStatusBadge status={order.status} text={t} />
-                    </td>
-                    <td className="px-4 lg:px-6 py-4 align-top">
-                      <div className="flex flex-col items-start gap-1.5">
-                        <PaymentStatusBadge status={order.payment_status} text={t} />
-                        <PaymentMethodBadge method={order.payment_method} text={t} />
-                      </div>
-                    </td>
-                    <td className="px-4 lg:px-6 py-4 align-top text-end font-bold text-zinc-900 dark:text-white whitespace-nowrap">
-                      {formatMoney(order.total, locale, currency)}
-                    </td>
-                    <td className="px-4 lg:px-6 py-4 align-top text-end">
-                      <OrderActionsDropdown orderId={order.id} order={pickState(order)} locale={locale} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <p className="whitespace-nowrap text-[0.75rem] text-text-muted">{formatDateTime(o.created_at, locale)}</p>
+                    </div>
+                  ),
+                },
+                { key: "customer", header: t.orders.customer, cell: customerCell },
+                {
+                  key: "region",
+                  header: t.detail.governorate,
+                  hideBelow: "xl",
+                  cell: (o) => <span className="text-text-secondary">{govName(o.governorate) || t.detail.none}</span>,
+                },
+                { key: "status", header: t.orders.status, cell: (o) => <OrderStatusBadge status={o.status} text={t} /> },
+                {
+                  key: "payment",
+                  header: t.orders.payment,
+                  hideBelow: "lg",
+                  cell: (o) => (
+                    <div className="flex flex-col items-start gap-1">
+                      <PaymentStatusBadge status={o.payment_status} text={t} />
+                      <PaymentMethodBadge method={o.payment_method} text={t} />
+                    </div>
+                  ),
+                },
+                {
+                  key: "total",
+                  header: t.orders.total,
+                  align: "end",
+                  sortKey: "total",
+                  cell: (o) => <span className="whitespace-nowrap font-medium tabular-nums">{formatAmount(o.total, locale, 2)}</span>,
+                },
+                {
+                  key: "actions",
+                  header: <span className="sr-only">{t.action.actions}</span>,
+                  align: "end",
+                  className: "w-12",
+                  cell: (o) => <OrderActionsDropdown orderId={o.id} order={pickState(o)} locale={locale} orderNumber={o.order_number} />,
+                },
+              ]}
+            />
+            {totalPages > 1 ? (
+              <div className="border-t border-border">
+                <AdminPagination currentPage={currentPage} totalPages={totalPages} locale={locale} />
+              </div>
+            ) : null}
           </>
         )}
-
-        <div className="flex items-center justify-between gap-2 ps-4">
-          <span className="text-xs text-zinc-500">{fill(t.filters.results, { count })}</span>
-          <AdminPagination currentPage={currentPage} totalPages={totalPages} locale={locale} />
-        </div>
-      </div>
-    </div>
+      </Panel>
+    </>
   );
 }

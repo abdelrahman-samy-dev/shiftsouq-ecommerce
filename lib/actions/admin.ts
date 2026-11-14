@@ -17,6 +17,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAdminContext, type AdminContext } from "@/lib/admin/auth";
+import { logAdminAction } from "@/lib/admin/audit";
 import { checkTransition, toOrderState, type TransitionError } from "@/lib/admin/orders";
 import { adminProductSchema, productErrorKey, type AdminProductValues } from "@/lib/admin/products";
 import { promoErrorKey, promoInputSchema, type PromoErrorKey, type PromoInput } from "@/lib/admin/promos";
@@ -347,6 +348,9 @@ const exportFilterSchema = z
     status: z.string().max(20).optional(),
     payment: z.string().max(20).optional(),
     method: z.string().max(20).optional(),
+    queue: z.string().max(20).optional(),
+    sort: z.string().max(20).optional(),
+    customer: z.string().max(40).optional(),
   })
   .optional();
 
@@ -417,6 +421,11 @@ export async function updateOrderStatus(orderId: string, newStatus: string): Pro
   if (updateError) return (logDb("updateOrderStatus", updateError), fail("save_failed"));
   if (!changed?.length) return fail("changed");
 
+  await logAdminAction(ctx, "order.status", "orders", orderId, {
+    from: current.status,
+    to: check.patch.status,
+    ...(check.patch.payment_status ? { payment_from: current.payment_status, payment_to: check.patch.payment_status } : {}),
+  });
   refreshAdmin();
   return { ok: true };
 }
@@ -448,6 +457,31 @@ export async function markCashCollected(orderId: string): Promise<ActionResult> 
     .select("id");
   if (e) return (logDb("markCashCollected", e), fail("save_failed"));
   if (!changed?.length) return fail("changed");
+  await logAdminAction(ctx, "order.cash_collected", "orders", orderId, { payment_from: "unpaid", payment_to: "paid" });
+  refreshAdmin();
+  return { ok: true };
+}
+
+/**
+ * Internal note on an order (orders.notes). Never shown to the customer;
+ * it starts with any delivery note the customer typed at checkout.
+ */
+export async function saveOrderNote(orderId: string, note: string): Promise<ActionResult> {
+  const ctx = await adminOrFail();
+  if (!ctx) return fail("unauthorized");
+  if (!idSchema.safeParse(orderId).success) return fail("not_found");
+  if (typeof note !== "string") return fail("save_failed");
+  const text = note.replace(/\r\n/g, "\n").trim();
+  if (text.length > 2000) return fail("note_too_long");
+
+  const { data, error } = await ctx.supabase
+    .from("orders")
+    .update({ notes: text || null })
+    .eq("id", orderId)
+    .select("id");
+  if (error) return (logDb("saveOrderNote", error), fail("save_failed"));
+  if (!data?.length) return fail("not_found");
+  await logAdminAction(ctx, "order.note", "orders", orderId, { length: text.length });
   refreshAdmin();
   return { ok: true };
 }
@@ -465,6 +499,7 @@ export async function setMessageRead(id: string, read: boolean): Promise<ActionR
     .select("id");
   if (error) return (logDb("setMessageRead", error), fail("save_failed"));
   if (!data?.length) return fail("not_found");
+  await logAdminAction(ctx, read ? "message.read" : "message.unread", "contact_messages", id);
   refreshAdmin();
   return { ok: true };
 }
@@ -481,6 +516,7 @@ export async function setMessageArchived(id: string, archived: boolean): Promise
   if (archived && !data[0].read_at) {
     await ctx.supabase.from("contact_messages").update({ read_at: now }).eq("id", id).is("read_at", null);
   }
+  await logAdminAction(ctx, archived ? "message.archive" : "message.restore", "contact_messages", id);
   refreshAdmin();
   return { ok: true };
 }

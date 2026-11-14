@@ -1,10 +1,12 @@
 "use client";
 
-import { Download, Loader2 } from "lucide-react";
+import { Download } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Spinner } from "@/components/ds";
 import { toCsv } from "@/lib/admin/csv";
 import { getAdminText } from "@/lib/admin/i18n";
+import { adminButton } from "./buttons";
 
 type Row = Record<string, unknown>;
 
@@ -63,9 +65,10 @@ export function ExportCsvButton({
       type="button"
       onClick={handleExport}
       disabled={isExporting || (!initialData?.length && !fetchData)}
-      className={`px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${className || ""}`}
+      aria-busy={isExporting || undefined}
+      className={adminButton("outline", "sm", className)}
     >
-      {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+      {isExporting ? <Spinner /> : <Download aria-hidden="true" strokeWidth={1.75} />}
       {isExporting ? text.exporting : label}
     </button>
   );

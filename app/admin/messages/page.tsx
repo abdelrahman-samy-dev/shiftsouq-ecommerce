@@ -1,25 +1,24 @@
 /* ══════════════════════════════════════════════════════════════
-   Admin Messages — /admin/messages
-   Contact-form messages, newest first: inbox / unread / archived,
-   open one to read it, reply by email, mark read or archive.
+   Admin messages — /admin/messages
+   Contact-form messages, newest first: inbox / unread / archived.
+   Two panes on desktop (list + reading pane), one at a time on
+   phones. Reply by e-mail, mark read / unread, archive.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { ArrowLeft, ArrowRight, Inbox } from "lucide-react";
+import { Inbox, MailOpen } from "lucide-react";
 import { z } from "zod";
 import { clampPage, getContactMessage, getContactMessages } from "@/lib/dal/admin";
-import { APP_NAME } from "@/lib/constants";
-import type { Locale } from "@/lib/types";
 import type { InboxView } from "@/lib/admin/types";
-import { fill, formatDateTime, getAdminText } from "@/lib/admin/i18n";
+import { fill, formatDateTime, formatInt, getAdminText } from "@/lib/admin/i18n";
+import { getLocale } from "@/lib/i18n/server";
+import { cn } from "@/lib/utils";
 import { AdminPagination } from "../components/AdminPagination";
+import { AdminEmptyState, Avatar, PageHeader, TabsNav } from "../components/ui";
 import { MessageActions } from "./MessageActions";
 
-export const metadata: Metadata = {
-  title: `Messages | ${APP_NAME} Admin`,
-};
+export const metadata: Metadata = { title: "Messages" };
 
 const VIEWS: InboxView[] = ["inbox", "unread", "archived"];
 const SAFE_EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -41,10 +40,8 @@ export default async function AdminMessagesPage({
 }: {
   searchParams: Promise<{ view?: string; page?: string; id?: string }>;
 }) {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en") as Locale;
+  const [sp, locale] = await Promise.all([searchParams, getLocale()]);
   const t = getAdminText(locale);
-  const sp = await searchParams;
   const view: InboxView = VIEWS.includes(sp.view as InboxView) ? (sp.view as InboxView) : "inbox";
   const page = clampPage(sp.page);
   const selectedId = z.guid().safeParse(sp.id).success ? (sp.id as string) : null;
@@ -63,105 +60,86 @@ export default async function AdminMessagesPage({
     const s = q.toString();
     return `/admin/messages${s ? `?${s}` : ""}`;
   };
-  const BackIcon = locale === "ar" ? ArrowRight : ArrowLeft;
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mb-1.5">{t.inbox.title}</h1>
-        <p className="text-zinc-500 dark:text-zinc-400 text-sm font-medium">{fill(t.inbox.description, { count })}</p>
-      </div>
+    <>
+      <PageHeader title={t.inbox.title} description={fill(t.inbox.description, { count: formatInt(count, locale) })} />
+      <TabsNav
+        label={t.inbox.title}
+        className="mb-4"
+        tabs={VIEWS.map((v) => ({ href: href({ view: v, page: 1, id: null }), label: t.inbox[v], current: v === view }))}
+      />
 
-      <div className="flex gap-2 overflow-x-auto">
-        {VIEWS.map((v) => (
-          <Link
-            key={v}
-            href={href({ view: v, page: 1, id: null })}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors whitespace-nowrap ${
-              v === view
-                ? "bg-zinc-900 dark:bg-white text-white dark:text-black border-transparent"
-                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:text-zinc-900 dark:hover:text-white"
-            }`}
-          >
-            {t.inbox[v]}
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+      <div className="grid grid-cols-1 overflow-hidden rounded-[4px] border border-border bg-surface-elevated lg:min-h-[32rem] lg:grid-cols-[minmax(18rem,22rem)_1fr]">
         {/* ── List ─────────────────────────────────────────── */}
-        <section
-          className={`lg:col-span-2 bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm overflow-hidden ${
-            selected ? "hidden lg:block" : ""
-          }`}
-        >
+        <section aria-label={t.inbox[view]} className={cn("min-w-0 border-border lg:border-e", selected && "hidden lg:block")}>
           {messages.length === 0 ? (
-            <div className="p-12 text-center text-sm text-zinc-500 flex flex-col items-center gap-3">
-              <Inbox size={28} className="text-zinc-400" />
-              {view === "archived" ? t.inbox.emptyArchived : t.inbox.empty}
-            </div>
+            <AdminEmptyState icon={<Inbox />} title={view === "archived" ? t.inbox.emptyArchived : t.inbox.empty} />
           ) : (
-            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-              {messages.map((m) => (
-                <li key={m.id}>
-                  <Link
-                    href={href({ id: m.id })}
-                    className={`block px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors ${
-                      m.id === selected?.id ? "bg-zinc-100 dark:bg-zinc-900" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className={`truncate text-sm ${m.is_read ? "text-zinc-700 dark:text-zinc-300" : "font-bold text-zinc-900 dark:text-white"}`}>
-                        {!m.is_read && <span className="inline-block w-2 h-2 rounded-full bg-blue-500 me-2 align-middle" aria-label={t.inbox.newBadge} />}
-                        {m.name}
-                      </span>
-                      <span className="text-[11px] text-zinc-400 whitespace-nowrap">{formatDateTime(m.created_at, locale)}</span>
-                    </div>
-                    <div className={`text-sm truncate mt-0.5 ${m.is_read ? "text-zinc-500" : "text-zinc-800 dark:text-zinc-200 font-semibold"}`}>
-                      {m.subject}
-                    </div>
-                    <div className="text-xs text-zinc-400 truncate mt-0.5">{m.message}</div>
-                  </Link>
-                </li>
-              ))}
+            <ul className="divide-y divide-border">
+              {messages.map((m) => {
+                const current = m.id === selected?.id;
+                return (
+                  <li key={m.id}>
+                    <Link
+                      href={href({ id: m.id })}
+                      aria-current={current ? "true" : undefined}
+                      className={cn(
+                        "relative block px-4 py-3.5 transition-colors sm:px-5",
+                        current ? "bg-surface" : "hover:bg-surface/60",
+                        current && "before:absolute before:inset-y-0 before:start-0 before:w-0.5 before:bg-text-primary",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className={cn("flex min-w-0 items-center gap-2 text-[0.8125rem]", m.is_read ? "text-text-secondary" : "font-medium text-text-primary")}>
+                          {!m.is_read ? (
+                            <span className="size-1.5 shrink-0 rounded-full bg-accent">
+                              <span className="sr-only">{t.inbox.newBadge}</span>
+                            </span>
+                          ) : null}
+                          <span className="truncate">{m.name}</span>
+                        </span>
+                        <span className="shrink-0 text-[0.6875rem] tabular-nums text-text-faint">{formatDateTime(m.created_at, locale)}</span>
+                      </div>
+                      <p className={cn("mt-0.5 truncate text-[0.8125rem]", m.is_read ? "text-text-muted" : "text-text-primary")}>{m.subject}</p>
+                      <p className="mt-0.5 truncate text-[0.75rem] text-text-faint">{m.message}</p>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
-          <AdminPagination currentPage={page} totalPages={totalPages} locale={locale} />
+          {totalPages > 1 ? (
+            <div className="border-t border-border">
+              <AdminPagination currentPage={page} totalPages={totalPages} locale={locale} />
+            </div>
+          ) : null}
         </section>
 
-        {/* ── Open message ─────────────────────────────────── */}
-        <section
-          className={`lg:col-span-3 bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm ${
-            selected ? "" : "hidden lg:block"
-          }`}
-        >
+        {/* ── Reading pane ─────────────────────────────────── */}
+        <section aria-label={selected ? selected.subject : t.inbox.pick} className={cn("min-w-0", !selected && "hidden lg:block")}>
           {selected ? (
-            <article className="p-5 sm:p-6 space-y-5">
-              <Link
-                href={href({ id: null })}
-                className="lg:hidden inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
-              >
-                <BackIcon size={16} /> {t.inbox.back}
+            <article className="p-5 sm:p-8">
+              <Link href={href({ id: null })} className="mb-5 inline-flex items-center gap-1.5 text-[0.8125rem] text-text-muted hover:text-text-primary lg:hidden">
+                <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5 rtl:-scale-x-100" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M10 3.5 5.5 8l4.5 4.5" />
+                </svg>
+                {t.inbox.back}
               </Link>
-              <div>
-                <h2 className="text-xl font-bold text-zinc-900 dark:text-white break-words">{selected.subject}</h2>
-                <dl className="mt-3 space-y-1 text-sm">
-                  <div className="flex flex-wrap gap-x-2">
-                    <dt className="text-zinc-500">{t.inbox.from}:</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-white break-all">
-                      {selected.name} &lt;<span dir="ltr">{selected.email}</span>&gt;
-                    </dd>
-                  </div>
-                  <div className="flex flex-wrap gap-x-2">
-                    <dt className="text-zinc-500">{t.inbox.received}:</dt>
-                    <dd className="text-zinc-700 dark:text-zinc-300">{formatDateTime(selected.created_at, locale)}</dd>
-                  </div>
-                </dl>
+              <h2 className="text-[1.25rem] font-medium leading-snug text-text-primary break-words">{selected.subject}</h2>
+              <div className="mt-4 flex items-center gap-3 border-b border-border pb-5">
+                <Avatar name={selected.name} email={selected.email} size={36} />
+                <div className="min-w-0 text-[0.8125rem]">
+                  <p className="truncate text-text-primary">
+                    {selected.name} <bdi className="text-text-muted" dir="ltr">&lt;{selected.email}&gt;</bdi>
+                  </p>
+                  <p className="text-[0.75rem] text-text-muted">
+                    {t.inbox.received} {formatDateTime(selected.created_at, locale)}
+                  </p>
+                </div>
               </div>
-              <p className="text-sm leading-relaxed text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap break-words border-t border-zinc-200 dark:border-zinc-800/80 pt-5">
-                {selected.message}
-              </p>
-              {!SAFE_EMAIL.test(selected.email) && <p className="text-xs text-amber-700 dark:text-amber-400">{t.inbox.invalidEmail}</p>}
+              <p className="whitespace-pre-wrap break-words py-6 text-[0.9375rem] leading-relaxed text-text-primary">{selected.message}</p>
+              {!SAFE_EMAIL.test(selected.email) ? <p className="mb-4 text-[0.75rem] text-warning">{t.inbox.invalidEmail}</p> : null}
               <MessageActions
                 key={selected.id}
                 id={selected.id}
@@ -173,10 +151,10 @@ export default async function AdminMessagesPage({
               />
             </article>
           ) : (
-            <div className="p-12 text-center text-sm text-zinc-500">{t.inbox.pick}</div>
+            <AdminEmptyState icon={<MailOpen />} title={t.inbox.pick} className="h-full justify-center" />
           )}
         </section>
       </div>
-    </div>
+    </>
   );
 }
