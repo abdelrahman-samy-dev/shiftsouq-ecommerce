@@ -22,7 +22,7 @@ let anon: SupabaseClient;
 let customer: SupabaseClient;
 let customerProfileId: string;
 
-// Seed product "Classic Polo" — 44444444-...-0001 with one variant.
+// Seed product "Heavyweight Cotton Tee" (catalog/catalog.json): on sale, one colour, sizes XS–XXL.
 const PRODUCT = "44444444-0000-0000-0000-000000000001";
 let variantId: string;
 

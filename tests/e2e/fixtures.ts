@@ -6,8 +6,8 @@ export const ACCOUNTS = {
   admin: { email: "e2e.admin@shiftsouq.local", password: "E2e-Admin-12345", firstName: "Test", lastName: "Admin", role: "admin" },
 } as const;
 
-/** Seeded product: base price 150, on sale for 120. */
-export const TEST_PRODUCT_SLUG = "classic-navy-polo";
+/** Seeded product (catalog/catalog.json): one colour, sizes XS–XXL, base price 650, on sale for 490. */
+export const TEST_PRODUCT_SLUG = "heavyweight-cotton-tee";
 
 export async function login(page: Page, who: keyof typeof ACCOUNTS) {
   const { email, password } = ACCOUNTS[who];
