@@ -2,7 +2,12 @@
 
 A bilingual (English / Arabic) e-commerce storefront and back office, built to be re-branded. The default brand is a modern menswear store in Egypt, with prices in EGP, cash on delivery and Paymob cards and mobile wallets.
 
-![ShiftSouq home page](./public/banner.png)
+![ShiftSouq home page](./docs/screenshots/home-en.jpg)
+
+| | | |
+|---|---|---|
+| ![Listing with filters](./docs/screenshots/listing-en.jpg) | ![Product page in Arabic](./docs/screenshots/product-ar.jpg) | ![Checkout in dark mode](./docs/screenshots/checkout-en-dark.jpg) |
+| ![Admin overview](./docs/screenshots/admin-overview.jpg) | ![Home on a phone, Arabic](./docs/screenshots/home-ar-mobile.jpg) | |
 
 **Stack:** Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind CSS 4 · Supabase (Postgres with row-level security, Auth, Storage) · Paymob · Vitest · Playwright
 
