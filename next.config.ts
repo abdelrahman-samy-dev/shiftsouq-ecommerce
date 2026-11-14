@@ -71,7 +71,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/:path*", headers: securityHeaders },
       // Private pages: never in search results.
-      ...["/admin/:path*", "/admin", "/checkout/:path*", "/checkout", "/orders/:path*", "/orders", "/profile", "/cart", "/wishlist", "/login", "/register"].map(
+      ...["/admin/:path*", "/admin", "/checkout/:path*", "/checkout", "/orders/:path*", "/orders", "/profile", "/cart", "/wishlist", "/login", "/register", "/account", "/account/:path*", "/track", "/forgot-password", "/reset-password", "/search"].map(
         (source) => ({ source, headers: noindex }),
       ),
     ];

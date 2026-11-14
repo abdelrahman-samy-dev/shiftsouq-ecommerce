@@ -68,6 +68,7 @@ function SignedInMenu({ user, locale, className }: { user: Viewer; locale: strin
   }, [open]);
 
   const links = [
+    { href: "/account", label: copy.myAccount },
     { href: "/orders", label: copy.myOrders },
     { href: "/profile", label: copy.profile },
     { href: "/wishlist", label: copy.wishlist },
