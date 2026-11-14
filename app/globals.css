@@ -1477,7 +1477,9 @@ select.input-field {
 .ds-drawer[data-side="start"] { translate: -100% 0; }
 [dir="rtl"] .ds-drawer[data-side="end"] { translate: -100% 0; }
 [dir="rtl"] .ds-drawer[data-side="start"] { translate: 100% 0; }
-.ds-drawer[open] { translate: 0 0; }
+/* Must out-rank the [dir="rtl"] closed positions above, or RTL drawers stay off-screen. */
+.ds-drawer[open],
+[dir="rtl"] .ds-drawer[open] { translate: 0 0; }
 @starting-style {
   .ds-drawer[open][data-side="end"] { translate: 100% 0; }
   .ds-drawer[open][data-side="start"] { translate: -100% 0; }
