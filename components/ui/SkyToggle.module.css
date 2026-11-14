@@ -28,7 +28,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.switch span {
+/* Zero specificity, so .circleContainer { display: flex } still wins and the sun stays centred. */
+:where(.switch) span {
   display: block;
 }
 
