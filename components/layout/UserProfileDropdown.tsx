@@ -60,7 +60,6 @@ export function UserProfileDropdown({ user, dict }: UserProfileDropdownProps) {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="btn-secondary flex items-center gap-2.5 h-[46px] px-3 group cursor-pointer"
-        dir="ltr"
         aria-expanded={isOpen}
         aria-haspopup="true"
         id="user-profile-dropdown-trigger"
@@ -94,7 +93,7 @@ export function UserProfileDropdown({ user, dict }: UserProfileDropdownProps) {
 
       {/* Dropdown Menu */}
       <div
-        className={`dropdown-panel absolute top-full end-0 mt-2 w-64 z-50 transition-all duration-200 origin-top-right ${isOpen
+        className={`dropdown-panel absolute top-full end-0 mt-2 w-64 z-50 transition-all duration-200 ltr:origin-top-right rtl:origin-top-left ${isOpen
           ? "opacity-100 scale-100 visible translate-y-0"
           : "opacity-0 scale-95 invisible -translate-y-2"
           }`}
@@ -171,7 +170,7 @@ export function UserProfileDropdown({ user, dict }: UserProfileDropdownProps) {
               className="flex items-center gap-3 w-full px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive-bg transition-colors cursor-pointer"
               role="menuitem"
             >
-              <LogOut size={18} strokeWidth={1.8} />
+              <LogOut size={18} strokeWidth={1.8} className="rtl:-scale-x-100" />
               {dict.logout || "Logout"}
             </button>
           </form>

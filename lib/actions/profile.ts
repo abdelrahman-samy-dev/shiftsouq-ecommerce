@@ -3,6 +3,8 @@
    ──────────────────────────────────────────────────────────────
    Handles profile updates and password changes via Supabase.
    All actions are authenticated through the server client.
+   Input is validated with the shared zod schemas and every
+   message is returned in the visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */
 
 "use server";
@@ -10,6 +12,8 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { revalidatePath } from "next/cache";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { createPasswordChangeSchema, createProfileSchema } from "@/lib/validations/profile";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -23,6 +27,8 @@ export interface ProfileUpdateData {
 export interface ActionResult {
   success: boolean;
   message: string;
+  /** Field the message refers to, when it is a validation error. */
+  field?: string;
 }
 
 /* ── Update Profile ──────────────────────────────────────────── */
@@ -32,6 +38,9 @@ export interface ActionResult {
  * Uses the authenticated Supabase client — RLS enforces ownership.
  */
 export async function updateProfile(data: ProfileUpdateData): Promise<ActionResult> {
+  const { dict } = await getLocaleAndDictionary();
+  const t = dict.profile.errors;
+
   try {
     const supabase = await createServerClient();
 
@@ -42,10 +51,19 @@ export async function updateProfile(data: ProfileUpdateData): Promise<ActionResu
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return { success: false, message: "You must be logged in to update your profile." };
+      return { success: false, message: t.notLoggedIn };
     }
 
-    /* 2. Find profile by auth user ID */
+    /* 2. Validate (only the fields that were sent) */
+    const schema = createProfileSchema(dict.validation).partial();
+    const parsed = schema.safeParse(data ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return { success: false, message: issue.message, field: String(issue.path[0] ?? "") };
+    }
+    const input = parsed.data;
+
+    /* 3. Find profile by auth user ID */
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id")
@@ -53,21 +71,21 @@ export async function updateProfile(data: ProfileUpdateData): Promise<ActionResu
       .maybeSingle();
 
     if (profileError || !profile) {
-      return { success: false, message: "Profile not found. Please contact support." };
+      return { success: false, message: t.notFound };
     }
 
-    /* 3. Sanitize & build update payload */
+    /* 4. Build update payload (empty string clears the field) */
     const payload: Record<string, string | null> = {};
-    if (data.full_name !== undefined) payload.full_name = data.full_name.trim() || null;
-    if (data.phone !== undefined) payload.phone = data.phone.trim() || null;
-    if (data.country !== undefined) payload.country = data.country.trim() || null;
-    if (data.city !== undefined) payload.city = data.city.trim() || null;
+    if (input.full_name !== undefined) payload.full_name = input.full_name || null;
+    if (input.phone !== undefined) payload.phone = input.phone || null;
+    if (input.country !== undefined) payload.country = input.country || null;
+    if (input.city !== undefined) payload.city = input.city || null;
 
     if (Object.keys(payload).length === 0) {
-      return { success: false, message: "No changes to save." };
+      return { success: false, message: t.noChanges };
     }
 
-    /* 4. Update the profile */
+    /* 5. Update the profile */
     const { error: updateError } = await supabase
       .from("profiles")
       .update(payload)
@@ -75,21 +93,21 @@ export async function updateProfile(data: ProfileUpdateData): Promise<ActionResu
 
     if (updateError) {
       console.error("[updateProfile]", updateError.message);
-      return { success: false, message: "Failed to update profile. Please try again." };
+      return { success: false, message: t.updateFailed };
     }
 
-    /* 5. Also update user metadata in Supabase Auth (for display name) */
-    if (data.full_name) {
+    /* 6. Also update user metadata in Supabase Auth (for display name) */
+    if (input.full_name) {
       await supabase.auth.updateUser({
-        data: { full_name: data.full_name.trim() },
+        data: { full_name: input.full_name },
       });
     }
 
     revalidatePath("/profile");
-    return { success: true, message: "Profile updated successfully." };
+    return { success: true, message: dict.profile.profileUpdated };
   } catch (err) {
     console.error("[updateProfile] unexpected:", err);
-    return { success: false, message: "An unexpected error occurred." };
+    return { success: false, message: t.unexpected };
   }
 }
 
@@ -98,9 +116,13 @@ export async function updateProfile(data: ProfileUpdateData): Promise<ActionResu
 /**
  * Changes the user's password via Supabase Auth.
  * Requires the new password (Supabase handles old password verification
- * via the active session token).
+ * via the active session token). `confirmPassword` defaults to the new
+ * password for callers that already checked it.
  */
-export async function changePassword(newPassword: string): Promise<ActionResult> {
+export async function changePassword(newPassword: string, confirmPassword: string = newPassword): Promise<ActionResult> {
+  const { dict } = await getLocaleAndDictionary();
+  const t = dict.profile.errors;
+
   try {
     const supabase = await createServerClient();
 
@@ -111,34 +133,39 @@ export async function changePassword(newPassword: string): Promise<ActionResult>
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return { success: false, message: "You must be logged in to change your password." };
+      return { success: false, message: t.passwordLoginRequired };
     }
 
-    /* 2. Validate password length */
-    if (!newPassword || newPassword.length < 6) {
-      return { success: false, message: "Password must be at least 6 characters long." };
+    /* 2. Validate (same rules as sign-up) */
+    const parsed = createPasswordChangeSchema(dict.validation).safeParse({ newPassword, confirmPassword });
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return { success: false, message: issue.message, field: String(issue.path[0] ?? "") };
     }
 
     /* 3. Update password */
     const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
+      password: parsed.data.newPassword,
     });
 
     if (updateError) {
       console.error("[changePassword]", updateError.message);
 
-      // Check for common Supabase auth errors
-      if (updateError.message.includes("same_password")) {
-        return { success: false, message: "New password must be different from the current password." };
+      // Common Supabase auth errors
+      if (updateError.code === "same_password" || updateError.message.includes("same_password") || updateError.message.toLowerCase().includes("different from the old")) {
+        return { success: false, message: t.samePassword };
+      }
+      if (updateError.code === "weak_password") {
+        return { success: false, message: t.weakPassword };
       }
 
-      return { success: false, message: updateError.message || "Failed to change password." };
+      return { success: false, message: t.passwordFailed };
     }
 
-    return { success: true, message: "Password changed successfully." };
+    return { success: true, message: dict.profile.passwordChanged };
   } catch (err) {
     console.error("[changePassword] unexpected:", err);
-    return { success: false, message: "An unexpected error occurred." };
+    return { success: false, message: t.unexpected };
   }
 }
 

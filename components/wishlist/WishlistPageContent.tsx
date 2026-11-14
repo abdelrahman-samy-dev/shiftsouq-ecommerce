@@ -7,7 +7,7 @@
    via a server action, and renders a grid of product cards.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, ArrowLeft, Trash2 } from "lucide-react";
@@ -16,61 +16,53 @@ import { fetchWishlistProducts } from "@/lib/actions/wishlist";
 import type { ProductWithDetails, Locale } from "@/lib/types";
 import ProductCard from "@/components/product/ProductCard";
 import AnimatedProductCard from "@/components/product/AnimatedProductCard";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { useHydrated } from "@/components/shared/useHydrated";
+import { pluralize } from "@/lib/i18n/plural";
 
 interface WishlistPageContentProps {
-  locale: string;
+  locale: Locale;
+  /** Strings used by ProductCard (badges, buttons), from the server dictionary. */
+  cardDict: Record<string, Record<string, string>>;
 }
 
 /**
  * WishlistPageContent — Displays a grid of wishlisted products.
  *
  * Since wishlist IDs are client-side (localStorage), we:
- * 1. Read IDs from Zustand after mount
+ * 1. Read IDs from Zustand after hydration
  * 2. Call a server action to fetch product data
  * 3. Render the grid with AnimatedProductCard wrappers
  */
-export function WishlistPageContent({ locale }: WishlistPageContentProps) {
+export function WishlistPageContent({ locale, cardDict }: WishlistPageContentProps) {
   const isAr = locale === "ar";
   const productIds = useWishlistStore((s) => s.productIds);
   const clearWishlist = useWishlistStore((s) => s.clearWishlist);
+  const dict = cardDict;
 
-  const [mounted, setMounted] = useState(false);
-  const [products, setProducts] = useState<ProductWithDetails[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dict, setDict] = useState<Record<string, Record<string, string>>>({});
+  const mounted = useHydrated();
+  /** Last fetched products, tagged with the id list they belong to. */
+  const [fetched, setFetched] = useState<{ key: string; products: ProductWithDetails[] }>({ key: "", products: [] });
 
-  /* ── Fetch dictionary ─────────────────────────────────── */
-  useEffect(() => {
-    getDictionary(locale as Locale).then((d) => setDict(d as any));
-  }, [locale]);
-
-  /* ── Hydration guard ──────────────────────────────────── */
-  useEffect(() => setMounted(true), []);
+  const idsKey = productIds.join(",");
+  const loading = mounted && idsKey !== "" && fetched.key !== idsKey;
+  const products = idsKey === "" ? [] : fetched.key === idsKey ? fetched.products : [];
 
   /* ── Fetch products by IDs ────────────────────────────── */
-  const fetchProducts = useCallback(async (ids: string[]) => {
-    if (ids.length === 0) {
-      setProducts([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await fetchWishlistProducts(ids);
-      setProducts(data);
-    } catch (error) {
-      console.error("Failed to fetch wishlist products:", error);
-      setProducts([]);
-    }
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    if (mounted) {
-      fetchProducts(productIds);
-    }
-  }, [mounted, productIds, fetchProducts]);
+    if (!mounted || idsKey === "") return;
+    let cancelled = false;
+    fetchWishlistProducts(idsKey.split(","))
+      .then((data) => {
+        if (!cancelled) setFetched({ key: idsKey, products: data });
+      })
+      .catch((error) => {
+        console.error("Failed to fetch wishlist products:", error);
+        if (!cancelled) setFetched({ key: idsKey, products: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, idsKey]);
 
   /* ── Loading skeleton ─────────────────────────────────── */
   if (!mounted || loading) {
@@ -115,12 +107,12 @@ export function WishlistPageContent({ locale }: WishlistPageContentProps) {
           <Heart size={40} strokeWidth={1.2} className="text-text-faint" />
         </div>
 
-        <h2 className="text-2xl font-bold text-text-primary mb-2">
-          {isAr ? "قائمة الرغبات فارغة" : "Your wishlist is empty"}
-        </h2>
+        <h1 className="text-2xl font-bold text-text-primary mb-2">
+          {isAr ? "قائمة المفضلة فارغة" : "Your wishlist is empty"}
+        </h1>
         <p className="text-text-muted text-sm mb-8 max-w-sm mx-auto">
           {isAr
-            ? "لم تقم بإضافة أي منتجات إلى قائمة الرغبات بعد. تصفح متجرنا وأضف المنتجات التي تعجبك!"
+            ? "لم تُضف أي منتجات إلى المفضلة بعد. تصفح متجرنا وأضف المنتجات التي تعجبك!"
             : "You haven't saved any products yet. Browse our store and heart the items you love!"}
         </p>
 
@@ -142,22 +134,25 @@ export function WishlistPageContent({ locale }: WishlistPageContentProps) {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-text-primary">
-            {isAr ? "قائمة الرغبات" : "My Wishlist"}
+            {isAr ? "المفضلة" : "My Wishlist"}
           </h1>
           <p className="text-sm text-text-muted mt-0.5">
-            {products.length}{" "}
             {isAr
-              ? "منتجات محفوظة"
-              : products.length === 1
-                ? "saved product"
-                : "saved products"}
+              ? pluralize(locale, products.length, {
+                  one: "منتج واحد محفوظ",
+                  two: "منتجان محفوظان",
+                  few: "{count} منتجات محفوظة",
+                  many: "{count} منتجًا محفوظًا",
+                  other: "{count} منتج محفوظ",
+                })
+              : pluralize(locale, products.length, { one: "{count} saved product", other: "{count} saved products" })}
           </p>
         </div>
         <button
           type="button"
           onClick={clearWishlist}
           className="flex items-center gap-1.5 text-xs font-semibold text-destructive hover:text-destructive/80 transition-colors px-3 py-2 rounded-lg hover:bg-destructive-bg"
-          aria-label={isAr ? "مسح القائمة" : "Clear Wishlist"}
+          aria-label={isAr ? "مسح المفضلة" : "Clear Wishlist"}
         >
           <Trash2 size={14} strokeWidth={1.5} />
           {isAr ? "مسح الكل" : "Clear All"}

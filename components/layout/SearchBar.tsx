@@ -21,13 +21,13 @@ import { useRouter } from "next/navigation";
 import { Search, X, ChevronDown, Loader2, Tag, ArrowRight, TrendingUp, Clock } from "lucide-react";
 import { searchAction } from "@/lib/search/search-action";
 import type { SearchResponse, SearchResultProduct, SearchResultCategory } from "@/lib/search/search-action";
-import type { CategoryWithChildren } from "@/lib/types";
+import type { CategoryWithChildren, Locale } from "@/lib/types";
 import { formatPrice as formatPriceUtil } from "@/lib/utils";
 
 /* ── Types ──────────────────────────────────────────────────── */
 
 interface SearchBarProps {
-  locale: string;
+  locale: Locale;
   categories: CategoryWithChildren[];
   dict: {
     searchPlaceholder: string;
@@ -39,6 +39,9 @@ interface SearchBarProps {
     trending: string;
     recentSearches: string;
     clearRecent: string;
+    clearSearch: string;
+    submit: string;
+    categoryFilter: string;
   };
 }
 
@@ -98,9 +101,9 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
-  const [results, setResults] = useState<SearchResponse | null>(null);
+  /** Last finished search, tagged with the query/category it answers. */
+  const [settled, setSettled] = useState<{ key: string; data: SearchResponse | null }>({ key: "", data: null });
   const [activeIndex, setActiveIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
@@ -113,6 +116,10 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
   /* ── Derived ──────────────────────────────────────────── */
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const hasQuery = query.trim().length >= MIN_QUERY_LENGTH;
+  const searchKey =
+    debouncedQuery.trim().length >= MIN_QUERY_LENGTH ? `${debouncedQuery}\u0000${selectedCategory ?? ""}` : "";
+  const isLoading = searchKey !== "" && settled.key !== searchKey;
+  const results = searchKey !== "" && settled.key === searchKey ? settled.data : null;
   const showSuggestions = isFocused && (hasQuery || recentSearches.length > 0);
 
   const selectedCategoryName = useMemo(() => {
@@ -130,39 +137,23 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
     return items;
   }, [results]);
 
-  /* ── Load recent searches on mount ────────────────────── */
-  useEffect(() => {
-    setRecentSearches(getRecentSearches());
-  }, []);
-
   /* ── Execute search when debounced query changes ──────── */
   useEffect(() => {
-    if (debouncedQuery.trim().length < MIN_QUERY_LENGTH) {
-      setResults(null);
-      setIsLoading(false);
-      return;
-    }
+    if (!searchKey) return;
 
     let cancelled = false;
-    setIsLoading(true);
-    setActiveIndex(-1);
+    const settle = (data: SearchResponse | null) => {
+      if (cancelled) return;
+      setSettled({ key: searchKey, data });
+      setActiveIndex(-1);
+    };
 
     searchAction(debouncedQuery, selectedCategory || undefined)
-      .then((res) => {
-        if (!cancelled) {
-          setResults(res);
-          setIsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setResults(null);
-          setIsLoading(false);
-        }
-      });
+      .then(settle)
+      .catch(() => settle(null));
 
     return () => { cancelled = true; };
-  }, [debouncedQuery, selectedCategory]);
+  }, [searchKey, debouncedQuery, selectedCategory]);
 
   /* ── Close on outside click ───────────────────────────── */
   useEffect(() => {
@@ -191,7 +182,6 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
 
   const handleClear = useCallback(() => {
     setQuery("");
-    setResults(null);
     setActiveIndex(-1);
     inputRef.current?.focus();
   }, []);
@@ -257,7 +247,7 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
   }, [activeIndex]);
 
   /* ── Render Helper: Price ─────────────────────────────── */
-  const formatPrice = (price: number) => formatPriceUtil(price, locale as any);
+  const formatPrice = (price: number) => formatPriceUtil(price, locale);
 
   /* ── Render ───────────────────────────────────────────── */
 
@@ -282,6 +272,7 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
             type="button"
             aria-expanded={showCategoryDropdown}
             aria-haspopup="listbox"
+            aria-label={`${dict.categoryFilter}: ${selectedCategoryName}`}
             id="search-category-filter"
           >
             <span className="font-medium truncate max-w-[80px]">{selectedCategoryName}</span>
@@ -337,7 +328,10 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => setIsFocused(true)}
+            onFocus={() => {
+              setIsFocused(true);
+              setRecentSearches(getRecentSearches());
+            }}
             onKeyDown={handleKeyDown}
             placeholder={dict.searchPlaceholder}
             className="flex-1 bg-transparent px-3 h-full text-[15px] outline-none placeholder:text-text-faint text-text-primary text-start"
@@ -358,7 +352,7 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
               <button
                 onClick={handleClear}
                 className="p-1.5 rounded-full text-text-faint hover:text-text-secondary hover:bg-surface-elevated transition-colors"
-                aria-label="Clear search"
+                aria-label={dict.clearSearch}
                 type="button"
               >
                 <X size={16} strokeWidth={2} />
@@ -372,7 +366,7 @@ export function SearchBar({ locale, categories, dict }: SearchBarProps) {
           onClick={handleSubmit}
           className="h-full px-6 bg-primary text-primary-foreground hover:opacity-90 active:bg-primary/90 transition-all flex items-center justify-center border-s border-border rounded-e-full"
           type="button"
-          aria-label="Search"
+          aria-label={dict.submit}
           id="search-submit-button"
         >
           <Search size={20} strokeWidth={2.5} />

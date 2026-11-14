@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { Truck } from "lucide-react";
 import type { Locale } from "@/lib/types";
-import { APP_NAME } from "@/lib/constants";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
+import { DEFAULT_SHIPPING_FEE, FREE_SHIPPING_THRESHOLD, GOVERNORATE_SHIPPING } from "@/lib/checkout/shipping";
+import { formatPrice } from "@/lib/utils";
 
-export const metadata: Metadata = {
-  title: `Shipping & Delivery | ${APP_NAME}`,
-  description:
-    "Information about shipping, delivery times, and costs for ShiftSouq.",
-};
+/** Fees shown on this page come from the same table checkout charges. */
+const CAIRO_GIZA_FEE = Math.min(GOVERNORATE_SHIPPING.cairo, GOVERNORATE_SHIPPING.giza);
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getLocaleAndDictionary();
+  // The root layout's title template appends " | ShiftSouq".
+  return { title: dict.meta.shipping.title, description: dict.meta.shipping.description };
+}
 
 const LAST_UPDATED = "2026-05-01";
 
@@ -28,7 +32,7 @@ function getContent(locale: Locale) {
         },
         {
           heading: "3. رسوم الشحن",
-          body: `• يتم حساب رسوم الشحن عند إتمام الطلب بناءً على وزن الطرد ووجهة التوصيل.\n• قد نقدم عروضًا لـ "الشحن المجاني" للطلبات التي تتجاوز قيمة معينة، وسيتم تطبيق ذلك تلقائيًا عند الدفع.`,
+          body: `• تُحسب رسوم الشحن حسب محافظة التوصيل وتظهر قبل تأكيد الطلب.\n• **القاهرة والجيزة**: ${formatPrice(CAIRO_GIZA_FEE, locale)}.\n• **باقي المحافظات**: ${formatPrice(DEFAULT_SHIPPING_FEE, locale)}.\n• **الشحن مجاني** للطلبات التي تبلغ قيمتها ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)} أو أكثر، ويُطبَّق تلقائيًا عند الدفع.`,
         },
         {
           heading: "4. تتبع الطلب",
@@ -60,7 +64,7 @@ function getContent(locale: Locale) {
       },
       {
         heading: "3. Shipping Fees",
-        body: `• Shipping fees are calculated at checkout based on parcel weight and delivery destination.\n• We may offer "Free Shipping" promotions for orders above a certain amount, which will be automatically applied at checkout.`,
+        body: `• Shipping fees depend on the delivery governorate and are shown before you confirm your order.\n• **Cairo and Giza**: ${formatPrice(CAIRO_GIZA_FEE, locale)}.\n• **Other governorates**: ${formatPrice(DEFAULT_SHIPPING_FEE, locale)}.\n• **Free shipping** on orders of ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)} or more, applied automatically at checkout.`,
       },
       {
         heading: "4. Order Tracking",
@@ -79,8 +83,7 @@ function getContent(locale: Locale) {
 }
 
 export default async function ShippingPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getLocale();
   const content = getContent(locale);
 
   return (
@@ -119,7 +122,9 @@ export default async function ShippingPage() {
               style={{ color: "var(--text-secondary)" }}
               dangerouslySetInnerHTML={{
                 __html: section.body
-                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>'),
+                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>')
+                  .replace(/support@shiftsouq\.com/g, '<a href="mailto:support@shiftsouq.com" dir="ltr" class="underline">support@shiftsouq.com</a>')
+                  .replace(/: \/contact/g, ': <a href="/contact" dir="ltr" class="underline">/contact</a>'),
               }}
             />
           </section>

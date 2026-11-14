@@ -16,11 +16,12 @@ import Link from "next/link";
 import { Trash2, ShoppingBag } from "lucide-react";
 import { useCartStore, selectCartSubtotal, type CartItem } from "@/lib/store/useCartStore";
 import { formatPrice } from "@/lib/utils";
+import { formatItemCount, pluralize } from "@/lib/i18n/plural";
 import type { Locale } from "@/lib/types";
 
 interface MiniCartProps {
   items: CartItem[];
-  locale: string;
+  locale: Locale;
   onClose: () => void;
 }
 
@@ -52,7 +53,7 @@ export function MiniCart({ items, locale, onClose }: MiniCartProps) {
           <ShoppingBag size={16} strokeWidth={2} />
           {isAr ? "سلة التسوق" : "Shopping Cart"}
           <span className="text-text-faint font-normal">
-            ({items.length} {isAr ? "عناصر" : items.length === 1 ? "item" : "items"})
+            ({formatItemCount(locale, items.length)})
           </span>
         </h3>
       </div>
@@ -100,8 +101,8 @@ export function MiniCart({ items, locale, onClose }: MiniCartProps) {
                       sizes="56px"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-text-faint text-xs">
-                      N/A
+                    <div className="w-full h-full flex items-center justify-center text-text-faint" aria-hidden="true">
+                      <ShoppingBag size={18} strokeWidth={1.5} />
                     </div>
                   )}
                 </Link>
@@ -150,8 +151,17 @@ export function MiniCart({ items, locale, onClose }: MiniCartProps) {
             {remainingCount > 0 && (
               <p className="text-xs text-text-muted text-center py-2">
                 {isAr
-                  ? `و ${remainingCount} عناصر أخرى`
-                  : `and ${remainingCount} more ${remainingCount === 1 ? "item" : "items"}`}
+                  ? pluralize(locale, remainingCount, {
+                      one: "ومنتج آخر",
+                      two: "ومنتجان آخران",
+                      few: "و{count} منتجات أخرى",
+                      many: "و{count} منتجًا آخر",
+                      other: "و{count} منتج آخر",
+                    })
+                  : pluralize(locale, remainingCount, {
+                      one: "and {count} more item",
+                      other: "and {count} more items",
+                    })}
               </p>
             )}
           </div>

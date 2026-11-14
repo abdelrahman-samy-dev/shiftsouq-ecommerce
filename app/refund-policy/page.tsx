@@ -6,16 +6,16 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { RotateCcw } from "lucide-react";
 import type { Locale } from "@/lib/types";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
 import { APP_NAME } from "@/lib/constants";
 
-export const metadata: Metadata = {
-  title: `Return & Refund Policy | ${APP_NAME}`,
-  description:
-    "Learn about ShiftSouq's return and refund policies. Easy returns within 14 days for eligible items.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getLocaleAndDictionary();
+  // The root layout's title template appends " | ShiftSouq".
+  return { title: dict.legal.refundPolicy.title, description: dict.legal.refundPolicy.description };
+}
 
 const LAST_UPDATED = "2025-05-01";
 
@@ -27,7 +27,7 @@ function getContent(locale: Locale) {
       sections: [
         {
           heading: "1. سياسة الاسترجاع",
-          body: `في ${APP_NAME}، نريدك أن تكون راضيًا تمامًا عن مشترياتك. إذا لم تكن راضيًا عن أي منتج، يمكنك طلب الاسترجاع خلال **14 يومًا** من تاريخ استلام الطلب، بشرط استيفاء الشروط الموضحة أدناه.`,
+          body: `في شيفت سوق، نريدك أن تكون راضيًا تمامًا عن مشترياتك. إذا لم تكن راضيًا عن أي منتج، يمكنك طلب الاسترجاع خلال **14 يومًا** من تاريخ استلام الطلب، بشرط استيفاء الشروط الموضحة أدناه.`,
         },
         {
           heading: "2. شروط الاسترجاع",
@@ -102,8 +102,7 @@ function getContent(locale: Locale) {
 }
 
 export default async function RefundPolicyPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getLocale();
   const content = getContent(locale);
 
   return (
@@ -142,7 +141,9 @@ export default async function RefundPolicyPage() {
               style={{ color: "var(--text-secondary)" }}
               dangerouslySetInnerHTML={{
                 __html: section.body
-                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>'),
+                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>')
+                  .replace(/support@shiftsouq\.com/g, '<a href="mailto:support@shiftsouq.com" dir="ltr" class="underline">support@shiftsouq.com</a>')
+                  .replace(/: \/contact/g, ': <a href="/contact" dir="ltr" class="underline">/contact</a>'),
               }}
             />
           </section>

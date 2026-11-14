@@ -18,7 +18,7 @@ import type { Locale } from "@/lib/types";
 
 interface CartItemRowProps {
   item: CartItem;
-  locale: string;
+  locale: Locale;
 }
 
 /**

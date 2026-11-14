@@ -15,9 +15,10 @@ import { useCartStore, selectCartSubtotal, selectCartTotalItems } from "@/lib/st
 import { formatPrice } from "@/lib/utils";
 import type { Locale } from "@/lib/types";
 import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
+import { formatItemCount } from "@/lib/i18n/plural";
 
 interface OrderSummaryProps {
-  locale: string;
+  locale: Locale;
 }
 
 /**
@@ -58,7 +59,7 @@ export function OrderSummary({ locale }: OrderSummaryProps) {
           <span className="text-text-secondary">
             {isAr ? "المجموع الفرعي" : "Subtotal"}{" "}
             <span className="text-text-faint">
-              ({itemCount} {isAr ? "عناصر" : itemCount === 1 ? "item" : "items"})
+              ({formatItemCount(locale, itemCount)})
             </span>
           </span>
           <span className="font-semibold text-text-primary">
@@ -140,8 +141,8 @@ export function OrderSummary({ locale }: OrderSummaryProps) {
           {
             icon: Truck,
             text: isAr
-              ? "شحن مجاني فوق 500 ج.م"
-              : "Free shipping over EGP 500",
+              ? `شحن مجاني للطلبات من ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)}`
+              : `Free shipping on orders from ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)}`,
           },
         ].map(({ icon: Icon, text }) => (
           <div

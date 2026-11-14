@@ -6,17 +6,16 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { Shield } from "lucide-react";
 import type { Locale } from "@/lib/types";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
 import { APP_NAME } from "@/lib/constants";
 
-export const metadata: Metadata = {
-  title: `Privacy Policy | ${APP_NAME}`,
-  description:
-    "Learn how ShiftSouq collects, uses, and protects your personal information. We are committed to safeguarding your privacy.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { dict } = await getLocaleAndDictionary();
+  // The root layout's title template appends " | ShiftSouq".
+  return { title: dict.legal.privacyPolicy.title, description: dict.legal.privacyPolicy.description };
+}
 
 /* ── Content ──────────────────────────────────────────────────── */
 
@@ -30,7 +29,7 @@ function getContent(locale: Locale) {
       sections: [
         {
           heading: "1. المقدمة",
-          body: `مرحبًا بكم في ${APP_NAME}. نحن نلتزم بحماية خصوصيتكم وبياناتكم الشخصية. توضح سياسة الخصوصية هذه كيفية جمع واستخدام وحماية معلوماتكم عند استخدام موقعنا الإلكتروني وخدماتنا. باستخدامك لموقعنا، فإنك توافق على الممارسات الموضحة في هذه السياسة.`,
+          body: `مرحبًا بكم في شيفت سوق. نحن نلتزم بحماية خصوصيتكم وبياناتكم الشخصية. توضح سياسة الخصوصية هذه كيفية جمع واستخدام وحماية معلوماتكم عند استخدام موقعنا الإلكتروني وخدماتنا. باستخدامك لموقعنا، فإنك توافق على الممارسات الموضحة في هذه السياسة.`,
         },
         {
           heading: "2. المعلومات التي نجمعها",
@@ -107,8 +106,7 @@ function getContent(locale: Locale) {
 /* ── Page Component ───────────────────────────────────────────── */
 
 export default async function PrivacyPolicyPage() {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getLocale();
   const content = getContent(locale);
 
   return (
@@ -147,7 +145,9 @@ export default async function PrivacyPolicyPage() {
               style={{ color: "var(--text-secondary)" }}
               dangerouslySetInnerHTML={{
                 __html: section.body
-                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>'),
+                  .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary)">$1</strong>')
+                  .replace(/support@shiftsouq\.com/g, '<a href="mailto:support@shiftsouq.com" dir="ltr" class="underline">support@shiftsouq.com</a>')
+                  .replace(/: \/contact/g, ': <a href="/contact" dir="ltr" class="underline">/contact</a>'),
               }}
             />
           </section>

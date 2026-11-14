@@ -3,13 +3,16 @@
    ──────────────────────────────────────────────────────────────
    Displayed when a user navigates to a route that doesn't exist.
    Premium design with animated SVG, clear messaging, and
-   helpful navigation links.
+   helpful navigation links. Bilingual: follows NEXT_LOCALE.
    ══════════════════════════════════════════════════════════════ */
 
 import Link from "next/link";
 import { Home, ShoppingBag, Search } from "lucide-react";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
 
-export default function NotFound() {
+export default async function NotFound() {
+  const { dict } = await getLocaleAndDictionary();
+
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
       <div className="flex flex-col items-center gap-8 text-center max-w-lg w-full">
@@ -21,7 +24,8 @@ export default function NotFound() {
             style={{ background: "var(--primary)" }}
           />
 
-          <h1
+          <p
+            aria-hidden="true"
             className="relative text-[120px] sm:text-[160px] font-black leading-none tracking-tighter"
             style={{
               color: "var(--text-primary)",
@@ -29,7 +33,7 @@ export default function NotFound() {
             }}
           >
             404
-          </h1>
+          </p>
 
           {/* Overlaid icon */}
           <div
@@ -43,6 +47,7 @@ export default function NotFound() {
               }}
             >
               <Search
+                aria-hidden="true"
                 size={32}
                 strokeWidth={1.5}
                 style={{ color: "var(--text-muted)" }}
@@ -53,18 +58,17 @@ export default function NotFound() {
 
         {/* ── Text Content ────────────────────────────────── */}
         <div className="space-y-3 -mt-4">
-          <h2
+          <h1
             className="text-2xl sm:text-3xl font-bold tracking-tight"
             style={{ color: "var(--text-primary)" }}
           >
-            Page Not Found
-          </h2>
+            {dict.notFound.title}
+          </h1>
           <p
             className="text-sm sm:text-base leading-relaxed max-w-md mx-auto"
             style={{ color: "var(--text-muted)" }}
           >
-            The page you&apos;re looking for doesn&apos;t exist or has been moved. 
-            Let&apos;s get you back on track.
+            {dict.notFound.message}
           </p>
         </div>
 
@@ -75,7 +79,7 @@ export default function NotFound() {
             className="btn-primary group flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-3.5 text-[15px] font-semibold shadow-lg shadow-primary/10 hover:shadow-primary/20 transition-all"
           >
             <Home size={17} strokeWidth={2} />
-            <span>Go Home</span>
+            <span>{dict.common.goHome}</span>
           </Link>
 
           <Link
@@ -83,7 +87,7 @@ export default function NotFound() {
             className="btn-secondary flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-3.5 text-[15px] font-semibold transition-all"
           >
             <ShoppingBag size={17} strokeWidth={2} />
-            <span>Browse Shop</span>
+            <span>{dict.common.browseShop}</span>
           </Link>
         </div>
 

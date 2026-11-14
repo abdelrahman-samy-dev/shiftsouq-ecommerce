@@ -8,38 +8,64 @@
 
    Design notes:
    - All actions return `{ error: string }` on failure so the
-     client can display error messages without try/catch.
+     client can display error messages without try/catch. The
+     message is in the visitor's language (NEXT_LOCALE cookie).
    - On success, `redirect()` throws internally (expected by Next.js),
      so the function never returns a success payload.
    ══════════════════════════════════════════════════════════════ */
 
+import type { AuthError } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getLocaleAndDictionary } from "@/lib/i18n/server";
+import { safeRedirectPath } from "@/lib/i18n/safe-redirect";
+import type { Dictionary } from "@/lib/i18n/get-dictionary";
 
 import {
-  loginSchema,
-  registerSchema,
+  createLoginSchema,
+  createRegisterSchema,
   type LoginInput,
   type RegisterInput,
 } from "@/lib/validations/auth";
 
+/** Maps Supabase Auth errors to a message in the visitor's language. */
+function authErrorMessage(error: AuthError, dict: Dictionary): string {
+  const e = dict.auth.errors;
+  const code = error.code ?? "";
+  const text = error.message.toLowerCase();
+
+  if (code === "invalid_credentials" || text.includes("invalid login credentials")) return e.invalidCredentials;
+  if (code === "email_not_confirmed" || text.includes("email not confirmed")) return e.emailNotConfirmed;
+  if (code === "user_already_exists" || code === "email_exists" || text.includes("already registered")) return e.emailTaken;
+  if (code === "weak_password" || text.includes("password should")) return e.weakPassword;
+  if (error.status === 429 || code.startsWith("over_") || text.includes("rate limit")) return e.tooManyRequests;
+  return e.generic;
+}
+
+/** First validation message, so the banner says what is wrong. */
+function firstIssue(issues: { message: string }[], fallback: string): string {
+  return issues[0]?.message || fallback;
+}
+
 /**
  * Authenticates a user with email and password.
  *
- * Validates the input against `loginSchema` before attempting
+ * Validates the input against the login schema before attempting
  * sign-in. On success, revalidates the root path to refresh
- * auth-dependent UI (e.g. header profile) and redirects home.
+ * auth-dependent UI (e.g. header profile) and redirects to the
+ * requested page (same-site paths only) or home.
  *
  * @param data - Login credentials (email, password, rememberMe).
  * @returns `{ error: string }` if validation or auth fails;
  *          never returns on success (redirects).
  */
 export async function loginAction(data: LoginInput, redirectTo?: string) {
-  const result = loginSchema.safeParse(data);
+  const { dict } = await getLocaleAndDictionary();
+  const result = createLoginSchema(dict.validation).safeParse(data);
 
   if (!result.success) {
-    return { error: "Invalid form data" };
+    return { error: firstIssue(result.error.issues, dict.auth.errors.invalidForm) };
   }
 
   const supabase = await createServerClient();
@@ -51,16 +77,13 @@ export async function loginAction(data: LoginInput, redirectTo?: string) {
   });
 
   if (error) {
-    return { error: error.message };
+    return { error: authErrorMessage(error, dict) };
   }
 
   revalidatePath("/");
 
-  // Redirect to the originally requested page, or fallback to home.
-  // Only allow relative paths to prevent open-redirect vulnerabilities.
-  const destination =
-    redirectTo && redirectTo.startsWith("/") ? redirectTo : "/";
-  redirect(destination);
+  // Only same-site relative paths: "//evil.com" or "/\evil.com" fall back to "/".
+  redirect(safeRedirectPath(redirectTo));
 }
 
 /**
@@ -75,10 +98,11 @@ export async function loginAction(data: LoginInput, redirectTo?: string) {
  *          never returns on success (redirects).
  */
 export async function registerAction(data: RegisterInput) {
-  const result = registerSchema.safeParse(data);
+  const { dict } = await getLocaleAndDictionary();
+  const result = createRegisterSchema(dict.validation).safeParse(data);
 
   if (!result.success) {
-    return { error: "Invalid form data" };
+    return { error: firstIssue(result.error.issues, dict.auth.errors.invalidForm) };
   }
 
   const supabase = await createServerClient();
@@ -98,7 +122,7 @@ export async function registerAction(data: RegisterInput) {
   });
 
   if (error) {
-    return { error: error.message };
+    return { error: authErrorMessage(error, dict) };
   }
 
   revalidatePath("/");

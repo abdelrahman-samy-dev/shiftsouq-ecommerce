@@ -8,7 +8,9 @@
    state. Handles hydration guard for SSR.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect } from "react";
+import { useHydrated } from "@/components/shared/useHydrated";
+import { formatItemCount } from "@/lib/i18n/plural";
+import type { Locale } from "@/lib/types";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShoppingBag, ArrowLeft, Trash2 } from "lucide-react";
@@ -17,7 +19,7 @@ import { CartItemRow } from "./CartItemRow";
 import { OrderSummary } from "./OrderSummary";
 
 interface CartPageContentProps {
-  locale: string;
+  locale: Locale;
 }
 
 /**
@@ -33,8 +35,7 @@ export function CartPageContent({ locale }: CartPageContentProps) {
   const itemCount = useCartStore(selectCartTotalItems);
 
   /* ── Hydration guard ───────────────────────────────────── */
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useHydrated();
 
   if (!mounted) {
     return (
@@ -84,9 +85,9 @@ export function CartPageContent({ locale }: CartPageContentProps) {
           />
         </div>
 
-        <h2 className="text-2xl font-bold text-text-primary mb-2">
+        <h1 className="text-2xl font-bold text-text-primary mb-2">
           {isAr ? "سلتك فارغة" : "Your cart is empty"}
-        </h2>
+        </h1>
         <p className="text-text-muted text-sm mb-8 max-w-sm mx-auto">
           {isAr
             ? "يبدو أنك لم تضف أي منتجات بعد. تصفح مجموعتنا واعثر على ما تحب!"
@@ -121,7 +122,7 @@ export function CartPageContent({ locale }: CartPageContentProps) {
                 {isAr ? "سلة التسوق" : "Shopping Cart"}
               </h1>
               <p className="text-sm text-text-muted mt-0.5">
-                {itemCount} {isAr ? "عناصر" : itemCount === 1 ? "item" : "items"}
+                {formatItemCount(locale, itemCount)}
               </p>
             </div>
             <button
