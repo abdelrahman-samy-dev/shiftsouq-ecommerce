@@ -150,7 +150,7 @@ export function Logo({
             /* Arabic wordmark */
             <span
               className="font-bold"
-              style={{ fontFamily: "var(--font-alexandria), system-ui, sans-serif" }}
+              style={{ fontFamily: "var(--font-sans)" }}
             >
               شيفت{" "}
               <span className="font-medium text-text-muted">سوق</span>
