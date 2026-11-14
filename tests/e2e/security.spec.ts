@@ -31,6 +31,15 @@ test.describe("access control and hardening", () => {
     expect(res.status()).toBe(404);
   });
 
+  test("language links never redirect to another site", async ({ request, baseURL }) => {
+    const site = new URL(baseURL!).host;
+    for (const next of ["/.//evil.example/x", "/a/..//evil.example", "//evil.example", "/\\evil.example", "https://evil.example"]) {
+      const res = await request.get(`/en?next=${encodeURIComponent(next)}`, { maxRedirects: 0 });
+      expect(res.status()).toBe(307);
+      expect(new URL(res.headers()["location"], baseURL).host).toBe(site);
+    }
+  });
+
   test("pages are served with security headers", async ({ request }) => {
     const res = await request.get("/");
     const headers = res.headers();

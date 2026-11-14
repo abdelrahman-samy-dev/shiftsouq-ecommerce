@@ -6,6 +6,9 @@ export const ACCOUNTS = {
   admin: { email: "e2e.admin@shiftsouq.local", password: "E2e-Admin-12345", firstName: "Test", lastName: "Admin", role: "admin" },
 } as const;
 
+/** Mobile number every browser-test order uses (global-setup clears its open orders between runs). */
+export const E2E_PHONE = "01012345678";
+
 /** Seeded product (catalog/catalog.json): one colour, sizes XS–XXL, base price 650, on sale for 490. */
 export const TEST_PRODUCT_SLUG = "heavyweight-cotton-tee";
 
@@ -52,7 +55,7 @@ export async function fillCheckoutDetails(page: Page, email: string = ACCOUNTS.b
   const contactEdit = page.getByRole("button", { name: /edit contact/i });
   if (await contactEdit.isVisible()) await contactEdit.click();
   await page.locator("main input[name=email]").fill(email);
-  await page.locator("input[name=phone]").fill("01012345678");
+  await page.locator("input[name=phone]").fill(E2E_PHONE);
   await page.locator("main form", { has: page.locator("input[name=email]") }).getByRole("button", { name: /continue/i }).click();
 
   // Delivery: a new Cairo address (signed-in buyers may have saved ones).
