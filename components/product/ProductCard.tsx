@@ -4,7 +4,8 @@
    ProductCard — editorial product tile (docs/design-system.md §5)
    ──────────────────────────────────────────────────────────────
    No box: photo on a sand ground, name and price underneath.
-   • Second photo cross-fades in on hover (pointer devices).
+   • Second photo cross-fades in on hover (mouse only; it is
+     fetched on the first hover, so phones never download it).
    • Quick add: a single option adds straight away; one colour in
      several sizes shows the sizes along the photo (hover on
      desktop, "+" on touch); several colours open the product.
@@ -16,7 +17,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Heart, Plus, X } from "lucide-react";
 import { toast } from "sonner";
-import type { ProductWithDetails, ProductVariant } from "@/lib/types";
+import type { Product, ProductImage, ProductVariant } from "@/lib/types";
 import { Badge, Price } from "@/components/ds";
 import { priceSummary, unitPrice, variantInStock } from "@/lib/seo/pricing";
 import { useWishlistStore } from "@/lib/store/useWishlistStore";
@@ -28,7 +29,14 @@ import { cn } from "@/lib/utils";
 type CardVariant = Pick<ProductVariant, "id" | "size" | "color_en"> &
   Partial<Pick<ProductVariant, "color_ar" | "color_hex" | "stock" | "price_override">>;
 
-type CardProduct = Omit<ProductWithDetails, "variants"> & { variants?: CardVariant[] };
+type CardImage = Pick<ProductImage, "url" | "alt_text_en" | "alt_text_ar">;
+
+/** The fields a card reads (any listing product fits). */
+export type CardProduct = Pick<Product, "id" | "slug" | "name_en" | "name_ar" | "base_price" | "sale_price" | "is_new"> & {
+  primary_image?: CardImage | null;
+  secondary_image?: CardImage | null;
+  variants?: CardVariant[];
+};
 
 /** Kept for compatibility with existing callers; the card has its own bilingual copy. */
 type CardDict = { products?: Partial<Record<string, string>> };
@@ -39,7 +47,7 @@ interface ProductCardProps {
   dict?: CardDict;
   /** Image `sizes` matching the grid (default: 2 columns on phones, 4 on desktop). */
   sizes?: string;
-  /** Load the image eagerly (first row above the fold). */
+  /** First row above the fold: load the photo eagerly at high priority. */
   priority?: boolean;
 }
 
@@ -53,6 +61,7 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
   const addItem = useCartStore((s) => s.addItem);
   const openCart = useCartUi((s) => s.openCart);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [hoverPhoto, setHoverPhoto] = useState<false | "loading" | "ready">(false);
 
   const variants = product.variants ?? [];
   const stockKnown = variants.every((v) => typeof v.stock === "number");
@@ -98,7 +107,9 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
   const badge = soldOut ? (
     <Badge tone="neutral">{isAr ? "نفد" : "Sold out"}</Badge>
   ) : summary.discountPercent ? (
-    <Badge tone="accent">−{summary.discountPercent}%</Badge>
+    <Badge tone="accent">
+      <bdi dir="ltr">−{summary.discountPercent}%</bdi>
+    </Badge>
   ) : product.is_new ? (
     <Badge tone="neutral">{isAr ? "جديد" : "New"}</Badge>
   ) : null;
@@ -106,7 +117,13 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
   const canQuickAdd = !soldOut && (single || sizeOptions.length > 0);
 
   return (
-    <article className="group/card relative flex flex-col">
+    <article
+      className="group/card relative flex flex-col"
+      onPointerEnter={(e) => {
+        // The hover photo is fetched on the first mouse hover, never on touch screens.
+        if (e.pointerType === "mouse" && product.secondary_image && !hoverPhoto) setHoverPhoto("loading");
+      }}
+    >
       <div className="relative aspect-[4/5] overflow-hidden bg-surface">
         <Link href={href} aria-label={name} className="absolute inset-0 block">
           {product.primary_image ? (
@@ -115,20 +132,21 @@ export default function ProductCard({ product, locale, sizes = DEFAULT_SIZES, pr
               alt={alt(product.primary_image)}
               fill
               sizes={sizes}
-              priority={priority}
+              loading={priority ? "eager" : "lazy"}
+              fetchPriority={priority ? "high" : undefined}
               className={cn(
                 "object-cover transition-opacity duration-500 ease-out",
-                product.secondary_image && "[@media(hover:hover)]:group-hover/card:opacity-0",
+                hoverPhoto === "ready" && "[@media(hover:hover)]:group-hover/card:opacity-0",
               )}
             />
           ) : null}
-          {product.secondary_image ? (
+          {product.secondary_image && hoverPhoto ? (
             <Image
               src={product.secondary_image.url}
               alt=""
               fill
               sizes={sizes}
-              loading="lazy"
+              onLoad={() => setHoverPhoto("ready")}
               className="object-cover opacity-0 transition-opacity duration-500 ease-out [@media(hover:hover)]:group-hover/card:opacity-100"
             />
           ) : null}
