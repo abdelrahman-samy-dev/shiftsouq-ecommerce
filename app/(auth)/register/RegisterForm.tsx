@@ -1,416 +1,141 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
-import { useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+/* Create an account: first and last name, email, password (8+). Returns to ?redirect= or the account. */
+
+import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { Button, Input } from "@/components/ds";
 import { registerAction } from "@/lib/actions/auth";
 import { createRegisterSchema, type RegisterInput } from "@/lib/validations/auth";
-import Link from "next/link";
-import { Eye, EyeOff, Loader2, ArrowRight, ArrowLeft, ChevronDown } from "lucide-react";
-import type { Dictionary } from "@/lib/i18n/get-dictionary";
-import { motion, useReducedMotion, useAnimate, AnimatePresence } from "framer-motion";
-import { formEntrance, formItem, shakeAnimation } from "@/lib/motion";
-import { useLocale } from "@/components/providers/LocaleProvider";
+import type { ValidationMessages } from "@/lib/validations/messages";
+import { fieldErrors } from "@/components/checkout/checkout-rules";
+import { noticeTone, textLink } from "@/components/checkout/ui";
+import { PasswordInput } from "@/app/account/_components/PasswordInput";
+import { cn } from "@/lib/utils";
+import { authCopy } from "../_components/copy";
 
-export default function RegisterForm({ dict }: { dict: Dictionary }) {
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+interface RegisterFormProps {
+  locale: string;
+  messages: ValidationMessages;
+  redirectTo?: string;
+  /** Email of the order just placed in this browser (guest receipt → "Create account"). */
+  initialEmail?: string;
+}
+
+export default function RegisterForm({ locale, messages, redirectTo, initialEmail = "" }: RegisterFormProps) {
+  const t = authCopy(locale);
+  const schema = useMemo(() => createRegisterSchema(messages), [messages]);
+  const [values, setValues] = useState<RegisterInput>({ firstName: "", lastName: "", email: initialEmail, password: "" });
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
-  const prefersReducedMotion = useReducedMotion();
-  const [scope, animate] = useAnimate();
-  const isAr = useLocale() === "ar";
+  const [busy, setBusy] = useState(false);
+  const [confirmFor, setConfirmFor] = useState<string | null>(null);
+  const withRedirect = (path: string) => (redirectTo ? `${path}?redirect=${encodeURIComponent(redirectTo)}` : path);
 
-  const [isCountryOpen, setIsCountryOpen] = useState(false);
-  const countryRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (countryRef.current && !countryRef.current.contains(event.target as Node)) {
-        setIsCountryOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  /* Validation messages follow the active language */
-  const schema = useMemo(() => createRegisterSchema(dict.validation), [dict.validation]);
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    control,
-    formState: { errors, isSubmitting },
-  } = useForm<RegisterInput>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      gender: "female",
-    },
-  });
-
-  const selectedCountry = useWatch({ control, name: "country" });
-
-  const onSubmit = async (data: RegisterInput) => {
-    setServerError(null);
-    const result = await registerAction(data);
-    if (result?.error) {
-      setServerError(result.error);
-      if (!prefersReducedMotion) {
-        animate(scope.current, shakeAnimation);
-      }
-    }
+  const set = (name: keyof RegisterInput) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setValues((v) => ({ ...v, [name]: e.target.value }));
+    if (errors[name]) setErrors((x) => ({ ...x, [name]: "" }));
   };
 
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    setServerError(null);
+    const r = schema.safeParse(values);
+    if (!r.success) {
+      const all = fieldErrors(r.error.issues);
+      setErrors(all);
+      form.querySelector<HTMLElement>(`[name="${Object.keys(all)[0]}"]`)?.focus();
+      return;
+    }
+    setBusy(true);
+    // Success with a session redirects on the server; otherwise an error or "check your inbox" comes back.
+    const res = await registerAction(r.data, redirectTo);
+    setBusy(false);
+    if (res?.error) setServerError(res.error);
+    else if (res?.confirmEmail) setConfirmFor(r.data.email);
+  }
+
+  if (confirmFor) {
+    return (
+      <div className="flex flex-col gap-6" role="status">
+        <h1 className="t-h1">{t.checkInbox}</h1>
+        <p className="text-text-secondary">{t.checkInboxBody(confirmFor)}</p>
+        <Link href={withRedirect("/login")} className={cn("self-start text-sm text-text-primary", textLink)}>
+          {t.backToSignIn}
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <motion.div
-      ref={scope}
-      variants={formEntrance}
-      initial={prefersReducedMotion ? false : "hidden"}
-      animate="visible"
-      className="w-full max-w-2xl mx-auto p-8 sm:p-10 glass-panel bg-background/70 dark:bg-background/50 relative overflow-hidden rounded-[24px]"
-    >
-      <div className="absolute top-0 start-1/2 -translate-x-1/2 rtl:translate-x-1/2 w-[150%] h-32 bg-gradient-to-b from-primary/5 dark:from-white/10 to-transparent blur-3xl pointer-events-none -z-10"></div>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-3">
+        <h1 className="t-h1">{t.registerTitle}</h1>
+        <p className="text-text-secondary">{t.registerIntro}</p>
+      </div>
 
-      <motion.div variants={formItem} className="mb-10 text-center">
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary mb-3">
-          {dict.auth?.registerTitle || "Create an Account"}
-        </h1>
-        <p className="text-sm text-text-muted font-medium">
-          {dict.auth?.registerSubtitle || "Join us today to get the best shopping experience."}
+      <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+        {serverError ? (
+          <p role="alert" className={cn("border px-4 py-3 text-sm rounded-sm", noticeTone.danger)}>
+            {serverError}
+          </p>
+        ) : null}
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Input id="reg-firstName" name="firstName" className="[unicode-bidi:plaintext]" autoComplete="given-name" label={t.firstName} value={values.firstName} onChange={set("firstName")} error={errors.firstName || undefined} maxLength={60} required />
+          <Input id="reg-lastName" name="lastName" className="[unicode-bidi:plaintext]" autoComplete="family-name" label={t.lastName} value={values.lastName} onChange={set("lastName")} error={errors.lastName || undefined} maxLength={60} required />
+        </div>
+        <Input
+          id="reg-email"
+          name="email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          dir="ltr"
+          className="text-start rtl:text-end"
+          label={t.email}
+          value={values.email}
+          onChange={set("email")}
+          error={errors.email || undefined}
+          maxLength={254}
+          required
+        />
+        <PasswordInput
+          id="reg-password"
+          name="password"
+          autoComplete="new-password"
+          label={t.password}
+          hint={t.passwordHint}
+          value={values.password}
+          onChange={set("password")}
+          error={errors.password || undefined}
+          showLabel={t.showPassword}
+          hideLabel={t.hidePassword}
+          maxLength={72}
+          required
+        />
+        <Button type="submit" size="lg" fullWidth loading={busy} className="mt-1">
+          {t.create}
+        </Button>
+        <p className="text-[0.8125rem] text-text-muted">
+          {t.agree}{" "}
+          <Link href="/terms" className={textLink}>
+            {t.terms}
+          </Link>{" "}
+          {t.and}{" "}
+          <Link href="/privacy-policy" className={textLink}>
+            {t.privacy}
+          </Link>
+          .
         </p>
-      </motion.div>
-
-      {/* noValidate: show our localized messages instead of the browser's */}
-      <form onSubmit={(e) => handleSubmit(onSubmit)(e)} noValidate className="space-y-6">
-        {serverError && (
-          <motion.div
-            variants={formItem}
-            className="p-4 text-sm text-destructive bg-destructive-bg rounded-xl border border-destructive-border flex items-start gap-3"
-          >
-            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="font-medium">{serverError}</p>
-          </motion.div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <motion.div variants={formItem} className="space-y-1.5">
-            <label htmlFor="reg-firstName" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.firstName || "First name"}
-            </label>
-            <input
-              {...register("firstName")}
-              id="reg-firstName"
-              type="text"
-              placeholder={dict.auth.firstNamePlaceholder}
-              autoComplete="given-name"
-              className="input-field text-start"
-              aria-describedby={errors.firstName ? "reg-firstName-error" : undefined}
-              aria-invalid={!!errors.firstName}
-            />
-            {errors.firstName && (
-              <p id="reg-firstName-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.firstName.message}</p>
-            )}
-          </motion.div>
-          <motion.div variants={formItem} className="space-y-1.5">
-            <label htmlFor="reg-lastName" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.lastName || "Last name"}
-            </label>
-            <input
-              {...register("lastName")}
-              id="reg-lastName"
-              type="text"
-              placeholder={dict.auth.lastNamePlaceholder}
-              autoComplete="family-name"
-              className="input-field text-start"
-              aria-describedby={errors.lastName ? "reg-lastName-error" : undefined}
-              aria-invalid={!!errors.lastName}
-            />
-            {errors.lastName && (
-              <p id="reg-lastName-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.lastName.message}</p>
-            )}
-          </motion.div>
-        </div>
-
-        <motion.div variants={formItem} className="space-y-1.5">
-          <label htmlFor="reg-email" className="text-sm font-semibold text-text-primary/90 block ms-1">
-            {dict.auth?.email || "Email"}
-          </label>
-          <input
-            {...register("email")}
-            id="reg-email"
-            type="email"
-            placeholder="name@example.com"
-            autoComplete="email"
-            dir="ltr"
-            className="input-field text-start"
-            aria-describedby={errors.email ? "reg-email-error" : undefined}
-            aria-invalid={!!errors.email}
-          />
-          {errors.email && (
-            <p id="reg-email-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.email.message}</p>
-          )}
-        </motion.div>
-
-        <motion.div variants={formItem} className="flex flex-wrap items-center gap-6 py-2">
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <div className="relative flex items-center justify-center">
-              <input
-                {...register("gender")}
-                type="radio"
-                value="female"
-                className="peer appearance-none w-5 h-5 border-2 border-border hover:border-primary checked:border-primary rounded-full transition-all cursor-pointer"
-              />
-              <div className="absolute w-2.5 h-2.5 bg-primary rounded-full opacity-0 peer-checked:opacity-100 transition-all duration-200 scale-50 peer-checked:scale-100 pointer-events-none"></div>
-            </div>
-            <span className="text-sm font-medium text-text-muted group-hover:text-text-primary transition-colors">
-              {dict.auth?.female || "Female"}
-            </span>
-          </label>
-
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <div className="relative flex items-center justify-center">
-              <input
-                {...register("gender")}
-                type="radio"
-                value="male"
-                className="peer appearance-none w-5 h-5 border-2 border-border hover:border-primary checked:border-primary rounded-full transition-all cursor-pointer"
-              />
-              <div className="absolute w-2.5 h-2.5 bg-primary rounded-full opacity-0 peer-checked:opacity-100 transition-all duration-200 scale-50 peer-checked:scale-100 pointer-events-none"></div>
-            </div>
-            <span className="text-sm font-medium text-text-muted group-hover:text-text-primary transition-colors">
-              {dict.auth?.male || "Male"}
-            </span>
-          </label>
-
-          {errors.gender && (
-            <p className="text-xs font-medium text-destructive mt-1.5 ms-1 w-full" role="alert">{errors.gender.message}</p>
-          )}
-        </motion.div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <motion.div variants={formItem} className="space-y-1.5" ref={countryRef}>
-            <label id="reg-country-label" htmlFor="reg-country" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.country || "Country"}
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                id="reg-country"
-                onClick={() => setIsCountryOpen(!isCountryOpen)}
-                onKeyDown={(e) => { if (e.key === "Escape") setIsCountryOpen(false); }}
-                className={`w-full text-start flex items-center justify-between input-field cursor-pointer transition-all ${errors.country ? 'border-destructive' : ''}`}
-                aria-haspopup="listbox"
-                aria-expanded={isCountryOpen}
-                aria-describedby={errors.country ? "reg-country-error" : undefined}
-              >
-                <span className={`text-sm ${selectedCountry ? 'text-text-primary' : 'text-text-muted'}`}>
-                  {selectedCountry === "EGY" ? (dict.auth?.egy || "Egypt") :
-                   selectedCountry === "KSA" ? (dict.auth?.ksa || "Saudi Arabia") :
-                   selectedCountry === "UAE" ? (dict.auth?.uae || "United Arab Emirates") :
-                   selectedCountry === "USA" ? (dict.auth?.usa || "United States") :
-                   selectedCountry === "UK" ? (dict.auth?.uk || "United Kingdom") :
-                   (dict.auth?.selectCountry || "Select Country")}
-                </span>
-                <ChevronDown size={16} className={`text-text-muted transition-transform duration-200 ${isCountryOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              <AnimatePresence>
-                {isCountryOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute top-full inset-x-0 mt-1 bg-surface-elevated border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col max-h-[240px]"
-                  >
-                    <div className="overflow-y-auto py-1" role="listbox" aria-labelledby="reg-country-label">
-                      {[
-                        { val: "EGY", label: dict.auth?.egy || "Egypt" },
-                        { val: "KSA", label: dict.auth?.ksa || "Saudi Arabia" },
-                        { val: "UAE", label: dict.auth?.uae || "United Arab Emirates" },
-                        { val: "USA", label: dict.auth?.usa || "United States" },
-                        { val: "UK", label: dict.auth?.uk || "United Kingdom" },
-                      ].map((item) => (
-                        <button
-                          key={item.val}
-                          type="button"
-                          role="option"
-                          aria-selected={selectedCountry === item.val}
-                          onClick={() => {
-                            setValue("country", item.val, { shouldValidate: true });
-                            setIsCountryOpen(false);
-                          }}
-                          className={`w-full text-start px-4 py-2.5 text-sm transition-colors hover:bg-surface ${
-                            selectedCountry === item.val
-                              ? "bg-primary/5 text-primary font-medium"
-                              : "text-text-secondary"
-                          }`}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            {errors.country && (
-              <p id="reg-country-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.country.message}</p>
-            )}
-          </motion.div>
-          <motion.div variants={formItem} className="space-y-1.5">
-            <label htmlFor="reg-city" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.city || "City"}
-            </label>
-            <input
-              {...register("city")}
-              id="reg-city"
-              aria-invalid={!!errors.city}
-              aria-describedby={errors.city ? "reg-city-error" : undefined}
-              type="text"
-              placeholder={dict.auth.cityPlaceholder}
-              autoComplete="address-level2"
-              className="input-field text-start"
-            />
-            {errors.city && (
-              <p id="reg-city-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.city.message}</p>
-            )}
-          </motion.div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <motion.div variants={formItem} className="space-y-1.5">
-            <label htmlFor="reg-password" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.password || "Password"}
-            </label>
-            <div className="relative group">
-              <input
-                {...register("password")}
-                id="reg-password"
-                type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
-                className="input-field text-start"
-                aria-describedby={errors.password ? "reg-password-error" : undefined}
-                aria-invalid={!!errors.password}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute end-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
-                aria-label={showPassword ? dict.auth.hidePassword : dict.auth.showPassword}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            {errors.password && (
-              <p id="reg-password-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.password.message}</p>
-            )}
-          </motion.div>
-
-          <motion.div variants={formItem} className="space-y-1.5">
-            <label htmlFor="reg-confirmPassword" className="text-sm font-semibold text-text-primary/90 block ms-1">
-              {dict.auth?.confirmPassword || "Confirm Password"}
-            </label>
-            <div className="relative group">
-              <input
-                {...register("confirmPassword")}
-                id="reg-confirmPassword"
-                type={showConfirmPassword ? "text" : "password"}
-                placeholder="••••••••"
-                className="input-field text-start"
-                aria-describedby={errors.confirmPassword ? "reg-confirmPassword-error" : undefined}
-                aria-invalid={!!errors.confirmPassword}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute end-3 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
-                aria-label={showConfirmPassword ? dict.auth.hidePassword : dict.auth.showPassword}
-                aria-pressed={showConfirmPassword}
-              >
-                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            {errors.confirmPassword && (
-              <p id="reg-confirmPassword-error" className="text-xs font-medium text-destructive mt-1.5 ms-1" role="alert">{errors.confirmPassword.message}</p>
-            )}
-          </motion.div>
-        </div>
-
-        <motion.div variants={formItem} className="pt-2">
-          <label className="flex items-start gap-3 cursor-pointer group">
-            <div className="relative flex items-center justify-center mt-0.5">
-              <input
-                {...register("terms")}
-                type="checkbox"
-                className="peer appearance-none w-5 h-5 border-2 border-border hover:border-primary checked:bg-primary checked:border-primary rounded-md transition-all cursor-pointer"
-              />
-              <svg
-                className="absolute w-3 h-3 text-primary-foreground opacity-0 peer-checked:opacity-100 pointer-events-none transform scale-50 peer-checked:scale-100 transition-transform duration-200"
-                viewBox="0 0 14 10"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path d="M1 5L5 9L13 1" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <span className="text-sm font-medium text-text-muted leading-snug">
-              {dict.auth?.agreeTerms || "Agree with our"}{" "}
-              <Link href="/terms" target="_blank" rel="noopener" className="font-bold text-text-primary hover:underline transition-all">
-                {dict.auth?.terms || "terms"}
-              </Link>{" "}
-              {dict.auth?.and || "and"}{isAr ? "" : " "}
-              <Link href="/privacy-policy" target="_blank" rel="noopener" className="font-bold text-text-primary hover:underline transition-all">
-                {dict.auth?.privacyPolicy || "privacy policy"}
-              </Link>.
-            </span>
-          </label>
-          {errors.terms && (
-            <p className="text-xs font-medium text-destructive mt-2 ms-1" role="alert">{errors.terms.message}</p>
-          )}
-        </motion.div>
-
-        <motion.div variants={formItem} className="pt-4">
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="btn-primary group relative w-full py-4 h-auto text-[15px] overflow-hidden shadow-xl shadow-primary/10 hover:shadow-primary/20"
-          >
-            <div className="absolute inset-0 -translate-x-full rtl:translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 dark:via-black/10 to-transparent"></div>
-
-            {isSubmitting ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <span className="flex items-center gap-2">
-                {dict.auth?.register || "Register"}
-                <ArrowRight className="w-4 h-4 rtl:hidden group-hover:translate-x-1 transition-transform" />
-                <ArrowLeft className="w-4 h-4 hidden rtl:block group-hover:-translate-x-1 transition-transform" />
-              </span>
-            )}
-          </button>
-        </motion.div>
-
-        <motion.div variants={formItem} className="mt-8 pt-6 relative flex justify-center items-center">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border"></div>
-          </div>
-          <div className="relative bg-background/70 dark:bg-background px-4 backdrop-blur-xl">
-            <p className="text-sm font-medium text-text-muted">
-              {dict.auth?.hasAccount || "Already have an account?"}{" "}
-              <Link
-                href="/login"
-                className="text-text-primary font-bold hover:underline ms-1"
-              >
-                {dict.auth?.signIn || "Sign in"}
-              </Link>
-            </p>
-          </div>
-        </motion.div>
       </form>
-    </motion.div>
+
+      <p className="border-t border-border pt-6 text-sm text-text-secondary">
+        {t.haveAccount}{" "}
+        <Link href={withRedirect("/login")} className={cn("text-text-primary", textLink)}>
+          {t.signIn}
+        </Link>
+      </p>
+    </div>
   );
 }

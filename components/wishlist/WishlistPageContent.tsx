@@ -1,198 +1,168 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   WishlistPageContent — Client Shell for Wishlist Page
+   Wishlist — saved pieces as editorial product cards
    ──────────────────────────────────────────────────────────────
-   Reads wishlist productIds from Zustand, fetches product data
-   via a server action, and renders a grid of product cards.
+   The saved ids live in this browser; product data comes from the
+   server (current prices and stock). Under each card: "Move to
+   bag" (one option: straight into the bag; several: pick the size
+   on the product page) and "Remove".
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { Heart, ArrowLeft, Trash2 } from "lucide-react";
-import { useWishlistStore } from "@/lib/store/useWishlistStore";
-import { fetchWishlistProducts } from "@/lib/actions/wishlist";
-import type { ProductWithDetails, Locale } from "@/lib/types";
+import { toast } from "sonner";
 import ProductCard from "@/components/product/ProductCard";
-import AnimatedProductCard from "@/components/product/AnimatedProductCard";
+import { ButtonLink, Skeleton } from "@/components/ds";
 import { useHydrated } from "@/components/shared/useHydrated";
-import { pluralize } from "@/lib/i18n/plural";
+import { useWishlistStore } from "@/lib/store/useWishlistStore";
+import { useCartStore } from "@/lib/store/useCartStore";
+import { useCartUi } from "@/lib/store/useCartUi";
+import { fetchWishlistProducts } from "@/lib/actions/wishlist";
+import { priceSummary, unitPrice } from "@/lib/seo/pricing";
+import type { ListingProduct } from "@/lib/dal/products";
 
-interface WishlistPageContentProps {
-  locale: Locale;
-  /** Strings used by ProductCard (badges, buttons), from the server dictionary. */
-  cardDict: Record<string, Record<string, string>>;
-}
+const COPY = {
+  en: {
+    count: (n: number) => (n === 1 ? "1 piece" : `${n} pieces`),
+    moveToBag: "Move to bag",
+    chooseSize: "Choose size",
+    soldOut: "Sold out",
+    remove: "Remove",
+    removeItem: (name: string) => `Remove ${name} from your wishlist`,
+    moved: "Moved to your bag",
+    emptyTitle: "Your wishlist is empty",
+    emptyBody: "Tap the heart on any piece to save it here for later.",
+    browse: "Browse the shop",
+    unavailableNote: "Some saved pieces are no longer available and were hidden.",
+    loading: "Loading your wishlist",
+  },
+  ar: {
+    count: (n: number) => (n === 1 ? "قطعة واحدة" : n === 2 ? "قطعتان" : n <= 10 ? `${n} قطع` : `${n} قطعة`),
+    moveToBag: "نقل إلى الحقيبة",
+    chooseSize: "اختر المقاس",
+    soldOut: "نفدت الكمية",
+    remove: "إزالة",
+    removeItem: (name: string) => `إزالة ${name} من المفضلة`,
+    moved: "نُقلت القطعة إلى الحقيبة",
+    emptyTitle: "قائمة المفضلة فارغة",
+    emptyBody: "اضغط على رمز القلب في أي قطعة لحفظها هنا لوقت لاحق.",
+    browse: "تصفّح المتجر",
+    unavailableNote: "بعض القطع المحفوظة لم تعد متاحة فأخفيناها.",
+    loading: "جارٍ تحميل المفضلة",
+  },
+};
 
-/**
- * WishlistPageContent — Displays a grid of wishlisted products.
- *
- * Since wishlist IDs are client-side (localStorage), we:
- * 1. Read IDs from Zustand after hydration
- * 2. Call a server action to fetch product data
- * 3. Render the grid with AnimatedProductCard wrappers
- */
-export function WishlistPageContent({ locale, cardDict }: WishlistPageContentProps) {
-  const isAr = locale === "ar";
-  const productIds = useWishlistStore((s) => s.productIds);
-  const clearWishlist = useWishlistStore((s) => s.clearWishlist);
-  const dict = cardDict;
-
+export function WishlistPageContent({ locale, showTitle }: { locale: string; showTitle: boolean }) {
+  const lang = locale === "ar" ? "ar" : "en";
+  const t = COPY[lang];
   const mounted = useHydrated();
-  /** Last fetched products, tagged with the id list they belong to. */
-  const [fetched, setFetched] = useState<{ key: string; products: ProductWithDetails[] }>({ key: "", products: [] });
+  const productIds = useWishlistStore((s) => s.productIds);
+  const toggleWishlist = useWishlistStore((s) => s.toggleWishlist);
+  const addItem = useCartStore((s) => s.addItem);
+  const openCart = useCartUi((s) => s.openCart);
 
   const idsKey = productIds.join(",");
+  const [fetched, setFetched] = useState<{ key: string; products: ListingProduct[] }>({ key: "", products: [] });
   const loading = mounted && idsKey !== "" && fetched.key !== idsKey;
-  const products = idsKey === "" ? [] : fetched.key === idsKey ? fetched.products : [];
 
-  /* ── Fetch products by IDs ────────────────────────────── */
   useEffect(() => {
     if (!mounted || idsKey === "") return;
     let cancelled = false;
     fetchWishlistProducts(idsKey.split(","))
-      .then((data) => {
-        if (!cancelled) setFetched({ key: idsKey, products: data });
-      })
-      .catch((error) => {
-        console.error("Failed to fetch wishlist products:", error);
-        if (!cancelled) setFetched({ key: idsKey, products: [] });
-      });
+      .then((data) => !cancelled && setFetched({ key: idsKey, products: data as ListingProduct[] }))
+      .catch(() => !cancelled && setFetched({ key: idsKey, products: [] }));
     return () => {
       cancelled = true;
     };
   }, [mounted, idsKey]);
 
-  /* ── Loading skeleton ─────────────────────────────────── */
   if (!mounted || loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <div className="skeleton-block h-8 w-48 rounded-lg" />
-          <div className="skeleton-block h-6 w-24 rounded-lg" />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="space-y-3">
-              <div className="skeleton-block aspect-[4/5] rounded-xl" />
-              <div className="skeleton-block h-5 w-20 rounded-lg" />
-              <div className="skeleton-block h-4 w-full rounded-lg" />
-              <div className="skeleton-block h-11 w-full rounded-xl" />
-            </div>
-          ))}
-        </div>
+      <div aria-busy="true" aria-label={t.loading} className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex flex-col gap-3">
+            <Skeleton className="aspect-[4/5] w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/3" />
+          </div>
+        ))}
       </div>
     );
   }
 
-  const isEmpty = products.length === 0;
+  const products = idsKey === "" ? [] : fetched.products.filter((p) => productIds.includes(p.id));
 
-  /* ── Empty State ──────────────────────────────────────── */
-  if (isEmpty) {
+  if (products.length === 0) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-lg mx-auto px-4 py-20 text-center"
-      >
-        <div
-          className="w-24 h-24 mx-auto rounded-3xl flex items-center justify-center mb-6"
-          style={{
-            background: "var(--surface-elevated)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <Heart size={40} strokeWidth={1.2} className="text-text-faint" />
-        </div>
-
-        <h1 className="text-2xl font-bold text-text-primary mb-2">
-          {isAr ? "قائمة المفضلة فارغة" : "Your wishlist is empty"}
-        </h1>
-        <p className="text-text-muted text-sm mb-8 max-w-sm mx-auto">
-          {isAr
-            ? "لم تُضف أي منتجات إلى المفضلة بعد. تصفح متجرنا وأضف المنتجات التي تعجبك!"
-            : "You haven't saved any products yet. Browse our store and heart the items you love!"}
-        </p>
-
-        <Link
-          href="/shop"
-          className="btn-primary h-12 px-8 text-base font-bold gap-2 inline-flex"
-        >
-          <ArrowLeft size={18} className="rtl:rotate-180" />
-          {isAr ? "تصفح المنتجات" : "Start Shopping"}
-        </Link>
-      </motion.div>
+      <div className="flex flex-col items-start gap-3 border border-dashed border-border-hover p-8 rounded-sm">
+        <p className="text-[0.9375rem] text-text-primary">{t.emptyTitle}</p>
+        <p className="text-sm text-text-secondary">{t.emptyBody}</p>
+        <ButtonLink href="/shop" variant="secondary" className="mt-2">
+          {t.browse}
+        </ButtonLink>
+      </div>
     );
   }
 
-  /* ── Wishlist Grid ─────────────────────────────────────── */
+  function moveToBag(p: ListingProduct) {
+    const v = p.variants[0];
+    if (!v) return;
+    addItem({
+      productId: p.id,
+      variantId: v.id,
+      name_en: p.name_en,
+      name_ar: p.name_ar,
+      slug: p.slug,
+      image: p.primary_image?.url ?? "",
+      size: v.size,
+      color_en: v.color_en,
+      color_ar: v.color_ar,
+      color_hex: v.color_hex,
+      price: unitPrice(p, v),
+      quantity: 1,
+    });
+    toggleWishlist(p.id);
+    toast.success(t.moved);
+    openCart();
+  }
+
+  const hidden = productIds.length - products.length;
+  const action = "min-h-10 text-[0.8125rem] underline-offset-4 hover:underline";
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 lg:py-12">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-text-primary">
-            {isAr ? "المفضلة" : "My Wishlist"}
-          </h1>
-          <p className="text-sm text-text-muted mt-0.5">
-            {isAr
-              ? pluralize(locale, products.length, {
-                  one: "منتج واحد محفوظ",
-                  two: "منتجان محفوظان",
-                  few: "{count} منتجات محفوظة",
-                  many: "{count} منتجًا محفوظًا",
-                  other: "{count} منتج محفوظ",
-                })
-              : pluralize(locale, products.length, { one: "{count} saved product", other: "{count} saved products" })}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={clearWishlist}
-          className="flex items-center gap-1.5 text-xs font-semibold text-destructive hover:text-destructive/80 transition-colors px-3 py-2 rounded-lg hover:bg-destructive-bg"
-          aria-label={isAr ? "مسح المفضلة" : "Clear Wishlist"}
-        >
-          <Trash2 size={14} strokeWidth={1.5} />
-          {isAr ? "مسح الكل" : "Clear All"}
-        </button>
-      </div>
-
-      {/* Product Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-        <AnimatePresence mode="popLayout">
-          {products.map((product, index) => (
-            <motion.div
-              key={product.id}
-              layout
-              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-            >
-              <AnimatedProductCard index={index}>
-                <ProductCard
-                  product={product}
-                  locale={locale}
-                  dict={dict}
-                />
-              </AnimatedProductCard>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* Continue Shopping */}
-      <div className="text-center mt-10">
-        <Link
-          href="/shop"
-          className="inline-flex items-center gap-2 text-sm font-semibold text-text-muted hover:text-text-primary transition-colors group"
-        >
-          <ArrowLeft
-            size={16}
-            className="rtl:rotate-180 transition-transform group-hover:-translate-x-0.5 rtl:group-hover:translate-x-0.5"
-          />
-          {isAr ? "متابعة التسوق" : "Continue Shopping"}
-        </Link>
-      </div>
+    <div className="flex flex-col gap-6">
+      {showTitle ? null : <p className="text-sm text-text-muted">{t.count(products.length)}</p>}
+      {hidden > 0 ? <p className="text-[0.8125rem] text-text-muted">{t.unavailableNote}</p> : null}
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5">
+        {products.map((p) => {
+          const name = lang === "ar" ? p.name_ar : p.name_en;
+          const summary = priceSummary(p, p.variants);
+          const inStock = summary.purchasable && summary.inStock;
+          const single = p.variants.length === 1;
+          return (
+            <li key={p.id} className="flex flex-col gap-2">
+              <ProductCard product={p} locale={locale} sizes="(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 25vw" />
+              <div className="flex flex-wrap items-center justify-between gap-x-4">
+                {!inStock ? (
+                  <span className="text-[0.8125rem] text-text-muted">{t.soldOut}</span>
+                ) : single ? (
+                  <button type="button" onClick={() => moveToBag(p)} className={`${action} font-medium text-text-primary`}>
+                    {t.moveToBag}
+                  </button>
+                ) : (
+                  <Link href={`/product/${p.slug}`} className={`${action} font-medium text-text-primary`}>
+                    {t.chooseSize}
+                  </Link>
+                )}
+                <button type="button" onClick={() => toggleWishlist(p.id)} className={`${action} text-text-muted hover:text-text-primary`} aria-label={t.removeItem(name)}>
+                  {t.remove}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

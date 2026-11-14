@@ -5,9 +5,12 @@
    1. Refreshes the Supabase auth session on every request
       (prevents expired tokens from being used).
    2. Detects locale from cookies / accept-language header.
-   3. Protects authenticated routes — redirects guests to /login.
+   3. Protects account routes — redirects visitors to /login with
+      a same-site return path (?redirect=/orders/…). Checkout is
+      open to guests; /wishlist works without an account too.
    4. Protects admin routes — redirects non-admins to /.
-   5. Redirects logged-in users away from /login & /register.
+   5. Sends signed-in users away from /login, /register and
+      /forgot-password (to their ?redirect= target or /account).
 
    Design notes:
    - Uses @supabase/ssr createServerClient for cookie-based
@@ -20,17 +23,18 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { i18n, isValidLocale } from "@/lib/i18n/config";
+import { safeRedirectPath } from "@/lib/i18n/safe-redirect";
 
 /* ── Route Configuration ─────────────────────────────────────── */
 
-/** Routes that require the user to be logged in */
-const PROTECTED_ROUTES = ["/orders", "/profile", "/checkout"];
+/** Routes that require the user to be logged in (checkout is open to guests) */
+const PROTECTED_ROUTES = ["/account", "/orders", "/profile"];
 
 /** Routes that require admin role */
 const ADMIN_ROUTES = ["/admin"];
 
-/** Routes that should redirect logged-in users away (to /) */
-const AUTH_ROUTES = ["/login", "/register"];
+/** Routes that should redirect logged-in users away (to ?redirect= or /account) */
+const AUTH_ROUTES = ["/login", "/register", "/forgot-password"];
 
 /* ── Helper: Check if path starts with any prefix ─────────────── */
 
@@ -105,7 +109,7 @@ export async function proxy(request: NextRequest) {
   /* ── 4. Route Protection: Protected routes ─────────────────── */
   if (!user && matchesAny(pathname, PROTECTED_ROUTES)) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
+    loginUrl.searchParams.set("redirect", safeRedirectPath(pathname + request.nextUrl.search, "/account"));
     return NextResponse.redirect(loginUrl);
   }
 
@@ -124,7 +128,8 @@ export async function proxy(request: NextRequest) {
 
   /* ── 6. Redirect logged-in users from auth pages ───────────── */
   if (user && matchesAny(pathname, AUTH_ROUTES)) {
-    return NextResponse.redirect(new URL("/", request.url));
+    const target = safeRedirectPath(request.nextUrl.searchParams.get("redirect"), "/account");
+    return NextResponse.redirect(new URL(target, request.url));
   }
 
   return supabaseResponse;

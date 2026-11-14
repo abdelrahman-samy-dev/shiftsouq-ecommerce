@@ -12,8 +12,8 @@ import "server-only";
    Writes the buyer may make:
    • cancel a pending, unpaid order (one conditional UPDATE, so it
      can't race the payment webhook; the restock trigger puts the
-     items back on the shelf);
-   • save their delivery address on their own profile.
+     items back on the shelf).
+   Saving addresses lives in lib/dal/account.ts.
    ══════════════════════════════════════════════════════════════ */
 
 import { paymobConfigured, paymobMockEnabled } from "@/lib/payments/paymob";
@@ -25,7 +25,8 @@ import {
   type PaymentMethodValue,
   type PaymentStatusValue,
 } from "@/components/orders/order-rules";
-import { egyptianMobileToE164, splitFullName } from "@/components/checkout/checkout-rules";
+import { normalizeEgyptianMobile, splitFullName } from "@/components/checkout/checkout-rules";
+import { getMyAddresses, type SavedAddress } from "@/lib/dal/account";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -36,7 +37,10 @@ export interface PaymentAvailability {
 
 export interface MyOrderItem {
   name: string;
+  /** Arabic name / option label stored at purchase time (null for older orders). */
+  nameAr: string | null;
   label: string | null;
+  labelAr: string | null;
   quantity: number;
   unitPrice: number;
   image: string | null;
@@ -59,6 +63,7 @@ export interface MyOrderSummary {
 }
 
 export interface MyOrder extends MyOrderSummary {
+  updatedAt: string;
   subtotal: number;
   discount: number;
   shippingCost: number;
@@ -74,7 +79,8 @@ export interface MyOrder extends MyOrderSummary {
 
 export interface CheckoutPrefill {
   contact: { firstName: string; lastName: string; email: string; phone: string };
-  shipping: { governorate: string; city: string; address: string; apartment: string; postalCode: string } | null;
+  /** Saved addresses (address book first, else the one older checkouts kept on the profile). */
+  addresses: SavedAddress[];
 }
 
 export type CancelOrderResult =
@@ -86,14 +92,15 @@ export type CancelOrderResult =
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 const ORDER_COLUMNS =
-  "id, order_number, created_at, status, payment_status, payment_method, subtotal, discount_amount, shipping_cost, total, " +
+  "id, order_number, created_at, updated_at, status, payment_status, payment_method, subtotal, discount_amount, shipping_cost, total, " +
   "shipping_name, shipping_phone, shipping_email, shipping_governorate, shipping_city, shipping_address, " +
-  "order_items(product_name, variant_label, quantity, unit_price, image_url, created_at)";
+  "order_items(product_name, product_name_ar, variant_label, variant_label_ar, quantity, unit_price, image_url, created_at)";
 
 interface OrderRow {
   id: string;
   order_number: string;
   created_at: string;
+  updated_at: string | null;
   status: OrderStatusValue;
   payment_status: PaymentStatusValue;
   payment_method: PaymentMethodValue | null;
@@ -107,7 +114,18 @@ interface OrderRow {
   shipping_governorate: string | null;
   shipping_city: string | null;
   shipping_address: string | null;
-  order_items: { product_name: string; variant_label: string | null; quantity: number; unit_price: number | string; image_url: string | null; created_at: string }[] | null;
+  order_items:
+    | {
+        product_name: string;
+        product_name_ar: string | null;
+        variant_label: string | null;
+        variant_label_ar: string | null;
+        quantity: number;
+        unit_price: number | string;
+        image_url: string | null;
+        created_at: string;
+      }[]
+    | null;
 }
 
 /** The signed-in buyer: auth user + profile id, or null for guests. */
@@ -131,7 +149,9 @@ function toSummary(o: OrderRow): MyOrderSummary {
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
     .map((i) => ({
       name: i.product_name,
+      nameAr: i.product_name_ar,
       label: i.variant_label,
+      labelAr: i.variant_label_ar,
       quantity: i.quantity,
       unitPrice: Number(i.unit_price),
       image: i.image_url,
@@ -158,7 +178,7 @@ function toSummary(o: OrderRow): MyOrderSummary {
 
 /* ── Payments on offer ───────────────────────────────────────── */
 
-/** Online methods that can actually take a payment right now (real keys, or the local test double). */
+/** Online methods the gateway can take right now (real keys, or the local test double). */
 export function getPaymentAvailability(): PaymentAvailability {
   const mock = paymobMockEnabled();
   return { card: paymobConfigured("card") || mock, wallet: paymobConfigured("wallet") || mock };
@@ -207,6 +227,7 @@ export async function getMyOrder(orderId: string): Promise<MyOrder | null> {
     const o = data as unknown as OrderRow;
     return {
       ...toSummary(o),
+      updatedAt: o.updated_at ?? o.created_at,
       subtotal: Number(o.subtotal),
       discount: Number(o.discount_amount ?? 0),
       shippingCost: Number(o.shipping_cost ?? 0),
@@ -259,32 +280,34 @@ export async function getMyPayableOrder(orderId: string) {
   };
 }
 
-/** Contact details and saved address of the signed-in buyer, to prefill checkout. */
+/** Contact details and saved addresses of the signed-in buyer, to prefill checkout. */
 export async function getCheckoutPrefill(): Promise<CheckoutPrefill | null> {
   try {
     const buyer = await currentBuyer();
     if (!buyer) return null;
     const { firstName, lastName } = splitFullName(buyer.profile.full_name);
-    const saved = (buyer.profile.default_address ?? null) as Record<string, unknown> | null;
+    const phone = normalizeEgyptianMobile(buyer.profile.phone) ?? "";
+    const addresses = await getMyAddresses();
+
+    // Older checkouts kept one address on the profile: offer it until the buyer saves one.
+    const legacy = (buyer.profile.default_address ?? null) as Record<string, unknown> | null;
     const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
-    return {
-      contact: {
-        firstName,
-        lastName,
-        email: buyer.user.email ?? "",
-        phone: egyptianMobileToE164(buyer.profile.phone),
-      },
-      shipping:
-        saved && typeof saved === "object"
-          ? {
-              governorate: str(saved.governorate, 40),
-              city: str(saved.city, 80),
-              address: str(saved.address, 200),
-              apartment: str(saved.apartment, 40),
-              postalCode: str(saved.postalCode, 20),
-            }
-          : null,
-    };
+    if (addresses.length === 0 && legacy && typeof legacy === "object" && str(legacy.address, 200)) {
+      addresses.push({
+        id: "profile",
+        label: null,
+        fullName: `${firstName} ${lastName}`.trim(),
+        phone,
+        governorate: str(legacy.governorate, 40),
+        city: str(legacy.city, 80),
+        address: str(legacy.address, 200),
+        apartment: str(legacy.apartment, 40) || null,
+        postalCode: str(legacy.postalCode, 20) || null,
+        isDefault: true,
+      });
+    }
+
+    return { contact: { firstName, lastName, email: buyer.user.email ?? "", phone }, addresses };
   } catch (err) {
     console.error("[DAL:getCheckoutPrefill]", err);
     return null;
@@ -328,35 +351,5 @@ export async function cancelMyOrder(orderId: string): Promise<CancelOrderResult>
   } catch (err) {
     console.error("[DAL:cancelMyOrder] unexpected:", err);
     return { ok: false, code: "server" };
-  }
-}
-
-/**
- * Saves the delivery address on the buyer's own profile (their session, so RLS applies).
- * Also fills in the profile phone number when the profile has none.
- */
-export async function saveCheckoutAddress(
-  address: { governorate: string; city: string; address: string; apartment?: string; postalCode?: string },
-  phone: string,
-): Promise<boolean> {
-  try {
-    const buyer = await currentBuyer();
-    if (!buyer) return false;
-    const update: Record<string, unknown> = {
-      default_address: {
-        governorate: address.governorate,
-        city: address.city,
-        address: address.address,
-        apartment: address.apartment ?? "",
-        postalCode: address.postalCode ?? "",
-      },
-    };
-    if (!buyer.profile.phone) update.phone = phone;
-    const { error } = await buyer.supabase.from("profiles").update(update).eq("id", buyer.profile.id);
-    if (error) console.error("[DAL:saveCheckoutAddress]", error.message);
-    return !error;
-  } catch (err) {
-    console.error("[DAL:saveCheckoutAddress] unexpected:", err);
-    return false;
   }
 }

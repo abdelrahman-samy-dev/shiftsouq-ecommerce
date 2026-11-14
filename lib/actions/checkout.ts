@@ -1,29 +1,42 @@
 "use server";
 
 /* ══════════════════════════════════════════════════════════════
-   Checkout — create an order, quote totals, preview a promo code
+   Checkout — create an order, quote totals, preview a promo code,
+   re-validate the bag
    ──────────────────────────────────────────────────────────────
    The browser sends only WHAT it wants (variant ids + quantities,
    contact details, payment method, optional promo code). Prices,
-   discount, shipping and totals are computed on the server:
-   shipping from lib/checkout/shipping, everything else inside the
-   place_order() database function, which also reserves stock in
-   the same transaction.
+   discount, delivery and totals are computed on the server:
+   delivery from the owner's store settings (shippingFeeFor),
+   everything else inside the place_order() database function,
+   which also reserves stock in the same transaction.
 
-   quoteCheckout() shows the buyer the same numbers before they
-   order: server prices, promo discount, shipping and total.
+   Guests may check out: the order is stored without a user and
+   this browser gets the httpOnly receipt cookie. Every refusal
+   (invalid phone, payment method off or unavailable, cash on
+   delivery above the limit, bad promo code) happens before any
+   stock is reserved.
+
+   Promo codes work for guests too. Wrong codes are rate-limited
+   per client (hashed IP, or the account when signed in); codes
+   that work are never counted.
    ══════════════════════════════════════════════════════════════ */
 
 import { z } from "zod";
-import { shippingFee, isKnownGovernorate } from "@/lib/checkout/shipping";
+import { isKnownGovernorate } from "@/lib/checkout/shipping";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServiceClient, ServiceConfigError } from "@/lib/supabase/service";
-import { getPaymentAvailability, saveCheckoutAddress } from "@/lib/dal/orders";
-import { setReceiptCookie } from "@/lib/dal/receipt";
+import { getStoreSettings, shippingFeeFor } from "@/lib/settings";
+import { getPaymentAvailability } from "@/lib/dal/orders";
+import { rememberBuyerPhone, saveAddressFromCheckout } from "@/lib/dal/account";
+import { readReceiptCookie, setReceiptCookie } from "@/lib/dal/receipt";
+import { safeEqual } from "@/lib/payments/paymob";
+import { clientKey, PROMO_LIMIT, rateLimit } from "@/lib/checkout/rate-limit";
+import type { LineStatus } from "@/lib/checkout/cart-sync";
 import {
-  COD_MAX_AMOUNT,
   checkoutTotals,
   normalizeEgyptianMobile,
+  paymentOptions,
   round2,
   type CheckoutTotals,
   type PromoFailure,
@@ -51,7 +64,7 @@ const orderSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   paymentMethod: z.enum(["cod", "card", "wallet"]),
   promoCode: z.string().trim().max(40).optional(),
-  /** Signed-in buyers only: keep this address on their profile for next time. */
+  /** Signed-in buyers only: add this address to their address book. */
   saveAddress: z.boolean().optional(),
   items: z.array(itemSchema).min(1).max(50),
 });
@@ -78,6 +91,11 @@ export interface CreateOrderResult {
     | "payment_unavailable"
     | "cod_limit"
     | "server";
+  /** Why the payment method was refused, when code = "payment_unavailable". */
+  paymentReason?: "store_off" | "gateway";
+  /** Why the promo code was refused, when code = "invalid_promo". */
+  promoReason?: PromoFailure;
+  minOrder?: number;
   /** Variant / product that caused the failure, when known. */
   itemId?: string;
 }
@@ -91,6 +109,16 @@ const toLine = (it: z.infer<typeof itemSchema>): Line => ({
   variant_id: it.variantId && isUuid(it.variantId) ? it.variantId : null,
   quantity: it.quantity,
 });
+
+/** The signed-in buyer (auth user id + profile id), or nulls for a guest. */
+async function currentBuyer(): Promise<{ userId: string | null; profileId: string | null }> {
+  const {
+    data: { user },
+  } = await (await createServerClient()).auth.getUser();
+  if (!user) return { userId: null, profileId: null };
+  const { data: profile } = await getServiceClient().from("profiles").select("id").eq("auth_user_id", user.id).maybeSingle();
+  return { userId: user.id, profileId: profile?.id ?? null };
+}
 
 /* ── Action ──────────────────────────────────────────────────── */
 
@@ -107,27 +135,24 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   if (!phone) {
     return { success: false, code: "invalid_phone", error: "Please enter an Egyptian mobile number (01XXXXXXXXX)." };
   }
-  // Refuse before anything is reserved: no order (and no held stock) for a payment that can't be taken.
-  if (data.paymentMethod !== "cod" && !getPaymentAvailability()[data.paymentMethod]) {
-    return {
-      success: false,
-      code: "payment_unavailable",
-      error: "This payment method is temporarily unavailable. Please choose cash on delivery.",
-    };
-  }
 
   try {
-    /* Buyer: the signed-in user's profile, never looked up by phone. */
-    let profileId: string | null = null;
-    const auth = await createServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    const db = getServiceClient();
-    if (user) {
-      const { data: profile } = await db.from("profiles").select("id").eq("auth_user_id", user.id).maybeSingle();
-      profileId = profile?.id ?? null;
+    const settings = await getStoreSettings();
+
+    // Refuse before anything is reserved: no order (and no held stock) for a payment that can't be taken.
+    const offered = paymentOptions({ enabled: settings.payments, gateway: getPaymentAvailability(), total: null });
+    if (!offered[data.paymentMethod].available) {
+      return {
+        success: false,
+        code: "payment_unavailable",
+        paymentReason: offered[data.paymentMethod].reason === "store_off" ? "store_off" : "gateway",
+        error: "This payment method is not available right now. Please choose another one.",
+      };
     }
+
+    /* Buyer: the signed-in user's profile, never looked up by phone or email. Guests: none. */
+    const buyer = await currentBuyer();
+    const db = getServiceClient();
 
     /* Merge duplicate lines so quantities are checked against stock once. */
     const lines = new Map<string, Line>();
@@ -138,24 +163,34 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       lines.set(key, { ...line, quantity: Math.min(99, (prev?.quantity ?? 0) + line.quantity) });
     }
 
-    /* Shipping needs the discounted subtotal: price once without shipping, then with. */
+    /* Delivery needs the discounted subtotal: price the lines and the code first. */
     const priced = await priceLines([...lines.values()]);
-    const promo = data.promoCode ? await promoDiscount(data.promoCode, priced.subtotal) : null;
-    const afterDiscount = round2(priced.subtotal - (promo?.ok ? promo.discount : 0));
-    const fee = shippingFee(data.governorate, afterDiscount);
+    let discount = 0;
+    if (data.promoCode) {
+      const promo = await checkPromo(data.promoCode, priced.subtotal, buyer.userId);
+      if (!promo.ok) {
+        return {
+          success: false,
+          code: "invalid_promo",
+          promoReason: promo.reason,
+          minOrder: promo.minOrder,
+          error: "This promo code is not valid for your order.",
+        };
+      }
+      discount = promo.discount;
+    }
+    const afterDiscount = round2(priced.subtotal - discount);
+    const fee = shippingFeeFor(settings.shipping, data.governorate, afterDiscount);
 
-    if (data.paymentMethod === "cod" && afterDiscount + fee > COD_MAX_AMOUNT) {
-      return {
-        success: false,
-        code: "cod_limit",
-        error: `Cash on delivery is available for orders up to EGP ${COD_MAX_AMOUNT}. Please pay online.`,
-      };
+    const withTotal = paymentOptions({ enabled: settings.payments, gateway: getPaymentAvailability(), total: afterDiscount + fee });
+    if (data.paymentMethod === "cod" && !withTotal.cod.available) {
+      return { success: false, code: "cod_limit", error: "Cash on delivery isn't available for this amount. Please pay online." };
     }
 
     const contact = {
       name: `${data.firstName} ${data.lastName}`.trim(),
       phone,
-      email: data.email,
+      email: data.email.trim(),
       governorate: data.governorate,
       city: data.city,
       address: [data.address, data.apartment].filter(Boolean).join(", "),
@@ -163,7 +198,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     };
 
     const { data: rows, error } = await db.rpc("place_order", {
-      p_user_id: profileId,
+      p_user_id: buyer.profileId,
       p_items: [...lines.values()],
       p_shipping_cost: fee,
       p_payment_method: data.paymentMethod,
@@ -178,11 +213,17 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     // Lets this browser see the receipt (and resume payment) even after leaving for Paymob.
     await setReceiptCookie(row.order_id, row.access_token);
 
-    if (user && profileId && data.saveAddress) {
-      await saveCheckoutAddress(
-        { governorate: data.governorate, city: data.city, address: data.address, apartment: data.apartment, postalCode: data.postalCode },
+    if (buyer.profileId && !data.saveAddress) await rememberBuyerPhone(phone);
+    if (buyer.profileId && data.saveAddress) {
+      await saveAddressFromCheckout({
+        fullName: contact.name,
         phone,
-      );
+        governorate: data.governorate,
+        city: data.city,
+        address: data.address,
+        apartment: data.apartment ?? "",
+        postalCode: data.postalCode ?? "",
+      });
     }
 
     return {
@@ -199,41 +240,64 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   }
 }
 
-/* ── Pricing (display + shipping decision) ───────────────────── */
+/* ── Pricing (display + delivery decision) ───────────────────── */
+
+type ProductRow = {
+  id: string;
+  base_price: number | string;
+  sale_price: number | string | null;
+  is_active: boolean;
+  product_variants: { id: string; price_override: number | string | null; stock: number | null }[] | null;
+};
+
+async function loadProducts(productIds: string[]): Promise<ProductRow[]> {
+  if (productIds.length === 0) return [];
+  const { data } = await getServiceClient()
+    .from("products")
+    .select("id, base_price, sale_price, is_active, product_variants(id, price_override, stock)")
+    .in("id", productIds);
+  return (data ?? []) as ProductRow[];
+}
+
+/** The variant a cart line means: its own id, or the only variant of a product without options. */
+function resolveVariant(p: ProductRow, variantId: string | null) {
+  const variants = p.product_variants ?? [];
+  return variantId ? variants.find((x) => x.id === variantId) : variants.length === 1 ? variants[0] : undefined;
+}
+
+/** Same rule as place_order(): variant override, else a real sale price, else the base price. */
+function unitPriceOf(p: ProductRow, v: { price_override: number | string | null }): number {
+  const base = Number(p.base_price);
+  const sale = p.sale_price != null ? Number(p.sale_price) : null;
+  return v.price_override != null ? Number(v.price_override) : sale != null && sale > 0 && sale < base ? sale : base;
+}
 
 /**
  * Unit prices from the database, priced exactly like place_order(). The
  * authoritative amounts are recomputed (with row locks) by place_order().
  */
 async function priceLines(lines: Line[]): Promise<{ subtotal: number; unitPrices: (number | null)[] }> {
-  const db = getServiceClient();
-  const productIds = [...new Set(lines.map((l) => l.product_id))];
-  const { data: products } = await db
-    .from("products")
-    .select("id, base_price, sale_price, is_active, product_variants(id, price_override)")
-    .in("id", productIds);
+  const products = await loadProducts([...new Set(lines.map((l) => l.product_id))]);
   let subtotal = 0;
   const unitPrices = lines.map((l) => {
-    const p = products?.find((x) => x.id === l.product_id);
+    const p = products.find((x) => x.id === l.product_id);
     if (!p || !p.is_active) return null;
-    const variants = (p.product_variants ?? []) as { id: string; price_override: number | null }[];
-    const v = l.variant_id ? variants.find((x) => x.id === l.variant_id) : variants.length === 1 ? variants[0] : undefined;
+    const v = resolveVariant(p, l.variant_id);
     if (!v) return null;
-    const base = Number(p.base_price);
-    const sale = p.sale_price != null ? Number(p.sale_price) : null;
-    const price = v.price_override != null ? Number(v.price_override) : sale != null && sale > 0 && sale < base ? sale : base;
+    const price = unitPriceOf(p, v);
     subtotal += price * l.quantity;
     return price;
   });
   return { subtotal: round2(subtotal), unitPrices };
 }
 
-/** Promo codes are checked for signed-in buyers only (checkout requires an account), so they can't be probed anonymously. */
-async function isSignedIn(): Promise<boolean> {
-  const {
-    data: { user },
-  } = await (await createServerClient()).auth.getUser();
-  return !!user;
+/* ── Promo codes ─────────────────────────────────────────────── */
+
+export interface PromoPreview {
+  ok: boolean;
+  discount: number;
+  reason?: PromoFailure;
+  minOrder?: number;
 }
 
 async function promoDiscount(code: string, subtotal: number): Promise<PromoPreview> {
@@ -245,45 +309,28 @@ async function promoDiscount(code: string, subtotal: number): Promise<PromoPrevi
     : { ok: false, discount: 0, reason: r.reason, minOrder: r.reason === "min_order" ? Number(r.discount) : undefined };
 }
 
-function mapOrderError(message: string): CreateOrderResult {
-  const [code, id] = message.split(":");
-  switch (code) {
-    case "out_of_stock":
-      return { success: false, code, itemId: id, error: "Some items are no longer available in the quantity you chose." };
-    case "product_unavailable":
-      return { success: false, code, itemId: id, error: "A product in your cart is no longer available." };
-    case "choose_variant":
-      return { success: false, code, itemId: id, error: "Please choose a size or colour for every product." };
-    case "invalid_promo":
-      return { success: false, code, error: "This promo code is not valid for your order." };
-    case "empty_cart":
-    case "invalid_quantity":
-    case "invalid_payment_method":
-    case "invalid_shipping":
-      return { success: false, code: "invalid_input", error: "Invalid order details." };
-    default:
-      console.error("[createOrder] place_order failed:", message);
-      return { success: false, code: "server", error: "We couldn't place your order. Please try again." };
-  }
+/**
+ * A promo code check that counts towards the client's limit only when it fails,
+ * and is refused outright once the client has used up its wrong attempts.
+ */
+async function checkPromo(code: string, subtotal: number, userId: string | null): Promise<PromoPreview> {
+  const key = await clientKey(userId);
+  if (!(await rateLimit("promo", key, PROMO_LIMIT, 0))) return { ok: false, discount: 0, reason: "rate_limited" };
+  const result = await promoDiscount(code, subtotal);
+  if (!result.ok) await rateLimit("promo", key, PROMO_LIMIT, 1);
+  return result;
 }
 
-/* ── Promo preview (for the checkout summary) ─────────────────── */
-
-export interface PromoPreview {
-  ok: boolean;
-  discount: number;
-  reason?: PromoFailure;
-  minOrder?: number;
-}
+/* ── Promo preview (the "Apply" button) ──────────────────────── */
 
 export async function previewPromoCode(code: string, items: CreateOrderInput["items"]): Promise<PromoPreview> {
   const c = z.string().trim().min(1).max(40).safeParse(code);
   const its = z.array(itemSchema).min(1).max(50).safeParse(items);
   if (!c.success || !its.success) return { ok: false, discount: 0, reason: "invalid" };
   try {
-    if (!(await isSignedIn())) return { ok: false, discount: 0, reason: "invalid" };
+    const { userId } = await currentBuyer();
     const { subtotal } = await priceLines(its.data.map(toLine));
-    return await promoDiscount(c.data, subtotal);
+    return await checkPromo(c.data, subtotal, userId);
   } catch {
     return { ok: false, discount: 0, reason: "invalid" };
   }
@@ -316,27 +363,123 @@ export async function quoteCheckout(input: z.input<typeof quoteSchema>): Promise
   if (!parsed.success) return empty;
   try {
     const { items, governorate, promoCode } = parsed.data;
-    const priced = await priceLines(items.map(toLine));
-    const promo = promoCode
-      ? {
-          code: promoCode,
-          ...((await isSignedIn())
-            ? await promoDiscount(promoCode, priced.subtotal)
-            : { ok: false, discount: 0, reason: "invalid" as const }),
-        }
-      : null;
+    const [settings, priced] = await Promise.all([getStoreSettings(), priceLines(items.map(toLine))]);
+    let promo: CheckoutQuote["promo"] = null;
+    if (promoCode) {
+      const { userId } = await currentBuyer();
+      promo = { code: promoCode, ...(await checkPromo(promoCode, priced.subtotal, userId)) };
+    }
     const unitPrices: Record<string, number | null> = {};
     items.forEach((it, i) => {
       unitPrices[`${it.productId}:${it.variantId ?? ""}`] = priced.unitPrices[i];
     });
     return {
       ok: true,
-      ...checkoutTotals(priced.subtotal, promo?.ok ? promo.discount : 0, governorate),
+      ...checkoutTotals(priced.subtotal, promo?.ok ? promo.discount : 0, governorate, settings.shipping),
       unitPrices,
       promo,
     };
   } catch (err) {
     console.error("[quoteCheckout]", err);
     return empty;
+  }
+}
+
+/* ── Bag re-validation (cart page) ───────────────────────────── */
+
+const validateSchema = z
+  .array(z.object({ productId: z.guid(), variantId: z.string().max(64).optional() }))
+  .min(1)
+  .max(50);
+
+/**
+ * Current price, stock and availability of each bag line, keyed
+ * "<productId>:<variantId>" exactly as sent. Public catalogue data only.
+ */
+export async function validateCart(lines: { productId: string; variantId?: string }[]): Promise<Record<string, LineStatus>> {
+  const parsed = validateSchema.safeParse(lines);
+  if (!parsed.success) return {};
+  try {
+    const products = await loadProducts([...new Set(parsed.data.map((l) => l.productId))]);
+    const out: Record<string, LineStatus> = {};
+    for (const l of parsed.data) {
+      const key = `${l.productId}:${l.variantId ?? ""}`;
+      const p = products.find((x) => x.id === l.productId);
+      const v = p ? resolveVariant(p, l.variantId && isUuid(l.variantId) ? l.variantId : null) : undefined;
+      out[key] =
+        p && v && p.is_active
+          ? { available: true, price: unitPriceOf(p, v), stock: Math.max(0, Number(v.stock ?? 0)) }
+          : { available: false, price: null, stock: 0 };
+    }
+    return out;
+  } catch (err) {
+    console.error("[validateCart]", err);
+    return {};
+  }
+}
+
+/* ── Abandoning an unpaid online order (details changed) ─────── */
+
+/**
+ * Cancels this browser's unpaid card / wallet order (receipt cookie, or the
+ * signed-in owner) so its stock goes back before a new order is placed.
+ * Only pending + unpaid/failed online orders; a payment confirmed meanwhile wins.
+ */
+export async function releaseCheckoutOrder(orderId: string): Promise<{ ok: boolean }> {
+  if (!z.guid().safeParse(orderId).success) return { ok: false };
+  try {
+    const db = getServiceClient();
+    const { data: order } = await db.from("orders").select("id, access_token, user_id").eq("id", orderId).maybeSingle();
+    if (!order) return { ok: false };
+
+    const remembered = await readReceiptCookie();
+    const viaCookie = !!remembered && remembered.orderId === order.id && safeEqual(String(order.access_token), remembered.accessToken);
+    let viaAccount = false;
+    if (!viaCookie) {
+      const { profileId } = await currentBuyer();
+      viaAccount = !!profileId && order.user_id === profileId;
+    }
+    if (!viaCookie && !viaAccount) return { ok: false };
+
+    const { data, error } = await db
+      .from("orders")
+      .update({ status: "cancelled" })
+      .eq("id", order.id)
+      .eq("status", "pending")
+      .in("payment_status", ["unpaid", "failed"])
+      .in("payment_method", ["card", "wallet"])
+      .select("id");
+    if (error) {
+      console.error("[releaseCheckoutOrder]", error.message);
+      return { ok: false };
+    }
+    return { ok: (data?.length ?? 0) > 0 };
+  } catch (err) {
+    console.error("[releaseCheckoutOrder] unexpected:", err);
+    return { ok: false };
+  }
+}
+
+/* ── Errors from place_order() ───────────────────────────────── */
+
+function mapOrderError(message: string): CreateOrderResult {
+  const [code, id] = message.split(":");
+  switch (code) {
+    case "out_of_stock":
+      return { success: false, code, itemId: id, error: "Some items are no longer available in the quantity you chose." };
+    case "product_unavailable":
+      return { success: false, code, itemId: id, error: "A product in your cart is no longer available." };
+    case "choose_variant":
+      return { success: false, code, itemId: id, error: "Please choose a size or colour for every product." };
+    case "invalid_promo":
+      return { success: false, code, promoReason: "invalid", error: "This promo code is not valid for your order." };
+    case "empty_cart":
+    case "invalid_quantity":
+    case "invalid_payment_method":
+    case "invalid_shipping":
+      return { success: false, code: "invalid_input", error: "Invalid order details." };
+    default:
+      console.error("[createOrder] place_order failed:", message);
+      return { success: false, code: "server", error: "We couldn't place your order. Please try again." };
   }
 }
