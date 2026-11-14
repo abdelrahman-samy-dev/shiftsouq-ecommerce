@@ -12,26 +12,20 @@
    ══════════════════════════════════════════════════════════════ */
 
 import { z } from "zod";
+import { ALLOWED_IMAGE_HOSTS, isRemoteImageAllowed } from "./catalog-images";
 
-/** Mirrors next.config.ts images.remotePatterns. Keep the two in sync. */
-const IMAGE_HOSTS: ReadonlyArray<{ host: RegExp; path: RegExp }> = [
-  { host: /^images\.unsplash\.com$/, path: /^\// },
-  { host: /^cdn\.dummyjson\.com$/, path: /^\// },
-  { host: /^[a-z0-9-]+\.supabase\.co$/, path: /^\/storage\// },
-  { host: /^[a-z0-9-]+\.supabase\.in$/, path: /^\/storage\// },
-];
+/** Mirrors next.config.ts images.remotePatterns (one list, in catalog-images.ts). */
+export const ALLOWED_IMAGE_HOSTS_LABEL = ALLOWED_IMAGE_HOSTS;
 
-export const ALLOWED_IMAGE_HOSTS_LABEL = "images.unsplash.com, cdn.dummyjson.com, *.supabase.co/storage";
-
-export function isAllowedImageUrl(raw: string): boolean {
+/** https on a stock photo host, or a file in THIS project's Storage (never any *.supabase.co project). */
+export function isAllowedImageUrl(raw: string, supabaseUrl?: string): boolean {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return false;
   }
-  if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
-  return IMAGE_HOSTS.some((h) => h.host.test(url.hostname) && h.path.test(url.pathname));
+  return isRemoteImageAllowed(url, supabaseUrl);
 }
 
 const text = (max: number) => z.string().trim().max(max);
@@ -67,7 +61,7 @@ export const adminProductSchema = z
     /** Stock of the single variant, for products without options. */
     stock: z.coerce.number().int({ error: "stock" }).min(0, { error: "stock" }).max(1_000_000).default(0),
     images: z
-      .array(z.string().trim().refine(isAllowedImageUrl, { error: "image_url" }))
+      .array(z.string().trim().refine((u) => isAllowedImageUrl(u), { error: "image_url" }))
       .max(12, { error: "too_many_images" })
       .default([]),
     variants: z.array(adminVariantSchema).max(100, { error: "too_many_variants" }).default([]),

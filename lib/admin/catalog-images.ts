@@ -5,9 +5,11 @@
      (limits mirrored from supabase/migrations/20261114050000_
      admin_catalog.sql: 8 MB, jpeg / png / webp / avif).
    • A pasted image link must be https on a host next/image may
-     load (next.config.ts images.remotePatterns), or a public file
-     of this project's own Storage. Plain-http local Storage is
-     accepted only in development, as next.config.ts does.
+     load (next.config.ts images.remotePatterns): the stock photo
+     hosts, or a public file of THIS project's own Storage (the host
+     of NEXT_PUBLIC_SUPABASE_URL — never any *.supabase.co project).
+     Plain-http local Storage is accepted only in development, as
+     next.config.ts does.
    ══════════════════════════════════════════════════════════════ */
 
 export const IMAGE_BUCKET = "product-images";
@@ -30,22 +32,46 @@ export function isImageMime(v: unknown): v is ImageMime {
 
 export type ImageScope = "products" | "categories" | "collections";
 
-/** Hosts mirrored from next.config.ts images.remotePatterns (production). */
+/** Stock photo hosts mirrored from next.config.ts images.remotePatterns (production). */
 const REMOTE_HOSTS: ReadonlyArray<{ host: RegExp; path: RegExp }> = [
   { host: /^images\.unsplash\.com$/, path: /^\// },
   { host: /^cdn\.dummyjson\.com$/, path: /^\// },
-  { host: /^[a-z0-9-]+\.supabase\.co$/, path: /^\/storage\// },
-  { host: /^[a-z0-9-]+\.supabase\.in$/, path: /^\/storage\// },
 ];
 
 /** Local Supabase hosts next.config.ts allows in development only. */
 const LOCAL_HOSTS = new Set(["127.0.0.1:54321", "localhost:54321"]);
 
-export const ALLOWED_IMAGE_HOSTS = "images.unsplash.com, cdn.dummyjson.com, *.supabase.co/storage";
+/**
+ * Host of this project's Supabase (its Storage serves our uploads) when it is
+ * served over https on the default port, else null. Same rule as next.config.ts.
+ */
+export function projectStorageHost(supabaseUrl: string | undefined = process.env.NEXT_PUBLIC_SUPABASE_URL): string | null {
+  try {
+    const url = new URL(supabaseUrl ?? "");
+    return url.protocol === "https:" && !url.port ? url.hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** https on a stock photo host, or a file in this project's Storage. */
+export function isRemoteImageAllowed(url: URL, supabaseUrl?: string): boolean {
+  if (url.protocol !== "https:" || url.port || url.username || url.password) return false;
+  const storage = projectStorageHost(supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
+  if (storage && url.hostname === storage && url.pathname.startsWith("/storage/")) return true;
+  return REMOTE_HOSTS.some((h) => h.host.test(url.hostname) && h.path.test(url.pathname));
+}
+
+const STORAGE_HOST = projectStorageHost();
+export const ALLOWED_IMAGE_HOSTS = ["images.unsplash.com", "cdn.dummyjson.com", STORAGE_HOST ? `${STORAGE_HOST}/storage` : null]
+  .filter(Boolean)
+  .join(", ");
 
 export interface ImageUrlOptions {
   /** Accept http://127.0.0.1:54321/storage/… (development). Defaults to NODE_ENV === "development". */
   allowLocal?: boolean;
+  /** The project's Supabase URL (defaults to NEXT_PUBLIC_SUPABASE_URL). */
+  supabaseUrl?: string;
 }
 
 export function isAllowedImageUrl(raw: string, opts: ImageUrlOptions = {}): boolean {
@@ -61,8 +87,7 @@ export function isAllowedImageUrl(raw: string, opts: ImageUrlOptions = {}): bool
   if (url.protocol === "http:") {
     return allowLocal && LOCAL_HOSTS.has(url.host) && url.pathname.startsWith("/storage/");
   }
-  if (url.protocol !== "https:" || url.port) return false;
-  return REMOTE_HOSTS.some((h) => h.host.test(url.hostname) && h.path.test(url.pathname));
+  return isRemoteImageAllowed(url, opts.supabaseUrl);
 }
 
 /** Public URL of a file in the bucket. */

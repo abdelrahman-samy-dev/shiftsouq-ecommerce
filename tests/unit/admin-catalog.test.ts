@@ -206,9 +206,13 @@ describe("stock states", () => {
 
 describe("images", () => {
   it("allows only hosts next/image may load", () => {
+    const own = { supabaseUrl: "https://abc.supabase.co" };
     expect(isAllowedImageUrl("https://images.unsplash.com/photo-1?w=600")).toBe(true);
-    expect(isAllowedImageUrl("https://abc.supabase.co/storage/v1/object/public/product-images/x.jpg")).toBe(true);
-    expect(isAllowedImageUrl("https://abc.supabase.co/rest/v1/products")).toBe(false);
+    expect(isAllowedImageUrl("https://abc.supabase.co/storage/v1/object/public/product-images/x.jpg", own)).toBe(true);
+    expect(isAllowedImageUrl("https://abc.supabase.co/rest/v1/products", own)).toBe(false);
+    // Another Supabase project's Storage is not ours.
+    expect(isAllowedImageUrl("https://evil.supabase.co/storage/v1/object/public/product-images/x.jpg", own)).toBe(false);
+    expect(isAllowedImageUrl("https://abc.supabase.in/storage/v1/object/public/product-images/x.jpg", own)).toBe(false);
     expect(isAllowedImageUrl("http://images.unsplash.com/x")).toBe(false);
     expect(isAllowedImageUrl("https://images.unsplash.com:8443/x")).toBe(false);
     expect(isAllowedImageUrl("https://user:pw@images.unsplash.com/x")).toBe(false);

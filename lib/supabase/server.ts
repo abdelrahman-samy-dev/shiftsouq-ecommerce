@@ -9,6 +9,8 @@ export const createServerClient = cache(async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder",
     {
+      // Session cookies travel over HTTPS only in production (local dev runs on http).
+      cookieOptions: { secure: process.env.NODE_ENV === "production" },
       cookies: {
         getAll() {
           return cookieStore.getAll();

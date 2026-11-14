@@ -139,8 +139,9 @@ describe("product input", () => {
     expect(key({ category_id: "nope" })).toBe("category");
   });
   it("image hosts", () => {
-    expect(isAllowedImageUrl("https://abc.supabase.co/storage/v1/object/public/x.png")).toBe(true);
-    expect(isAllowedImageUrl("https://abc.supabase.co/rest/v1/x")).toBe(false);
+    expect(isAllowedImageUrl("https://abc.supabase.co/storage/v1/object/public/x.png", "https://abc.supabase.co")).toBe(true);
+    expect(isAllowedImageUrl("https://other.supabase.co/storage/v1/object/public/x.png", "https://abc.supabase.co")).toBe(false);
+    expect(isAllowedImageUrl("https://abc.supabase.co/rest/v1/x", "https://abc.supabase.co")).toBe(false);
     expect(isAllowedImageUrl("http://images.unsplash.com/a")).toBe(false);
   });
 });
