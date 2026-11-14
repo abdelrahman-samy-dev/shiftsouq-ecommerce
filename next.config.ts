@@ -66,7 +66,14 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Private pages: never in search results.
+      ...["/admin/:path*", "/admin", "/checkout/:path*", "/checkout", "/orders/:path*", "/orders", "/profile", "/cart", "/wishlist", "/login", "/register"].map(
+        (source) => ({ source, headers: noindex }),
+      ),
+    ];
   },
   images: {
     remotePatterns: [

@@ -8,6 +8,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import { getDirection } from "@/lib/i18n/config";
 import { getLocale, getLocaleAndDictionary } from "@/lib/i18n/server";
+import { SITE_URL } from "@/lib/seo/site";
 
 /* ── Fonts ─────────────────────────────────────────────────── */
 
@@ -41,6 +42,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const { locale, dict } = await getLocaleAndDictionary();
 
   return {
+    metadataBase: new URL(SITE_URL),
     title: {
       default: dict.meta.siteTitle,
       template: `%s | ${dict.common.appName}`,
