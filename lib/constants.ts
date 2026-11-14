@@ -4,7 +4,7 @@
 
 export const APP_NAME = "ShiftSouq";
 export const APP_DESCRIPTION =
-  "Discover curated collections of menswear, womenswear, sneakers & accessories. Premium quality, modern design.";
+  "Modern menswear: clothing, shoes and accessories, delivered across Egypt.";
 
 /** Number of products per page in listings */
 export const PRODUCTS_PER_PAGE = 12;

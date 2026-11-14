@@ -48,8 +48,8 @@ export async function generateMetadata(): Promise<Metadata> {
     description: dict.meta.siteDescription,
     keywords:
       locale === "ar"
-        ? ["شيفت سوق", "تسوق أونلاين", "أزياء", "أحذية رياضية", "إكسسوارات", "مصر"]
-        : ["ShiftSouq", "e-commerce", "fashion", "sneakers", "accessories", "online store", "Egypt"],
+        ? [dict.common.appName, "أزياء رجالية", "ملابس رجالية", "أحذية", "إكسسوارات", "تسوق أونلاين", "مصر"]
+        : [dict.common.appName, "menswear", "men's clothing", "shoes", "accessories", "online store", "Egypt"],
     openGraph: {
       siteName: dict.common.appName,
       locale: locale === "ar" ? "ar_EG" : "en_US",
