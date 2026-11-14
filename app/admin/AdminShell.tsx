@@ -7,11 +7,12 @@
    Features a modern sleek sidebar and a premium top header.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { APP_NAME } from "@/lib/constants";
-import { useRef } from "react";
+import type { Dictionary } from "@/lib/i18n/get-dictionary";
+import { fill, getAdminText } from "@/lib/admin/i18n";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -26,11 +27,10 @@ import {
   User as UserIcon,
   Moon,
   Sun,
-  PanelLeftClose,
-  PanelRightClose,
   Globe,
   Check,
-  Command
+  Mail,
+  Tag,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -38,19 +38,27 @@ export default function AdminShell({
   children,
   userEmail,
   dict,
-  locale
+  locale,
+  unreadMessages = 0,
 }: {
   children: React.ReactNode;
   userEmail: string;
-  dict: any;
+  dict: Dictionary;
   locale: string;
+  unreadMessages?: number;
 }) {
+  const t = getAdminText(locale);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
   
-  const [mounted, setMounted] = useState(false);
+  // true only in the browser (the theme is unknown while rendering on the server)
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLangOpen, setIsLangOpen] = useState(false);
@@ -64,8 +72,6 @@ export default function AdminShell({
   const isRTL = locale === "ar";
 
   useEffect(() => {
-    setMounted(true);
-    
     // Command+K listener for global search
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -80,11 +86,13 @@ export default function AdminShell({
     return () => document.removeEventListener("keydown", down);
   }, []);
 
-  // Close search and mobile menu on navigation
-  useEffect(() => {
+  // Close search and mobile menu on navigation (adjusting state while rendering, not in an effect)
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
     setIsSearchOpen(false);
     setIsMobileMenuOpen(false);
-  }, [pathname]);
+  }
 
   // Handle click outside for dropdowns
   useEffect(() => {
@@ -113,8 +121,13 @@ export default function AdminShell({
       params.delete("search");
     }
     params.set("page", "1");
+    // Search lists live on the orders and products pages; elsewhere, search orders.
+    const target = pathname.startsWith("/admin/products") || pathname === "/admin/orders" ? pathname : "/admin/orders";
+    if (target !== pathname) {
+      for (const key of [...params.keys()]) if (key !== "search" && key !== "page") params.delete(key);
+    }
     startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}`);
+      router.replace(`${target}?${params.toString()}`);
     });
   };
 
@@ -133,6 +146,8 @@ export default function AdminShell({
     { name: dict.admin?.sidebar?.dashboard || "Dashboard", href: "/admin", icon: LayoutDashboard },
     { name: dict.admin?.sidebar?.orders || "Orders", href: "/admin/orders", icon: ShoppingBag },
     { name: dict.admin?.sidebar?.products || "Products", href: "/admin/products", icon: Package },
+    { name: t.nav.promos, href: "/admin/promos", icon: Tag },
+    { name: t.nav.messages, href: "/admin/messages", icon: Mail, badge: unreadMessages },
   ];
 
   // Breadcrumbs logic
@@ -149,6 +164,9 @@ export default function AdminShell({
       if (path === "admin") name = dict.admin?.sidebar?.dashboard || "Dashboard";
       if (path === "orders") name = dict.admin?.sidebar?.orders || "Orders";
       if (path === "products") name = dict.admin?.sidebar?.products || "Products";
+      if (path === "promos") name = t.nav.promos;
+      if (path === "messages") name = t.nav.messages;
+      if (/^[0-9a-f-]{36}$/i.test(path)) name = t.orders.order;
       
       return { name, href };
     });
@@ -239,6 +257,11 @@ export default function AdminShell({
                 
                 {/* Text */}
                 <span className={`truncate block ${isCollapsed ? 'md:hidden' : ''}`}>{link.name}</span>
+                {"badge" in link && link.badge ? (
+                  <span className={`ms-auto min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center ${isCollapsed ? 'md:absolute md:top-0.5 md:end-0.5 md:min-w-4 md:h-4 md:text-[9px]' : ''}`}>
+                    {link.badge > 99 ? "99+" : link.badge}
+                  </span>
+                ) : null}
                 
                 {/* Tooltip for collapsed desktop */}
                 <div className={`absolute ${isRTL ? 'right-full mr-4' : 'left-full ml-4'} top-1/2 -translate-y-1/2 px-3 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-black text-xs font-semibold rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 shadow-xl border border-zinc-800 dark:border-zinc-200 hidden ${isCollapsed ? 'md:block' : ''}`}>
@@ -372,23 +395,33 @@ export default function AdminShell({
             <div className="relative" ref={notifDropdownRef}>
               <button 
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
+                aria-label={t.bell.title}
                 className="relative p-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-white rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               >
                 <Bell size={18} />
-                <span className={`absolute top-1.5 ${isRTL ? 'left-1.5' : 'right-1.5'} w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-[#0a0a0a]`}></span>
+                {unreadMessages > 0 && (
+                  <span className={`absolute top-1.5 ${isRTL ? 'left-1.5' : 'right-1.5'} w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-[#0a0a0a]`}></span>
+                )}
               </button>
               {isNotifOpen && (
                   <div className={`absolute top-full mt-2 ${isRTL ? 'left-0' : 'right-0'} w-80 bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200`}>
                     <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/50 dark:bg-transparent">
-                      <span className="font-semibold text-sm text-zinc-900 dark:text-white">{dict.admin?.shell?.notifications || "Notifications"}</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">{dict.admin?.shell?.newCount || "0 New"}</span>
+                      <span className="font-semibold text-sm text-zinc-900 dark:text-white">{t.bell.title}</span>
                     </div>
                     <div className="p-4 flex flex-col items-center justify-center text-center gap-2 min-h-[120px]">
                       <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center text-zinc-400 mb-1">
-                        <Bell size={20} />
+                        <Mail size={20} />
                       </div>
-                      <span className="text-sm font-medium text-zinc-900 dark:text-white">{dict.admin?.shell?.noNotifications || "No new notifications"}</span>
-                      <span className="text-xs text-zinc-500">{dict.admin?.shell?.allCaughtUp || "You're all caught up!"}</span>
+                      <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                        {unreadMessages > 0 ? fill(t.bell.unread, { count: unreadMessages }) : t.bell.none}
+                      </span>
+                      <Link
+                        href="/admin/messages?view=unread"
+                        onClick={() => setIsNotifOpen(false)}
+                        className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:underline"
+                      >
+                        {t.bell.open}
+                      </Link>
                     </div>
                   </div>
               )}

@@ -11,6 +11,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { getDictionary } from "@/lib/i18n/get-dictionary";
 import { Locale } from "@/lib/types";
 import AdminShell from "./AdminShell";
+import { getUnreadMessageCount } from "@/lib/dal/admin";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 
@@ -21,7 +22,7 @@ export default async function AdminLayout({
 }) {
   const supabase = await createServerClient();
   const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale: Locale = cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en";
   const dict = await getDictionary(locale);
 
   // Verify Auth
@@ -57,8 +58,10 @@ export default async function AdminLayout({
     );
   }
 
+  const unreadMessages = await getUnreadMessageCount();
+
   return (
-    <AdminShell userEmail={user.email || ""} dict={dict} locale={locale}>
+    <AdminShell userEmail={user.email || ""} dict={dict} locale={locale} unreadMessages={unreadMessages}>
       {children}
     </AdminShell>
   );
