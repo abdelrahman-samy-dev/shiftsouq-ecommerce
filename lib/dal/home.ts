@@ -14,9 +14,8 @@ import { getPublicClient } from "@/lib/supabase/public";
 import type { ListingProduct, ListingVariant } from "@/lib/dal/products";
 import type { ProductImage } from "@/lib/types";
 
-const CARD_SELECT = `id, slug, name_en, name_ar, base_price, sale_price, is_new, is_featured, total_orders,
-  rating, review_count, category_id, created_at,
-  category:categories!category_id(name_en, name_ar, slug),
+/** Only the columns ProductCard reads: every byte here is sent to the browser twice (HTML + RSC payload). */
+const CARD_SELECT = `id, slug, name_en, name_ar, base_price, sale_price, is_new,
   product_images(id, url, alt_text_en, alt_text_ar, is_primary, sort_order),
   variants:product_variants(id, size, color_en, color_ar, color_hex, stock, price_override)`;
 
@@ -31,6 +30,7 @@ function toCard(raw: CardRow): ListingProduct {
   void _images;
   return {
     ...(rest as unknown as ListingProduct),
+    category: null,
     store: null,
     variants: (raw.variants as ListingVariant[]) ?? [],
     primary_image: withId(images[0]),

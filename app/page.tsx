@@ -10,7 +10,7 @@
 
 import type { Metadata } from "next";
 import ProductCard from "@/components/product/ProductCard";
-import { SectionHeader } from "@/components/ds";
+import { SectionHeader } from "@/components/ds/Display";
 import { Hero, type HeroContent } from "@/components/home/Hero";
 import { CategoryTiles } from "@/components/home/CategoryTiles";
 import { ProductRail } from "@/components/home/ProductRail";
@@ -57,7 +57,7 @@ export default async function Home() {
   const [settings, nav, newArrivals, collection] = await Promise.all([
     getStoreSettings(),
     getNavigation(),
-    getNewArrivals(10),
+    getNewArrivals(8),
     getFeaturedCollection(),
   ]);
   const [bestSellers, collectionCover] = await Promise.all([

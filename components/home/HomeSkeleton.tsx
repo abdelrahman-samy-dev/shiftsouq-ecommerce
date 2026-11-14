@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ds";
+import { Skeleton } from "@/components/ds/Display";
 
 /* Loading state for the home page: hero, category tiles and a product row in their final sizes. */
 export default function HomeSkeleton() {

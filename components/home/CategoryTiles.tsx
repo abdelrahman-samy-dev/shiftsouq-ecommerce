@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { SectionHeader } from "@/components/ds";
+import { SectionHeader } from "@/components/ds/Display";
 import { cn } from "@/lib/utils";
 
 export interface CategoryTile {

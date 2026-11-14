@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { useLocale, pickLocalized, type Localized } from "@/components/providers/LocaleProvider";
-import { Button, buttonClasses } from "@/components/ds";
+import { Button, buttonClasses } from "@/components/ds/Button";
 
 interface ErrorStateProps {
   title?: Localized;

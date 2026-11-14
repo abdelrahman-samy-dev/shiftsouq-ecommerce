@@ -21,7 +21,7 @@ import { getStoreSettings } from "@/lib/settings";
 import type { Locale } from "@/lib/types";
 import { Logo } from "@/components/ui/Logo";
 import { SearchOverlayTrigger } from "@/components/search/SearchOverlayTrigger";
-import { CartDrawer } from "@/components/cart/CartDrawer";
+import { LazyCartDrawer } from "./LazyCartDrawer";
 import { AnnouncementBar } from "./AnnouncementBar";
 import { HeaderFrame } from "./HeaderFrame";
 import { DesktopNav } from "./DesktopNav";
@@ -84,8 +84,9 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
             <DesktopNav items={items} label={copy.primaryNav} openLabel={copy.openSubmenu("{name}")} breakpoint={breakpoint} />
           </div>
 
-          <Link href="/" aria-label={copy.homeLink} className="flex h-full items-center justify-self-center px-2">
+          <Link href="/" className="flex h-full items-center justify-self-center px-2">
             <Logo locale={locale} />
+            <span className="sr-only">, {copy.homeLink}</span>
           </Link>
 
           <div className="flex items-center justify-end gap-0.5 -me-2 lg:me-0">
@@ -105,7 +106,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         </div>
       </HeaderFrame>
 
-      <CartDrawer locale={locale} freeThreshold={settings.shipping.freeThreshold} categories={topCategories} />
+      <LazyCartDrawer locale={locale} freeThreshold={settings.shipping.freeThreshold} categories={topCategories} />
     </>
   );
 }

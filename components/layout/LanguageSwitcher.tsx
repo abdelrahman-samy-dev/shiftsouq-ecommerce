@@ -14,11 +14,12 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setLocaleAction } from "@/lib/i18n/actions";
 import type { Locale } from "@/lib/types";
-import { Spinner } from "@/components/ds";
+import { Spinner } from "@/components/ds/Button";
 import { cn } from "@/lib/utils";
 
 const LABEL: Record<Locale, string> = { en: "English", ar: "العربية" };
-const ARIA: Record<Locale, string> = { en: "Switch to Arabic", ar: "التبديل إلى الإنجليزية" };
+const TITLE: Record<Locale, string> = { en: "Switch to Arabic", ar: "التبديل إلى الإنجليزية" };
+const PREFIX: Record<Locale, string> = { en: "Switch to ", ar: "التبديل إلى " };
 
 export function LanguageSwitcher({
   currentLocale,
@@ -45,7 +46,7 @@ export function LanguageSwitcher({
     <button
       type="button"
       onClick={switchLanguage}
-      aria-label={ARIA[currentLocale]}
+      title={TITLE[currentLocale]}
       aria-busy={isPending || undefined}
       className={cn(
         "inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors duration-150",
@@ -56,7 +57,10 @@ export function LanguageSwitcher({
       )}
     >
       {isPending ? <Spinner className="size-3.5" /> : null}
-      <span lang={target} dir={target === "ar" ? "rtl" : "ltr"}>
+      {/* The accessible name keeps the visible language name ("Switch to العربية"). */}
+      <span className="sr-only">{PREFIX[currentLocale]}</span>
+      {/* On English pages the Arabic name uses the system Arabic face, so the Arabic web font isn't downloaded for one word. */}
+      <span lang={target} dir={target === "ar" ? "rtl" : "ltr"} style={target === "ar" ? { fontFamily: "system-ui, sans-serif" } : undefined}>
         {LABEL[target]}
       </span>
     </button>

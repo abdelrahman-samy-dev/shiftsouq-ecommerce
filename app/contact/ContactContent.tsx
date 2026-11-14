@@ -15,7 +15,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import type { Dictionary } from "@/lib/i18n/get-dictionary";
 import { submitContactForm } from "@/lib/actions/contact";
 import { createContactSchema, CONTACT_MESSAGE_MAX } from "@/lib/validations/contact";
-import { Button, Input, Select, Textarea } from "@/components/ds";
+import { Button } from "@/components/ds/Button";
+import { Input, Select, Textarea } from "@/components/ds/Field";
 
 type ContactField = "name" | "email" | "subject" | "message";
 

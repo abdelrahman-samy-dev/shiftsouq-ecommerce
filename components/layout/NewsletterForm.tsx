@@ -2,10 +2,10 @@
 
 /* Footer newsletter form: progressive (works without JavaScript), errors linked to the field. */
 
-import { useActionState, useId } from "react";
+import { useActionState, useId, useState } from "react";
 import { subscribeToNewsletter } from "@/lib/actions/newsletter";
 import type { NewsletterState } from "@/lib/validations/newsletter";
-import { Spinner } from "@/components/ds";
+import { Spinner } from "@/components/ds/Button";
 import { cn } from "@/lib/utils";
 
 interface NewsletterFormProps {
@@ -16,7 +16,13 @@ interface NewsletterFormProps {
 const initial: NewsletterState = { status: "idle", message: "" };
 
 export function NewsletterForm({ labels, source = "footer" }: NewsletterFormProps) {
-  const [state, action, pending] = useActionState(subscribeToNewsletter, initial);
+  // Controlled, so a rejected address stays in the field for correction (React resets uncontrolled forms).
+  const [email, setEmail] = useState("");
+  const [state, action, pending] = useActionState(async (prev: NewsletterState, data: FormData) => {
+    const result = await subscribeToNewsletter(prev, data);
+    if (result.status === "subscribed" || result.status === "already" || result.status === "resubscribed") setEmail("");
+    return result;
+  }, initial);
   const id = useId();
   const emailId = `${id}-email`;
   const messageId = `${id}-message`;
@@ -38,6 +44,8 @@ export function NewsletterForm({ labels, source = "footer" }: NewsletterFormProp
           id={emailId}
           name="email"
           type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           inputMode="email"
           autoComplete="email"
           required

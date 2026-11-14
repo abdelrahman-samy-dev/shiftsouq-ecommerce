@@ -3,14 +3,14 @@
    ──────────────────────────────────────────────────────────────
    Sits under the transparent header (pulled up by the header
    height). The photograph is the page's LCP element: it is the
-   only image preloaded on the home page, served at 100vw.
+   only image preloaded (in <head>, high priority), served at 100vw.
    Two soft scrims keep white type and the header readable on
    any photo. The headline is the page's single <h1>.
    ══════════════════════════════════════════════════════════════ */
 
 import Image from "next/image";
 import Link from "next/link";
-import { buttonClasses } from "@/components/ds";
+import { buttonClasses } from "@/components/ds/Button";
 import { cn } from "@/lib/utils";
 
 export interface HeroContent {
@@ -41,6 +41,7 @@ export function Hero({ content }: { content: HeroContent }) {
           alt={imageAlt}
           fill
           preload
+          fetchPriority="high"
           sizes="100vw"
           quality={75}
           className="-z-10 object-cover object-[50%_35%]"

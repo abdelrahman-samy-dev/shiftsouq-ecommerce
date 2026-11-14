@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { buttonClasses } from "@/components/ds";
+import { buttonClasses } from "@/components/ds/Button";
 
 export interface EditorialContent {
   href: string;
@@ -25,12 +25,12 @@ export function EditorialSplit({ content }: { content: EditorialContent }) {
           ) : null}
         </div>
         <div className="flex flex-col justify-center gap-5 px-[var(--gutter)] py-14 md:px-12 md:py-20 xl:px-24">
-          <p className="t-eyebrow">{eyebrow}</p>
+          <p className="t-eyebrow text-text-secondary!">{eyebrow}</p>
           <h2 id="home-editorial" className="t-h1 max-w-[14ch] text-balance">
             {title}
           </h2>
           {body ? <p className="max-w-md text-text-secondary md:text-lg md:leading-relaxed">{body}</p> : null}
-          {meta ? <p className="text-[0.8125rem] text-text-muted tabular-nums">{meta}</p> : null}
+          {meta ? <p className="text-[0.8125rem] text-text-secondary tabular-nums">{meta}</p> : null}
           <Link href={href} prefetch={false} className={buttonClasses("secondary", "lg", false, "mt-3 self-start")}>
             {cta}
           </Link>

@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { getLocale } from "@/lib/i18n/server";
 import { getNavigation } from "@/lib/dal/navigation";
-import { buttonClasses } from "@/components/ds";
+import { buttonClasses } from "@/components/ds/Button";
 import { categoryHref, NEW_IN_HREF } from "@/components/layout/shell-rules";
 
 const COPY = {

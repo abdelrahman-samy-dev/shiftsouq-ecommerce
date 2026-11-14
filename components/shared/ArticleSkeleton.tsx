@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ds";
+import { Skeleton } from "@/components/ds/Display";
 
 /* Loading state for policy, help and contact pages: same header and measure as LegalArticle. */
 export default function ArticleSkeleton() {

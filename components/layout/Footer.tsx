@@ -96,8 +96,9 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
       {/* ── Columns ────────────────────────────────────────── */}
       <div className="container-x grid grid-cols-2 gap-x-6 gap-y-12 py-14 md:grid-cols-4 lg:grid-cols-12 lg:gap-x-8">
         <div className="col-span-2 flex flex-col gap-5 md:col-span-4 lg:col-span-4">
-          <Link href="/" aria-label={copy.homeLink} className="self-start">
+          <Link href="/" className="self-start">
             <Logo locale={locale} size="sm" />
+            <span className="sr-only">, {copy.homeLink}</span>
           </Link>
           <p className="max-w-xs text-[0.875rem] text-text-secondary">{t(brand.tagline, locale)}</p>
           {social.length ? (
