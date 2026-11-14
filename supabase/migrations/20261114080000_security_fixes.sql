@@ -54,6 +54,34 @@ SELECT o.paymob_order_id, o.id, ROUND(o.total * 100)::bigint, COALESCE(o.updated
    AND o.total > 0
 ON CONFLICT (paymob_order_id) DO NOTHING;
 
+-- Between running this migration and deploying the new app, the previous
+-- app registers Paymob orders by writing orders.paymob_order_id only. Turn
+-- those into attempts too, so their payments can still be confirmed. (The
+-- new app records the attempt first; this then changes nothing.)
+CREATE OR REPLACE FUNCTION public.record_paymob_attempt()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.paymob_order_id IS NOT NULL AND btrim(NEW.paymob_order_id) <> ''
+     AND char_length(NEW.paymob_order_id) <= 100
+     AND NEW.paymob_order_id IS DISTINCT FROM OLD.paymob_order_id
+     AND NEW.total > 0 THEN
+    INSERT INTO payment_attempts (paymob_order_id, order_id, amount_cents)
+    VALUES (NEW.paymob_order_id, NEW.id, ROUND(NEW.total * 100)::bigint)
+    ON CONFLICT (paymob_order_id) DO NOTHING;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_orders_paymob_attempt ON public.orders;
+CREATE TRIGGER trg_orders_paymob_attempt AFTER UPDATE OF paymob_order_id ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.record_paymob_attempt();
+REVOKE ALL ON FUNCTION public.record_paymob_attempt() FROM PUBLIC, anon, authenticated;
+
 -- ── 2. Orders: refund flag, one transaction per paid order ────
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS needs_refund BOOLEAN NOT NULL DEFAULT false;
 

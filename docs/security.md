@@ -20,6 +20,7 @@ How money, stock, accounts and private data are protected, and what to check on 
 | `unknown_attempt` | The Paymob order isn't an attempt of this order: refused |
 
 - A unique index allows one paid order per transaction id.
+- Upgrading: payments started by the previous app version (it only wrote `orders.paymob_order_id`) become attempts through a trigger, both those already in progress when the migration runs and any started before the new app is deployed.
 - Refund and void callbacks don't change the order; they are recorded in the audit log (entity `payment`, no actor) for the owner to reconcile. Payment events show on the order's timeline and in Admin → Activity → Payments.
 - The payment key expires with the order's 60-minute payment window.
 - The return page (`GET` callback) only routes the buyer; it verifies the flat query (Paymob names the order id `order` there) and finds the order through its attempt.

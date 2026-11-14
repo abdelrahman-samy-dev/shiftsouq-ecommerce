@@ -141,6 +141,7 @@ Every migration is idempotent and was rehearsed on a copy shaped like an existin
 - **Or with the SQL editor:**
   1. Run `node scripts/db/bundle-production.mjs`.
   2. Run `supabase/production/01-roles.sql`, then `supabase/production/02-upgrade.sql`. The second file runs all-or-nothing.
+- **Deploy the app right after the database.** `20261114080000_security_fixes.sql` changes `mark_order_paid()`, so the old webhook can't confirm card / wallet payments until the new app is live. Run both in the same release (or switch card / wallet off in Admin → Settings meanwhile). A payment made in that window shows as paid in the Paymob dashboard but not in Admin: compare the two after the release.
 - **Optional:** load the catalogue with `npm run catalog:import -- --env .env.production --rehost` (add `--settings` for the default store settings). Read [docs/catalog.md](docs/catalog.md) first.
 - **Auth → URL configuration:** set the Site URL to your domain and add `https://your-domain/**` to the redirect URLs.
 - **Auth email templates:** keep Supabase's default links (`{{ .ConfirmationURL }}`, PKCE). `/auth/callback` accepts only a PKCE `code`; a `token_hash` link would sign in whoever opens it as the account the link was made for (login CSRF), so don't use `token_hash` templates. A reset link must be opened in the browser that asked for it.

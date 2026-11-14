@@ -285,6 +285,15 @@ d("security review fixes (database)", () => {
     expect((await orderRow(b.row!.order_id)).payment_status).toBe("unpaid");
   });
 
+  it("a Paymob order written only on the order (previous app version) still becomes an attempt", async () => {
+    const a = await place([{ product_id: productB, variant_id: variantB, quantity: 1 }]);
+    const pm = `pm-legacy-${RUN}-${randomUUID().slice(0, 6)}`;
+    await service.from("orders").update({ paymob_order_id: pm }).eq("id", a.row!.order_id);
+    const { data } = await service.from("payment_attempts").select("order_id, amount_cents").eq("paymob_order_id", pm).single();
+    expect(data).toMatchObject({ order_id: a.row!.order_id, amount_cents: Math.round(Number(a.row!.total) * 100) });
+    expect((await callback(txnFor(pm, data!.amount_cents, "not-used"))).body.result).toBe("paid");
+  });
+
   it("a second payment, a refund and a void for a paid order are recorded for the owner", async () => {
     const a = await place([{ product_id: productB, variant_id: variantB, quantity: 1 }]);
     const pmA = await attempt(a.row!.order_id);

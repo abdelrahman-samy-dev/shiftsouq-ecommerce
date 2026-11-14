@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
   const amountCents = Math.round(Number(txn.amount_cents ?? 0));
 
   // A pending transaction (e.g. wallet OTP not completed yet) changes nothing.
-  if (txn.pending === true) return NextResponse.json({ received: true });
+  if (txn.pending) return NextResponse.json({ received: true });
 
   // Refunds and voids don't change the order here; the owner reconciles them.
   const reversal = txn.is_refunded === true || txn.is_refund === true ? "refund" : txn.is_voided === true || txn.is_void === true ? "void" : null;
