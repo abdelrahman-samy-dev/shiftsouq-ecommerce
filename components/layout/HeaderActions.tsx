@@ -1,147 +1,76 @@
 "use client";
 
 /* ══════════════════════════════════════════════════════════════
-   HeaderActions — Cart & Wishlist Navbar Icons (Client)
+   HeaderActions — wishlist and bag, with live counts
    ──────────────────────────────────────────────────────────────
-   Client component that reads from Zustand stores to display
-   real-time badge counts on the Wishlist (Heart) and Cart
-   (Shopping Bag) icons in the header.
-
-   REACTIVITY FIX: Selects raw `items` / `productIds` arrays
-   (actual state) instead of method references. Zustand only
-   triggers re-renders when the selected value changes by
-   reference — method references are stable and never change.
+   Counts come from the persisted stores, so they render only
+   after hydration (0 on the server, no mismatch). The bag opens
+   the mini-cart drawer; without JavaScript it is a plain link
+   to /cart.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Heart, ShoppingBag } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 import { useCartStore, selectCartTotalItems } from "@/lib/store/useCartStore";
 import { useWishlistStore, selectWishlistCount } from "@/lib/store/useWishlistStore";
-import { MiniCart } from "./MiniCart";
+import { useCartUi } from "@/lib/store/useCartUi";
 import { useHydrated } from "@/components/shared/useHydrated";
-import type { Locale } from "@/lib/types";
+import { shellCopy } from "./copy";
+import { cn } from "@/lib/utils";
 
-interface HeaderActionsProps {
-  locale: Locale;
+export const headerIcon =
+  "relative inline-flex size-10 items-center justify-center rounded-sm transition-colors duration-150 hover:bg-surface group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5";
+
+function Count({ value }: { value: number }) {
+  if (value <= 0) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "absolute top-1 end-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[0.625rem] font-medium leading-none tabular-nums",
+        "bg-text-primary text-background",
+        "group-data-[overlay=light]/header:bg-white group-data-[overlay=light]/header:text-black group-data-[overlay=dark]/header:bg-black group-data-[overlay=dark]/header:text-white",
+      )}
+    >
+      {value > 99 ? "99+" : value}
+    </span>
+  );
 }
 
-/**
- * HeaderActions — Renders the Wishlist + Cart icon buttons with
- * animated badges and a MiniCart dropdown for the cart icon.
- */
-export function HeaderActions({ locale }: HeaderActionsProps) {
-  const isAr = locale === "ar";
-
-  /* ── Store reads (reactive selectors) ───────────────────── */
-  const cartItems = useCartStore((s) => s.items);
-  const cartCount = useCartStore(selectCartTotalItems);
-  const wishCount = useWishlistStore(selectWishlistCount);
-
-  /* ── Hydration guard for SSR ─────────────────────────────── */
-  const mounted = useHydrated();
-
-  /* ── MiniCart hover/click logic ──────────────────────────── */
-  const [miniCartOpen, setMiniCartOpen] = useState(false);
-  const cartRef = useRef<HTMLDivElement>(null);
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openMiniCart = () => {
-    // Disable hover dropdown on mobile (navigate to /cart instead)
-    if (window.innerWidth < 768) return;
-    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
-    setMiniCartOpen(true);
-  };
-
-  const closeMiniCart = () => {
-    hoverTimeout.current = setTimeout(() => setMiniCartOpen(false), 200);
-  };
-
-  /* ── Close on click outside ─────────────────────────────── */
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (cartRef.current && !cartRef.current.contains(e.target as Node)) {
-        setMiniCartOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  /* Before hydration, show 0 to avoid flash mismatch */
-  const displayCartCount = mounted ? cartCount : 0;
-  const displayWishCount = mounted ? wishCount : 0;
-
+export function WishlistLink({ locale, className }: { locale: string; className?: string }) {
+  const hydrated = useHydrated();
+  const count = useWishlistStore(selectWishlistCount);
+  const shown = hydrated ? count : 0;
+  const label = shellCopy(locale).wishlistLabel(shown);
   return (
-    <>
-      {/* Wishlist Icon */}
-      <Link
-        href="/wishlist"
-        className="h-[40px] sm:h-[46px] px-2 sm:px-3.5 flex items-center gap-1.5 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        aria-label={isAr ? `المفضلة (${displayWishCount})` : `Wishlist (${displayWishCount})`}
-      >
-        <Heart size={18} strokeWidth={1.8} className="flex-shrink-0 sm:w-5 sm:h-5" />
-        <span className="text-sm font-bold hidden sm:block">{displayWishCount}</span>
-        <AnimatePresence>
-          {displayWishCount > 0 && (
-            <motion.span
-              key={`wish-badge-${displayWishCount}`}
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0 }}
-              className="absolute -top-1.5 -end-1.5 w-4.5 h-4.5 bg-destructive rounded-full flex items-center justify-center z-10"
-            >
-              <span className="text-[10px] font-bold text-white leading-none">
-                {displayWishCount > 9 ? "9+" : displayWishCount}
-              </span>
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </Link>
+    <Link href="/wishlist" aria-label={label} title={label} className={cn(headerIcon, className)}>
+      <Heart className="size-5" strokeWidth={1.5} />
+      <Count value={shown} />
+    </Link>
+  );
+}
 
-      {/* Cart Icon + MiniCart */}
-      <div
-        ref={cartRef}
-        className="relative"
-        onMouseEnter={openMiniCart}
-        onMouseLeave={closeMiniCart}
-      >
-        <Link
-          href="/cart"
-          className="h-[40px] sm:h-[46px] px-2 sm:px-3.5 flex items-center gap-1.5 sm:gap-2.5 border border-border rounded-lg hover:border-text-primary transition-colors bg-background shadow-xs relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          aria-label={isAr ? `سلة التسوق (${displayCartCount})` : `Cart (${displayCartCount})`}
-        >
-          <ShoppingBag size={18} strokeWidth={1.8} className="flex-shrink-0 sm:w-5 sm:h-5" />
-          <span className="text-sm font-bold hidden sm:block">{displayCartCount}</span>
-          <AnimatePresence>
-            {displayCartCount > 0 && (
-              <motion.span
-                key={`cart-badge-${displayCartCount}`}
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
-                className="absolute -top-1.5 -end-1.5 w-4.5 h-4.5 bg-accent rounded-full flex items-center justify-center z-10"
-              >
-                <span className="text-[10px] font-bold text-white leading-none">
-                  {displayCartCount > 9 ? "9+" : displayCartCount}
-                </span>
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </Link>
-
-        {/* MiniCart Dropdown (Desktop Only) */}
-        <AnimatePresence>
-          {miniCartOpen && mounted && (
-            <MiniCart
-              items={cartItems}
-              locale={locale}
-              onClose={() => setMiniCartOpen(false)}
-            />
-          )}
-        </AnimatePresence>
-      </div>
-    </>
+export function BagButton({ locale, className }: { locale: string; className?: string }) {
+  const hydrated = useHydrated();
+  const count = useCartStore(selectCartTotalItems);
+  const openCart = useCartUi((s) => s.openCart);
+  const shown = hydrated ? count : 0;
+  const label = shellCopy(locale).bagLabel(shown);
+  return (
+    <Link
+      href="/cart"
+      aria-label={label}
+      title={label}
+      aria-haspopup="dialog"
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        openCart();
+      }}
+      className={cn(headerIcon, className)}
+    >
+      <ShoppingBag className="size-5" strokeWidth={1.5} />
+      <Count value={shown} />
+    </Link>
   );
 }

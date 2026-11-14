@@ -6816,6 +6816,8 @@
         "cta_href": "/shop",
         "cta_label_en": "Shop now",
         "cta_label_ar": "تسوّق الآن",
+        "tone": "dark",
+        "align": "left",
         "alt_en": "Man in a white T-shirt against a sunlit off-white wall with soft leaf shadows",
         "alt_ar": "رجل يرتدي تيشيرت أبيض أمام جدار فاتح تتخلله ظلال أوراق الشجر",
         "credit": {
