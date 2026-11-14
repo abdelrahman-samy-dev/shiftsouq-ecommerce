@@ -24,11 +24,35 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS transaction_id TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS paymob_order_id TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_governorate TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released BOOLEAN NOT NULL DEFAULT false;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'stock_released'
+  ) THEN
+    ALTER TABLE orders ADD COLUMN stock_released BOOLEAN NOT NULL DEFAULT false;
+    -- Orders placed before this migration never reserved stock, so cancelling
+    -- one of them must not add stock back. (Runs only when the column is new.)
+    UPDATE orders SET stock_released = true;
+  END IF;
+END $$;
 -- Secret handed to the buyer's browser so a guest can pay for / view their own order.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS access_token UUID NOT NULL DEFAULT gen_random_uuid();
 -- Guests no longer get (or hijack) a profile: their orders simply have no user.
 ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;
+
+-- Older orders kept the payment method and governorate only in notes
+-- ("Payment: CARD | Gov: cairo"); copy them into the real columns.
+UPDATE orders
+SET payment_method = lower(substring(notes FROM 'Payment: (COD|CARD|WALLET)'))
+WHERE payment_method IS NULL AND notes ~ 'Payment: (COD|CARD|WALLET)';
+
+UPDATE orders
+SET shipping_governorate = substring(notes FROM 'Gov: ([a-z_-]+)')
+WHERE shipping_governorate IS NULL AND notes ~ 'Gov: [a-z_-]+';
+
+-- Values written by hand or by older code must fit the constraint below.
+UPDATE orders SET payment_status = 'unpaid'
+WHERE payment_status IS NULL OR payment_status NOT IN ('unpaid', 'paid', 'failed', 'refunded');
 
 DO $$ BEGIN
   ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check
