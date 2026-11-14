@@ -28,7 +28,8 @@ const en = {
   create: "Create account",
   agree: "By creating an account you agree to our",
   terms: "Terms",
-  and: "and",
+  /** Joins "Terms" and "Privacy policy" (spaces included; Arabic "و" attaches to the next word). */
+  and: " and ",
   privacy: "Privacy policy",
   haveAccount: "Already have an account?",
   checkInbox: "Check your inbox",
@@ -89,7 +90,7 @@ const ar: Copy = {
   create: "إنشاء الحساب",
   agree: "بإنشاء حساب فإنك توافق على",
   terms: "الشروط",
-  and: "و",
+  and: " و",
   privacy: "سياسة الخصوصية",
   haveAccount: "لديك حساب بالفعل؟",
   checkInbox: "تحقّق من بريدك الوارد",

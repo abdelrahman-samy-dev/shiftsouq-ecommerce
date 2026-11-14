@@ -12,6 +12,7 @@ import { getLocale } from "@/lib/i18n/server";
 import { getStoreSettings } from "@/lib/settings";
 import { getProducts } from "@/lib/dal/products";
 import { getNavCategories } from "@/lib/dal/categories";
+import { getZoneEtas } from "@/lib/dal/orders";
 import { ButtonLink } from "@/components/ds";
 import { CartPageContent } from "@/components/cart/CartPageContent";
 import { ProductRail } from "@/components/cart/ProductRail";
@@ -23,11 +24,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function CartPage() {
-  const [locale, settings, newest, categories] = await Promise.all([
+  const [locale, settings, newest, categories, etaByZone] = await Promise.all([
     getLocale(),
     getStoreSettings(),
     getProducts({ sortBy: "newest" }, { page: 1, pageSize: 8 }),
     getNavCategories(),
+    getZoneEtas(),
   ]);
   const t = cartCopy(locale);
   const ar = locale === "ar";
@@ -59,7 +61,7 @@ export default async function CartPage() {
 
   return (
     <>
-      <CartPageContent locale={locale} rates={settings.shipping} emptyExtras={emptyExtras} />
+      <CartPageContent locale={locale} rates={settings.shipping} etaByZone={etaByZone} emptyExtras={emptyExtras} />
       <ProductRail title={t.alsoLike} products={newest.products} locale={locale} action={{ href: "/shop?sort=newest", label: t.viewAll }} />
     </>
   );

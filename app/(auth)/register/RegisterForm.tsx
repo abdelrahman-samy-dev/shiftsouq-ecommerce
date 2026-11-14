@@ -121,8 +121,8 @@ export default function RegisterForm({ locale, messages, redirectTo, initialEmai
           {t.agree}{" "}
           <Link href="/terms" className={textLink}>
             {t.terms}
-          </Link>{" "}
-          {t.and}{" "}
+          </Link>
+          {t.and}
           <Link href="/privacy-policy" className={textLink}>
             {t.privacy}
           </Link>

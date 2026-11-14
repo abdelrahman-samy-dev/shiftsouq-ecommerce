@@ -16,7 +16,9 @@ import "server-only";
    Saving addresses lives in lib/dal/account.ts.
    ══════════════════════════════════════════════════════════════ */
 
+import { cache } from "react";
 import { paymobConfigured, paymobMockEnabled } from "@/lib/payments/paymob";
+import { getPublicClient } from "@/lib/supabase/public";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import {
@@ -183,6 +185,32 @@ export function getPaymentAvailability(): PaymentAvailability {
   const mock = paymobMockEnabled();
   return { card: paymobConfigured("card") || mock, wallet: paymobConfigured("wallet") || mock };
 }
+
+/* ── Delivery times per governorate ─────────────────────────── */
+
+export type EtaByZone = Record<string, { min: number; max: number }>;
+
+/**
+ * Delivery time per governorate (store_settings.shipping.eta_days_by_zone), set by
+ * the owner. Governorates without one use the store-wide ETA (settings.shipping.etaDays).
+ */
+export const getZoneEtas = cache(async (): Promise<EtaByZone> => {
+  try {
+    const { data } = await getPublicClient().from("store_settings").select("shipping").eq("id", 1).maybeSingle();
+    const raw = (data?.shipping as Record<string, unknown> | null)?.eta_days_by_zone;
+    const out: EtaByZone = {};
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      for (const [zone, v] of Object.entries(raw as Record<string, unknown>)) {
+        const e = v as { min?: unknown; max?: unknown } | null;
+        if (e && typeof e.min === "number" && typeof e.max === "number" && e.min >= 0 && e.max >= e.min) out[zone] = { min: e.min, max: e.max };
+      }
+    }
+    return out;
+  } catch (err) {
+    console.error("[DAL:getZoneEtas]", err);
+    return {};
+  }
+});
 
 /* ── Reads ───────────────────────────────────────────────────── */
 

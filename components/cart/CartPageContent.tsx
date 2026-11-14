@@ -25,7 +25,8 @@ import { validateCart } from "@/lib/actions/checkout";
 import { GOVERNORATES } from "@/lib/checkout/shipping";
 import { lineKey, maxQuantity, reconcileCart, type CartNotice, type LineStatus } from "@/lib/checkout/cart-sync";
 import { shippingFeeFor, type ShippingSettings } from "@/lib/settings/types";
-import { formatMoney, freeShippingProgress, round2, type Lang } from "@/components/checkout/checkout-rules";
+import type { EtaByZone } from "@/lib/dal/orders";
+import { deliveryEta, formatMoney, freeShippingProgress, round2, type Lang } from "@/components/checkout/checkout-rules";
 import { noticeTone, panelTitle, totalRow } from "@/components/checkout/ui";
 import { cn } from "@/lib/utils";
 import { CartLine } from "./CartLine";
@@ -34,13 +35,14 @@ import { cartCopy } from "./copy";
 interface CartPageContentProps {
   locale: string;
   rates: ShippingSettings;
+  etaByZone: EtaByZone;
   /** Shown when the bag is empty (category links, server-rendered). */
   emptyExtras?: ReactNode;
 }
 
 const nameOf = (i: CartItem, lang: Lang) => (lang === "ar" ? i.name_ar || i.name_en : i.name_en);
 
-export function CartPageContent({ locale, rates, emptyExtras }: CartPageContentProps) {
+export function CartPageContent({ locale, rates, etaByZone, emptyExtras }: CartPageContentProps) {
   const lang: Lang = locale === "ar" ? "ar" : "en";
   const t = cartCopy(lang);
   const mounted = useHydrated();
@@ -194,6 +196,7 @@ export function CartPageContent({ locale, rates, emptyExtras }: CartPageContentP
                   saveGovernorate(e.target.value);
                 }}
                 className="h-11 text-sm"
+                hint={chosen ? deliveryEta(etaByZone[chosen] ?? rates.etaDays, lang) : undefined}
               >
                 <option value="">{t.chooseGovernorate}</option>
                 {GOVERNORATES.map((g) => (

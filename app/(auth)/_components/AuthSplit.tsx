@@ -16,7 +16,7 @@ export async function AuthSplit({ locale, children }: { locale: string; children
   const editorial = await getAuthEditorial();
 
   return (
-    <div className="grid min-h-[calc(100dvh-var(--header-height))] lg:grid-cols-2">
+    <div className="grid lg:min-h-[680px] lg:grid-cols-2">
       <div className="container-x flex items-start justify-center py-14 md:py-20 lg:items-center lg:py-16">
         <div className="w-full max-w-[420px]">{children}</div>
       </div>

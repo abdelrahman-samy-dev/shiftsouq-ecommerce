@@ -10,6 +10,7 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Checkbox, Input, RadioCard, Select } from "@/components/ds";
 import type { SavedAddress } from "@/lib/dal/account";
+import type { EtaByZone } from "@/lib/dal/orders";
 import type { DeliveryInfo } from "@/lib/store/useCheckoutStore";
 import { GOVERNORATES, governorateName } from "@/lib/checkout/shipping";
 import { shippingFeeFor, type ShippingSettings } from "@/lib/settings/types";
@@ -31,6 +32,7 @@ interface DeliverySectionProps {
   addresses: SavedAddress[];
   signedIn: boolean;
   rates: ShippingSettings;
+  etaByZone: EtaByZone;
   /** Subtotal after discount (decides free delivery). */
   afterDiscount: number;
   onGovernorateChange: (governorate: string) => void;
@@ -61,6 +63,7 @@ export function DeliverySection({
   addresses,
   signedIn,
   rates,
+  etaByZone,
   afterDiscount,
   onGovernorateChange,
   onDone,
@@ -287,7 +290,7 @@ export function DeliverySection({
               <span className="text-text-primary">{t.feeTo(governorateName(values.governorate, lang))}</span>
               <span className="t-price">{fee === 0 ? t.free : formatMoney(fee ?? 0, lang)}</span>
             </span>
-            <span className="text-[0.8125rem] text-text-muted">{deliveryEta(rates.etaDays, lang)}</span>
+            <span className="text-[0.8125rem] text-text-muted">{deliveryEta(etaByZone[values.governorate] ?? rates.etaDays, lang)}</span>
           </>
         ) : (
           <span className="text-text-muted">{t.chooseForFee}</span>

@@ -27,9 +27,12 @@ export async function chooseOption(page: Page, name: RegExp) {
 /** Opens the product page, picks options if the buyer has to, and adds one to the bag. */
 export async function addTestProductToCart(page: Page) {
   await page.goto(`/product/${TEST_PRODUCT_SLUG}`);
-  for (const group of await page.locator("[role=radiogroup]").all()) {
+  // Option groups (colour, size): pick the first option that can be bought where nothing is chosen yet.
+  for (const group of await page.locator("main [role=radiogroup], main [role=group]").all()) {
+    const options = group.locator("button[aria-pressed], [role=radio]");
+    if (!(await options.count())) continue;
     const chosen = await group.locator("button[aria-pressed=true], [aria-checked=true]").count();
-    if (!chosen) await group.locator("button:not([disabled])").first().click();
+    if (!chosen) await options.and(page.locator(":not([disabled])")).first().click();
   }
   await page.getByRole("button", { name: /add to (cart|bag)/i }).first().click();
   await expect(page.getByRole("button", { name: /added to (cart|bag)/i }).first()).toBeVisible();

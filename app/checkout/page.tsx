@@ -12,7 +12,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getLocale } from "@/lib/i18n/server";
 import { getStoreSettings } from "@/lib/settings";
-import { getCheckoutPrefill, getPaymentAvailability } from "@/lib/dal/orders";
+import { getCheckoutPrefill, getPaymentAvailability, getZoneEtas } from "@/lib/dal/orders";
 import { CheckoutPageContent } from "@/components/checkout/CheckoutPageContent";
 import { checkoutCopy } from "@/components/checkout/copy";
 
@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function CheckoutPage() {
-  const [locale, settings, prefill] = await Promise.all([getLocale(), getStoreSettings(), getCheckoutPrefill()]);
+  const [locale, settings, prefill, etaByZone] = await Promise.all([getLocale(), getStoreSettings(), getCheckoutPrefill(), getZoneEtas()]);
 
   return (
     <Suspense>
@@ -30,6 +30,7 @@ export default async function CheckoutPage() {
         locale={locale}
         prefill={prefill}
         rates={settings.shipping}
+        etaByZone={etaByZone}
         payments={settings.payments}
         gateway={getPaymentAvailability()}
       />

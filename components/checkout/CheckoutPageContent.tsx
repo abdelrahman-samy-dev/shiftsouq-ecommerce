@@ -37,7 +37,7 @@ import {
   type DeliveryInfo,
   type PendingOrder,
 } from "@/lib/store/useCheckoutStore";
-import type { CheckoutPrefill } from "@/lib/dal/orders";
+import type { CheckoutPrefill, EtaByZone } from "@/lib/dal/orders";
 import type { ShippingSettings } from "@/lib/settings/types";
 import { governorateName } from "@/lib/checkout/shipping";
 import { startPayment } from "@/lib/actions/paymob";
@@ -82,6 +82,8 @@ interface CheckoutPageContentProps {
   prefill: CheckoutPrefill | null;
   /** Delivery rates from the store settings (the server charges with the same). */
   rates: ShippingSettings;
+  /** Delivery time per governorate (falls back to rates.etaDays). */
+  etaByZone: EtaByZone;
   /** Methods the store owner offers. */
   payments: Record<PaymentMethod, boolean>;
   /** Online methods the gateway can take right now. */
@@ -95,7 +97,7 @@ const isBlank = (o: object) => Object.values(o).every((v) => v === "" || v === f
 
 /* ── Component ───────────────────────────────────────────────── */
 
-export function CheckoutPageContent({ locale, prefill, rates, payments, gateway }: CheckoutPageContentProps) {
+export function CheckoutPageContent({ locale, prefill, rates, etaByZone, payments, gateway }: CheckoutPageContentProps) {
   const lang: Lang = locale === "ar" ? "ar" : "en";
   const t = checkoutCopy(lang);
   const router = useRouter();
@@ -611,6 +613,7 @@ export function CheckoutPageContent({ locale, prefill, rates, payments, gateway 
                 addresses={prefill?.addresses ?? []}
                 signedIn={signedIn}
                 rates={rates}
+                etaByZone={etaByZone}
                 afterDiscount={totals.afterDiscount}
                 onGovernorateChange={onGovernorateChange}
                 onDone={onDeliveryDone}

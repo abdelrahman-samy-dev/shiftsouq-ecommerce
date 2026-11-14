@@ -79,7 +79,7 @@ export function WishlistPageContent({ locale, showTitle }: { locale: string; sho
 
   if (!mounted || loading) {
     return (
-      <div aria-busy="true" aria-label={t.loading} className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5">
+      <div aria-busy="true" aria-label={t.loading} className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5 xl:grid-cols-4">
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex flex-col gap-3">
             <Skeleton className="aspect-[4/5] w-full" />
@@ -128,13 +128,13 @@ export function WishlistPageContent({ locale, showTitle }: { locale: string; sho
   }
 
   const hidden = productIds.length - products.length;
-  const action = "min-h-10 text-[0.8125rem] underline-offset-4 hover:underline";
+  const action = "inline-flex min-h-10 items-center text-[0.8125rem] underline-offset-4 hover:underline";
 
   return (
     <div className="flex flex-col gap-6">
       {showTitle ? null : <p className="text-sm text-text-muted">{t.count(products.length)}</p>}
       {hidden > 0 ? <p className="text-[0.8125rem] text-text-muted">{t.unavailableNote}</p> : null}
-      <ul className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5">
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-5 xl:grid-cols-4">
         {products.map((p) => {
           const name = lang === "ar" ? p.name_ar : p.name_en;
           const summary = priceSummary(p, p.variants);
@@ -142,7 +142,7 @@ export function WishlistPageContent({ locale, showTitle }: { locale: string; sho
           const single = p.variants.length === 1;
           return (
             <li key={p.id} className="flex flex-col gap-2">
-              <ProductCard product={p} locale={locale} sizes="(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 25vw" />
+              <ProductCard product={p} locale={locale} sizes="(max-width: 767px) 50vw, (max-width: 1279px) 33vw, 22vw" />
               <div className="flex flex-wrap items-center justify-between gap-x-4">
                 {!inStock ? (
                   <span className="text-[0.8125rem] text-text-muted">{t.soldOut}</span>
