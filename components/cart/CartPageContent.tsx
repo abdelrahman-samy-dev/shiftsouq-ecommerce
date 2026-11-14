@@ -198,7 +198,9 @@ export function CartPageContent({ locale, rates, etaByZone, emptyExtras }: CartP
                 className="h-11 text-sm"
                 hint={chosen ? deliveryEta(etaByZone[chosen] ?? rates.etaDays, lang) : undefined}
               >
-                <option value="">{t.chooseGovernorate}</option>
+                <option value="" disabled>
+                  {t.chooseGovernorate}
+                </option>
                 {GOVERNORATES.map((g) => (
                   <option key={g.value} value={g.value}>
                     {g[lang]}

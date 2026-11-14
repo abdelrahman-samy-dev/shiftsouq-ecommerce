@@ -108,7 +108,12 @@ export function Select({ label, hint, error, wrapperClassName, className, id, ch
           id={fieldId}
           aria-invalid={error ? true : undefined}
           // items-center: customizable selects (appearance: base-select) lay out as flex boxes.
-          className={cn(controlClasses, "appearance-none items-center pe-10 cursor-pointer", className)}
+          // A disabled empty first option is a placeholder: shown faint, like an input's placeholder.
+          className={cn(
+            controlClasses,
+            "appearance-none items-center pe-10 cursor-pointer has-[option[value='']:checked:disabled]:text-text-faint",
+            className,
+          )}
           {...props}
         >
           {children}

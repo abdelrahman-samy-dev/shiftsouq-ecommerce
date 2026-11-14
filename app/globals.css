@@ -278,6 +278,10 @@ select:focus-visible {
 /* Clamped and truncated text is clipped at its line box; Arabic descenders (the dots under a final ي)
    fall below a tight one, so give those lines the room Arabic needs. */
 :lang(ar) :is(.line-clamp-1, .line-clamp-2, .line-clamp-3, .truncate) { line-height: 1.7; }
+/* Paragraphs avoid a lone word on their last line (in the base layer, so text-balance etc. still win). */
+@layer base {
+  p { text-wrap: pretty; }
+}
 
 .container-x {
   width: 100%;
