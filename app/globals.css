@@ -208,6 +208,12 @@ body {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
 }
+/* Text fields show focus with their own border/ring (or their container's), not a box. */
+input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
 
 ::selection {
   background-color: var(--text-primary);
