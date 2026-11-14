@@ -1,7 +1,9 @@
 /* ══════════════════════════════════════════════════════════════
    POST /api/checkout/paymob/wallet — start a mobile-wallet payment
-   Body: { orderId, accessToken, walletPhone }
-   The amount is the order total stored in the database.
+   Body: { orderId, accessToken?, walletPhone }
+   The amount is the order total stored in the database. Without an
+   access token, this browser's receipt cookie or the signed-in owner
+   authorises the payment (see startPayment).
    ══════════════════════════════════════════════════════════════ */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,7 +19,7 @@ export async function POST(request: NextRequest) {
 
   const result = await startPayment({
     orderId: String(body.orderId ?? ""),
-    accessToken: String(body.accessToken ?? ""),
+    accessToken: body.accessToken ? String(body.accessToken) : undefined,
     method: "wallet",
     walletPhone: body.walletPhone ? String(body.walletPhone) : undefined,
   });

@@ -1,10 +1,12 @@
 /* ══════════════════════════════════════════════════════════════
    Orders History Page — /orders
    ──────────────────────────────────────────────────────────────
-   Displays a list of the user's past orders with status badges,
-   date, total, and a link to view details.
+   The signed-in buyer's own orders: number, date, status, payment
+   method + status, items (with size / colour) and total.
+   Unpaid card / wallet orders point to "Complete payment".
 
-   Protected by proxy — only authenticated users can access.
+   Protected by proxy — only authenticated users can access; the
+   data layer also scopes every query to the buyer's profile.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
@@ -20,11 +22,21 @@ import {
   XCircle,
   RotateCcw,
   AlertCircle,
+  CreditCard,
 } from "lucide-react";
-import type { Locale, OrderStatus } from "@/lib/types";
 import { getDictionary } from "@/lib/i18n/get-dictionary";
-import { getUserOrders } from "@/lib/dal/orders";
+import { getMyOrders } from "@/lib/dal/orders";
 import Pagination from "@/components/shared/Pagination";
+import { formatMoney } from "@/components/checkout/checkout-rules";
+import type { OrderStatusValue } from "@/components/orders/order-rules";
+import {
+  formatOrderDate,
+  formatTime,
+  methodLabel,
+  paymentStatusLabel,
+  statusLabel,
+  type Lang,
+} from "@/components/orders/order-copy";
 
 /* ── SEO ──────────────────────────────────────────────────────── */
 
@@ -37,7 +49,7 @@ export const metadata: Metadata = {
 /* ── Status Configuration ─────────────────────────────────────── */
 
 const STATUS_CONFIG: Record<
-  OrderStatus,
+  OrderStatusValue,
   {
     icon: typeof Package;
     colorClass: string;
@@ -81,38 +93,6 @@ const STATUS_CONFIG: Record<
   },
 };
 
-/* ── Helper: Status label from dict ───────────────────────────── */
-
-function getStatusLabel(status: OrderStatus, dict: Record<string, any>): string {
-  const od = dict.orders || {};
-  const map: Record<OrderStatus, string> = {
-    pending: od.statusPending || "Pending",
-    confirmed: od.statusConfirmed || "Confirmed",
-    processing: od.statusProcessing || "Processing",
-    shipped: od.statusShipped || "Shipped",
-    delivered: od.statusDelivered || "Delivered",
-    cancelled: od.statusCancelled || "Cancelled",
-    refunded: od.statusRefunded || "Refunded",
-  };
-  return map[status];
-}
-
-/* ── Helper: Format date ──────────────────────────────────────── */
-
-function formatDate(dateStr: string, locale: string): string {
-  return new Date(dateStr).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-/* ── Helper: Format currency ──────────────────────────────────── */
-
-function formatPrice(amount: number): string {
-  return `${amount.toFixed(2)} EGP`;
-}
-
 /* ── Page Component ───────────────────────────────────────────── */
 
 export default async function OrdersPage({
@@ -122,18 +102,15 @@ export default async function OrdersPage({
 }) {
   const resolvedParams = await searchParams;
   const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const dict = await getDictionary(locale);
-  const od = dict.orders || ({} as Record<string, any>);
+  const lang: Lang = cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en";
+  const isAr = lang === "ar";
+  const od = (await getDictionary(lang)).orders;
 
-  const pageParam =
-    typeof resolvedParams.page === "string"
-      ? parseInt(resolvedParams.page, 10)
-      : 1;
+  const pageParam = typeof resolvedParams.page === "string" ? parseInt(resolvedParams.page, 10) : 1;
   const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
   const pageSize = 10;
 
-  const { orders, count } = await getUserOrders({ page, pageSize });
+  const { orders, count } = await getMyOrders(page, pageSize);
   const totalPages = Math.ceil(count / pageSize);
 
   /* Flatten searchParams for Pagination component */
@@ -154,11 +131,11 @@ export default async function OrdersPage({
             <Package size={20} style={{ color: "var(--text-primary)" }} />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-            {od.title || "My Orders"}
+            {od.title}
           </h1>
         </div>
         <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-          {od.subtitle || "Track and manage your orders"}
+          {od.subtitle}
           {count > 0 && (
             <span className="ms-2 font-medium" style={{ color: "var(--text-secondary)" }}>
               ({count})
@@ -169,13 +146,13 @@ export default async function OrdersPage({
 
       {/* ── Orders List ─────────────────────────────────────── */}
       {orders.length === 0 ? (
-        <EmptyOrders dict={dict} />
+        <EmptyOrders title={od.noOrders} description={od.noOrdersDesc} cta={od.startShopping} />
       ) : (
         <div className="flex flex-col gap-4">
           {orders.map((order) => {
-            const cfg = STATUS_CONFIG[order.status];
+            const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending;
             const StatusIcon = cfg.icon;
-            const itemCount = order.order_items?.length ?? 0;
+            const preview = order.items.slice(0, 2);
 
             return (
               <Link
@@ -186,37 +163,57 @@ export default async function OrdersPage({
                 {/* Left: Order info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2">
-                    <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                      {od.orderNumber || "Order #"}{order.order_number}
+                    <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }} dir="ltr">
+                      {order.orderNumber}
                     </span>
                     {/* Status Badge */}
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.bgClass}`}
                     >
                       <StatusIcon size={13} className={cfg.colorClass} />
-                      <span className={cfg.colorClass}>
-                        {getStatusLabel(order.status, dict)}
-                      </span>
+                      <span className={cfg.colorClass}>{statusLabel(order.status, lang)}</span>
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                    <span>{formatDate(order.created_at, locale)}</span>
-                    <span className="hidden sm:inline">•</span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                    <span>{formatOrderDate(order.createdAt, lang)}</span>
+                    <span aria-hidden="true">•</span>
                     <span>
-                      {itemCount} {od.items || "items"}
+                      {order.itemCount} {isAr ? (order.itemCount === 1 ? "منتج" : "منتجات") : order.itemCount === 1 ? "item" : "items"}
+                    </span>
+                    <span aria-hidden="true">•</span>
+                    <span className="inline-flex items-center gap-1">
+                      <CreditCard size={12} />
+                      {methodLabel(order.paymentMethod, lang)} — {paymentStatusLabel(order.paymentStatus, order.paymentMethod, lang, order.status)}
                     </span>
                   </div>
+
+                  {preview.length > 0 && (
+                    <p className="mt-2 text-xs truncate" style={{ color: "var(--text-secondary)" }}>
+                      {preview
+                        .map((i) => `${i.quantity} × ${i.name}${i.label ? ` (${i.label})` : ""}`)
+                        .join(isAr ? "، " : ", ")}
+                      {order.items.length > preview.length && (isAr ? ` و${order.items.length - preview.length} أخرى` : ` +${order.items.length - preview.length} more`)}
+                    </p>
+                  )}
+
+                  {order.canPay && order.payBy && (
+                    <p className="mt-2 text-xs font-semibold text-[var(--warning)]">
+                      {isAr
+                        ? `بانتظار الدفع — أكمل الدفع قبل ${formatTime(order.payBy, lang)}`
+                        : `Awaiting payment — complete it before ${formatTime(order.payBy, lang)}`}
+                    </p>
+                  )}
                 </div>
 
                 {/* Right: Total + Arrow */}
                 <div className="flex items-center justify-between sm:justify-end gap-4">
                   <span className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
-                    {formatPrice(Number(order.total))}
+                    {formatMoney(order.total, lang)}
                   </span>
                   <ChevronRight
                     size={18}
-                    className="text-text-faint group-hover:text-text-primary transition-all group-hover:translate-x-0.5"
+                    className="text-text-faint group-hover:text-text-primary transition-all group-hover:translate-x-0.5 rtl:rotate-180"
                     style={{ color: "var(--text-faint)" }}
                   />
                 </div>
@@ -227,20 +224,14 @@ export default async function OrdersPage({
       )}
 
       {/* ── Pagination ───────────────────────────────────────── */}
-      <Pagination
-        currentPage={page}
-        totalPages={totalPages}
-        searchParams={flatParams}
-        basePath="/orders"
-      />
+      <Pagination currentPage={page} totalPages={totalPages} searchParams={flatParams} basePath="/orders" />
     </div>
   );
 }
 
 /* ── Empty State ──────────────────────────────────────────────── */
 
-function EmptyOrders({ dict }: { dict: Record<string, any> }) {
-  const od = dict.orders || {};
+function EmptyOrders({ title, description, cta }: { title: string; description: string; cta: string }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-20 px-4">
       <div
@@ -250,15 +241,14 @@ function EmptyOrders({ dict }: { dict: Record<string, any> }) {
         <ShoppingBag size={36} strokeWidth={1.5} style={{ color: "var(--text-faint)" }} />
       </div>
       <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
-        {od.noOrders || "You haven't placed any orders yet"}
+        {title}
       </h2>
       <p className="text-sm max-w-sm mb-8" style={{ color: "var(--text-muted)" }}>
-        {od.noOrdersDesc ||
-          "When you place an order, it will appear here. Start shopping to find something you love!"}
+        {description}
       </p>
       <Link href="/shop" className="btn-primary px-8 py-3 text-[15px]">
         <ShoppingBag size={17} />
-        {od.startShopping || "Start Shopping"}
+        {cta}
       </Link>
     </div>
   );

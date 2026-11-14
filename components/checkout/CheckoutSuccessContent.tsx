@@ -21,7 +21,9 @@ import {
   Truck,
 } from "lucide-react";
 import type { Receipt } from "@/lib/dal/receipt";
-import { formatPrice } from "@/lib/utils";
+import { formatMoney } from "./checkout-rules";
+import { useCartStore } from "@/lib/store/useCartStore";
+import { useCheckoutStore } from "@/lib/store/useCheckoutStore";
 
 interface CheckoutSuccessContentProps {
   locale: string;
@@ -36,6 +38,18 @@ export function CheckoutSuccessContent({ locale, receipt }: CheckoutSuccessConte
   const online = receipt?.paymentMethod === "card" || receipt?.paymentMethod === "wallet";
   const confirming = online && receipt?.paymentStatus === "unpaid";
   const failed = online && receipt?.paymentStatus === "failed";
+  const settled = !!receipt && (receipt.paymentStatus === "paid" || receipt.paymentMethod === "cod");
+
+  // Card / wallet orders keep the cart until the payment is confirmed (a failed payment
+  // sends the buyer back to a full cart). Empty it once this order is paid.
+  useEffect(() => {
+    if (!settled || !receipt) return;
+    const pending = useCheckoutStore.getState().pendingOrder;
+    if (pending && pending.orderNumber === receipt.orderNumber) {
+      useCartStore.getState().clearCart();
+      useCheckoutStore.getState().resetCheckout();
+    }
+  }, [settled, receipt]);
 
   // The webhook usually confirms within seconds: refresh a few times while we wait.
   useEffect(() => {
@@ -56,8 +70,8 @@ export function CheckoutSuccessContent({ locale, receipt }: CheckoutSuccessConte
       : isAr ? "تم استلام طلبك!" : "Order placed!";
   const body = failed
     ? isAr
-      ? "لم نتمكن من تأكيد الدفع. يمكنك المحاولة مرة أخرى أو اختيار الدفع عند الاستلام."
-      : "We couldn't confirm the payment. You can try again or choose cash on delivery."
+      ? "لم نتمكن من تأكيد الدفع. سلتك ما زالت محفوظة: يمكنك المحاولة مرة أخرى أو اختيار الدفع عند الاستلام، أو إكمال الدفع لاحقًا من صفحة طلباتي."
+      : "We couldn't confirm the payment. Your cart is still saved: try again or choose cash on delivery, or complete the payment later from My Orders."
     : confirming
       ? isAr
         ? "نتحقق من الدفع مع البنك، قد يستغرق ذلك بضع ثوانٍ."
@@ -149,22 +163,22 @@ export function CheckoutSuccessContent({ locale, receipt }: CheckoutSuccessConte
                     {it.quantity} × {it.name}
                     {it.label ? <span className="text-[var(--text-muted)]"> · {it.label}</span> : null}
                   </span>
-                  <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{formatPrice(it.unitPrice * it.quantity, loc)}</span>
+                  <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{formatMoney(it.unitPrice * it.quantity, loc)}</span>
                 </div>
               ))}
               {receipt.discount > 0 && (
                 <div className="flex justify-between text-sm text-[var(--success)]">
                   <span>{isAr ? "الخصم" : "Discount"}</span>
-                  <span>-{formatPrice(receipt.discount, loc)}</span>
+                  <span>-{formatMoney(receipt.discount, loc)}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm text-[var(--text-secondary)]">
                 <span>{isAr ? "الشحن" : "Shipping"}</span>
-                <span>{receipt.shipping > 0 ? formatPrice(receipt.shipping, loc) : isAr ? "مجاني" : "Free"}</span>
+                <span>{receipt.shipping > 0 ? formatMoney(receipt.shipping, loc) : isAr ? "مجاني" : "Free"}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-[var(--border)] font-bold text-[var(--text-primary)]">
                 <span>{isAr ? "الإجمالي" : "Total"}</span>
-                <span>{formatPrice(receipt.total, loc)}</span>
+                <span>{formatMoney(receipt.total, loc)}</span>
               </div>
             </div>
           )}
@@ -202,13 +216,22 @@ export function CheckoutSuccessContent({ locale, receipt }: CheckoutSuccessConte
           transition={{ delay: 0.75 }}
           className="flex flex-col sm:flex-row gap-3"
         >
-          <Link
-            href="/shop"
-            className="btn-primary flex-1 h-12 text-sm font-bold gap-2 justify-center"
-          >
-            <ShoppingBag size={18} />
-            {isAr ? "متابعة التسوق" : "Continue Shopping"}
-          </Link>
+          {failed ? (
+            <Link
+              href="/checkout?payment_error=true"
+              className="btn-primary flex-1 h-12 text-sm font-bold gap-2 justify-center"
+            >
+              {isAr ? "حاول الدفع مرة أخرى" : "Try payment again"}
+            </Link>
+          ) : (
+            <Link
+              href="/shop"
+              className="btn-primary flex-1 h-12 text-sm font-bold gap-2 justify-center"
+            >
+              <ShoppingBag size={18} />
+              {isAr ? "متابعة التسوق" : "Continue Shopping"}
+            </Link>
+          )}
           <Link
             href="/"
             className="btn-secondary flex-1 h-12 text-sm font-bold gap-2 justify-center"

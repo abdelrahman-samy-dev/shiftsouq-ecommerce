@@ -27,11 +27,35 @@ export interface Receipt {
   items: { name: string; label: string | null; quantity: number; unitPrice: number; image: string | null }[];
 }
 
+/** httpOnly cookie "<orderId>.<accessToken>" for the latest order this browser placed or resumed. */
+export const RECEIPT_COOKIE = "ss_order";
+
+/**
+ * Remembers an order in this browser (receipt page, test payments, resuming a payment).
+ * Only callable from a Server Function or Route Handler.
+ */
+export async function setReceiptCookie(orderId: string, accessToken: string): Promise<void> {
+  (await cookies()).set(RECEIPT_COOKIE, `${orderId}.${accessToken}`, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 60 * 60 * 24 * 7,
+    path: "/",
+  });
+}
+
+/** The order remembered by this browser, if any (not yet checked against the database). */
+export async function readReceiptCookie(): Promise<{ orderId: string; accessToken: string } | null> {
+  const [orderId, accessToken] = ((await cookies()).get(RECEIPT_COOKIE)?.value ?? "").split(".");
+  return orderId && accessToken ? { orderId, accessToken } : null;
+}
+
 export async function getReceipt(orderNumber?: string): Promise<Receipt | null> {
   try {
     const db = getServiceClient();
-    const cookie = (await cookies()).get("ss_order")?.value ?? "";
-    const [cookieId, cookieToken] = cookie.split(".");
+    const remembered = await readReceiptCookie();
+    const cookieId = remembered?.orderId ?? "";
+    const cookieToken = remembered?.accessToken ?? "";
 
     let profileId: string | null = null;
     if (orderNumber) {

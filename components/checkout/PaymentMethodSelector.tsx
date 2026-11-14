@@ -4,12 +4,14 @@
    PaymentMethodSelector — Step 3: Payment Method Selection
    ──────────────────────────────────────────────────────────────
    Presents 3 payment options:
-   - Cash on Delivery (disabled if total > 10,000 EGP)
+   - Cash on Delivery (disabled if total > 10,000 EGP — the server
+     refuses it too)
    - Mobile Wallet (Vodafone Cash, etc.)
    - Credit / Debit Card
 
-   COD safety guard includes an informative tooltip explaining
-   why the option is disabled for high-value orders.
+   Card / wallet are shown as unavailable when the server can't
+   take that payment right now (Paymob not configured), so no
+   order is created for a payment that would fail.
    ══════════════════════════════════════════════════════════════ */
 
 import { useState } from "react";
@@ -26,12 +28,7 @@ import {
 } from "lucide-react";
 import type { PaymentMethod } from "@/lib/store/useCheckoutStore";
 import { cn } from "@/lib/utils";
-import { formatPrice } from "@/lib/utils";
-import type { Locale } from "@/lib/types";
-
-/* ── Constants ───────────────────────────────────────────────── */
-
-const COD_MAX_AMOUNT = 10000;
+import { COD_MAX_AMOUNT, formatMoney } from "./checkout-rules";
 
 /* ── Animation ───────────────────────────────────────────────── */
 
@@ -56,6 +53,8 @@ interface PaymentMethodSelectorProps {
   locale: string;
   /** Whether the payment iFrame is currently displayed */
   iframeActive?: boolean;
+  /** Online methods the server can take right now. */
+  availability: { card: boolean; wallet: boolean };
 }
 
 export function PaymentMethodSelector({
@@ -67,10 +66,20 @@ export function PaymentMethodSelector({
   cartTotal,
   locale,
   iframeActive = false,
+  availability,
 }: PaymentMethodSelectorProps) {
   const isAr = locale === "ar";
   const isCodDisabled = cartTotal > COD_MAX_AMOUNT;
   const [showCodTooltip, setShowCodTooltip] = useState(false);
+
+  const unavailableNote = (method: "card" | "wallet") =>
+    method === "card"
+      ? isAr
+        ? "الدفع بالبطاقة غير متاح مؤقتًا — يرجى اختيار الدفع عند الاستلام."
+        : "Card payments are temporarily unavailable — please choose cash on delivery."
+      : isAr
+        ? "الدفع بالمحفظة الإلكترونية غير متاح مؤقتًا — يرجى اختيار الدفع عند الاستلام."
+        : "Wallet payments are temporarily unavailable — please choose cash on delivery.";
 
   const methods: {
     id: PaymentMethod;
@@ -95,20 +104,21 @@ export function PaymentMethodSelector({
       icon: Smartphone,
       titleEn: "Mobile Wallet",
       titleAr: "محفظة إلكترونية",
-      descEn: "Vodafone Cash, Fawry, WE Pay",
-      descAr: "فودافون كاش، فوري، وي باي",
-      disabled: false,
+      descEn: availability.wallet ? "Vodafone Cash, Fawry, WE Pay" : unavailableNote("wallet"),
+      descAr: availability.wallet ? "فودافون كاش، فوري، وي باي" : unavailableNote("wallet"),
+      disabled: !availability.wallet,
     },
     {
       id: "card",
       icon: CreditCard,
       titleEn: "Credit / Debit Card",
       titleAr: "بطاقة ائتمان / خصم",
-      descEn: "Visa, Mastercard, Meeza",
-      descAr: "فيزا، ماستركارد، ميزة",
-      disabled: false,
+      descEn: availability.card ? "Visa, Mastercard, Meeza" : unavailableNote("card"),
+      descAr: availability.card ? "فيزا، ماستركارد، ميزة" : unavailableNote("card"),
+      disabled: !availability.card,
     },
   ];
+  const selectedDisabled = methods.find((m) => m.id === selectedMethod)?.disabled ?? false;
 
   return (
     <motion.div initial="hidden" animate="visible" className="space-y-5">
@@ -159,7 +169,7 @@ export function PaymentMethodSelector({
                   method.disabled &&
                     "border-[var(--border)] bg-[var(--surface-inset)] opacity-50 cursor-not-allowed"
                 )}
-                aria-label={isAr ? method.titleAr : method.titleEn}
+                aria-disabled={method.disabled}
               >
                 {/* Radio indicator */}
                 <div
@@ -241,8 +251,8 @@ export function PaymentMethodSelector({
                     />
                     <p className="text-xs text-[var(--text-primary)] leading-relaxed">
                       {isAr
-                        ? `للطلبات التي تتجاوز ${formatPrice(COD_MAX_AMOUNT, locale as Locale)}، يرجى استخدام الدفع الإلكتروني.`
-                        : `For orders exceeding ${formatPrice(COD_MAX_AMOUNT, locale as Locale)}, please use online payment.`}
+                        ? `للطلبات التي تتجاوز ${formatMoney(COD_MAX_AMOUNT, isAr ? "ar" : "en")}، يرجى استخدام الدفع الإلكتروني.`
+                        : `For orders exceeding ${formatMoney(COD_MAX_AMOUNT, isAr ? "ar" : "en")}, please use online payment.`}
                     </p>
                   </motion.div>
                 )}
@@ -271,6 +281,17 @@ export function PaymentMethodSelector({
         </p>
       </motion.div>
 
+      {/* The selected method can't be used (limit / unavailable): say why Place Order is off */}
+      {selectedDisabled && (
+        <p className="text-xs text-[var(--warning)]" role="status">
+          {selectedMethod === "cod"
+            ? isAr
+              ? `الدفع عند الاستلام متاح للطلبات حتى ${formatMoney(COD_MAX_AMOUNT, "ar")}. يرجى اختيار الدفع الإلكتروني.`
+              : `Cash on delivery is available for orders up to ${formatMoney(COD_MAX_AMOUNT, "en")}. Please choose an online payment.`
+            : unavailableNote(selectedMethod)}
+        </p>
+      )}
+
       {/* Actions */}
       <motion.div custom={5} variants={cardVariant} className="flex gap-3 pt-2">
         <button
@@ -285,7 +306,7 @@ export function PaymentMethodSelector({
         <button
           type="button"
           onClick={onPlaceOrder}
-          disabled={isProcessing || iframeActive}
+          disabled={isProcessing || iframeActive || selectedDisabled}
           className="btn-primary flex-1 h-12 text-sm font-bold gap-2 relative overflow-hidden"
         >
           {isProcessing ? (
