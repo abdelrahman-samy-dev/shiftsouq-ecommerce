@@ -43,7 +43,7 @@ import {
 } from "./shell-rules";
 
 const HIDE_AT: Record<NavBreakpoint, string> = { lg: "lg:hidden", xl: "xl:hidden", "2xl": "2xl:hidden" };
-const SHOW_AT: Record<NavBreakpoint, string> = { lg: "lg:inline-flex", xl: "xl:inline-flex", "2xl": "2xl:inline-flex" };
+const HIDE_BELOW: Record<NavBreakpoint, string> = { lg: "max-lg:hidden", xl: "max-xl:hidden", "2xl": "max-2xl:hidden" };
 const searchHover = "text-current! group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5";
 
 export default async function Header({ locale = "en" }: { locale?: Locale }) {
@@ -103,7 +103,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
           </Link>
 
           <div className="flex items-center justify-end gap-0.5 -me-2 lg:me-0">
-            <SearchOverlayTrigger locale={locale} className={`${searchHover} hidden ${SHOW_AT[breakpoint]}`} />
+            <SearchOverlayTrigger locale={locale} className={`${searchHover} ${HIDE_BELOW[breakpoint]}`} />
             <div className="hidden lg:flex">
               <Suspense fallback={<AccountLink locale={locale} />}>
                 <AccountMenu viewer={viewer} locale={locale} />
