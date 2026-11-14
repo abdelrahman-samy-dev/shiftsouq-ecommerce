@@ -42,13 +42,14 @@ function latest(dates: (string | null | undefined)[]): Date | undefined {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = getPublicClient();
 
-  const [productsRes, categoriesRes] = await Promise.all([
+  const [productsRes, categoriesRes, collectionsRes] = await Promise.all([
     supabase
       .from("products")
       .select("slug, category_id, updated_at, created_at, product_images(url, is_primary, sort_order)")
       .eq("is_active", true)
       .order("updated_at", { ascending: false }),
-    supabase.from("categories").select("id, parent_id, slug, created_at"),
+    supabase.from("categories").select("id, parent_id, slug, created_at").eq("is_active", true),
+    supabase.from("collections").select("slug, updated_at").eq("is_active", true),
   ]);
 
   if (productsRes.error) console.error("[sitemap] products:", productsRes.error.message);
@@ -104,5 +105,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  return [...staticPages, ...categoryPages, ...productPages];
+  /* ── Collections ────────────────────────────────────────────── */
+  const collections = (collectionsRes.data ?? []) as { slug: string; updated_at: string | null }[];
+  const collectionPages: MetadataRoute.Sitemap = collections.length
+    ? [
+        { url: absoluteUrl("/collections"), lastModified: latest(collections.map((c) => c.updated_at)), changeFrequency: "weekly", priority: 0.6 },
+        ...collections.map((c) => ({
+          url: absoluteUrl(`/collections/${encodeURIComponent(c.slug)}`),
+          lastModified: c.updated_at ? new Date(c.updated_at) : undefined,
+          changeFrequency: "weekly" as const,
+          priority: 0.6,
+        })),
+      ]
+    : [];
+
+  return [...staticPages, ...categoryPages, ...collectionPages, ...productPages];
 }
