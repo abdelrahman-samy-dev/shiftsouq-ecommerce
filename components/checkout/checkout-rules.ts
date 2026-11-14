@@ -18,6 +18,30 @@ export type PaymentMethod = "cod" | "card" | "wallet";
 /** Cash on delivery is refused above this order total (EGP). */
 export const COD_MAX_AMOUNT = 10_000;
 
+/** Different items (lines) one order may have; place_order() refuses more. */
+export const MAX_ORDER_LINES = 20;
+
+/** Order refusals that protect stock: what to tell the buyer. Empty for any other code. */
+export function orderLimitMessage(code: string | undefined, lang: Lang): string {
+  const ar = lang === "ar";
+  switch (code) {
+    case "too_many_items":
+      return ar
+        ? `يمكن أن يضم الطلب الواحد ${MAX_ORDER_LINES} منتجًا مختلفًا على الأكثر. يرجى تقسيم مشترياتك على طلبين.`
+        : `An order can have up to ${MAX_ORDER_LINES} different items. Please split your purchase into two orders.`;
+    case "rate_limited":
+      return ar
+        ? "أُنشئت طلبات كثيرة في وقت قصير. يرجى المحاولة مرة أخرى بعد قليل."
+        : "Too many orders were placed in a short time. Please try again a little later.";
+    case "too_many_open_orders":
+      return ar
+        ? "لديك طلبات ما زالت بانتظار الدفع أو التأكيد. أكمل دفعها أو انتظر تأكيدها، أو تواصل معنا."
+        : "You already have orders waiting for payment or confirmation. Complete or wait for them, or contact us.";
+    default:
+      return "";
+  }
+}
+
 /* ── Money ───────────────────────────────────────────────────── */
 
 export const round2 = (n: number): number => Math.round(n * 100) / 100;

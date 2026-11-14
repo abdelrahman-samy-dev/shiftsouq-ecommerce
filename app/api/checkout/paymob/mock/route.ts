@@ -5,7 +5,8 @@
    otherwise every request gets a 404. Lets a developer finish a
    card / wallet checkout without Paymob keys. The payment is
    confirmed through the same mark_order_paid() function the real
-   webhook uses, for the order's own total.
+   webhook uses, for the latest test attempt that startPayment
+   recorded for the order ("mock-<uuid>" in payment_attempts).
 
    Authorisation: the httpOnly "ss_order" cookie set by createOrder
    ("<orderId>.<accessToken>"), so only the browser that placed the
@@ -15,6 +16,7 @@
    GET                      → wallet redirect, lands on the receipt
    ══════════════════════════════════════════════════════════════ */
 
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { paymobMockEnabled, safeEqual } from "@/lib/payments/paymob";
 import { getServiceClient } from "@/lib/supabase/service";
@@ -26,15 +28,27 @@ async function settle(request: NextRequest, success: boolean) {
   const db = getServiceClient();
   const { data: order } = await db
     .from("orders")
-    .select("id, order_number, total, access_token")
+    .select("id, order_number, access_token")
     .eq("id", orderId)
     .maybeSingle();
   if (!order || !safeEqual(String(order.access_token), token)) return null;
 
+  // The test payment the buyer just started (startPayment recorded it).
+  const { data: attempt } = await db
+    .from("payment_attempts")
+    .select("paymob_order_id, amount_cents")
+    .eq("order_id", order.id)
+    .like("paymob_order_id", "mock-%")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!attempt) return null;
+
   const { data: result, error } = await db.rpc("mark_order_paid", {
     p_order_id: order.id,
-    p_amount_cents: Math.round(Number(order.total) * 100),
-    p_transaction_id: `MOCK-${Date.now()}`,
+    p_paymob_order_id: attempt.paymob_order_id,
+    p_amount_cents: Number(attempt.amount_cents),
+    p_transaction_id: `MOCK-${randomUUID()}`,
     p_success: success,
   });
   if (error) throw error;

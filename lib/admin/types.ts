@@ -41,10 +41,15 @@ export interface AdminOrderDetail extends AdminOrderListItem {
   promo_code: string | null;
   country: string | null;
   address: string | null;
+  /** The buyer's own delivery note from checkout (the buyer can see it). */
   notes: string | null;
+  /** Team-only note (order_internal_notes). */
+  internal_note: string | null;
   transaction_id: string | null;
   paymob_order_id: string | null;
   stock_released: boolean;
+  /** Paid after the order was cancelled and could not be revived: refund the buyer. */
+  needs_refund: boolean;
   has_account: boolean;
   /** Customer account (profile id) when the order was placed signed in. */
   customer_id: string | null;

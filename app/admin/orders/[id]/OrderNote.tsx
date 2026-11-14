@@ -1,6 +1,6 @@
 "use client";
 
-/* Internal order note (orders.notes): team-only, saved with the admin's session and audited. */
+/* Internal order note (order_internal_notes): team-only, saved with the admin's session and audited. */
 
 import { useId, useState, useTransition } from "react";
 import { toast } from "sonner";

@@ -14,7 +14,7 @@ import { defaultValidationMessages, type ValidationMessages } from "./messages";
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 72;
 
-/** httpOnly cookie set by /auth/callback after a password-reset link (value: the user id, 15 minutes). */
+/** httpOnly cookie set by /auth/callback after a password-reset link (signed user id + expiry, 15 minutes; lib/auth/recovery-cookie.ts). */
 export const RECOVERY_COOKIE = "ss_recovery";
 
 /**

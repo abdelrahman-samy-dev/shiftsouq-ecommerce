@@ -14,6 +14,22 @@ function supabaseOrigin(): { http: string; ws: string } | null {
 
 const supabase = supabaseOrigin();
 
+/**
+ * This project's Supabase host when it is served over https (production).
+ * Images and API calls are allowed from this one project only — never from
+ * any *.supabase.co project (lib/admin/catalog-images.ts uses the same rule).
+ */
+function supabaseHttpsHost(): string | null {
+  try {
+    const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+    return url.protocol === "https:" && !url.port ? url.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+const supabaseHost = supabaseHttpsHost();
+
 /** Paymob's embedded card form is the only third-party page we frame. */
 const PAYMOB_FRAMES = [
   "https://accept.paymob.com",
@@ -26,24 +42,23 @@ const PAYMOB_FRAMES = [
  * renderable (see node_modules/next/dist/docs/01-app/02-guides/
  * content-security-policy.md, "Without Nonces"). 'unsafe-inline' is
  * needed for Next's inline bootstrap and the theme script.
+ *
+ * Accepted risk (security review 2026-11-14): with 'unsafe-inline'
+ * scripts, the CSP does not stop an injected inline script; it still
+ * limits where scripts, frames, images and requests may come from.
+ * XSS is prevented at the source (React escaping, no
+ * dangerouslySetInnerHTML with user content, JSON-LD escaped).
+ * Moving to nonces would make every page dynamic.
  */
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  [
-    "img-src 'self' data: blob:",
-    "https://images.unsplash.com",
-    "https://cdn.dummyjson.com",
-    "https://*.supabase.co",
-    supabase?.http,
-  ]
+  ["img-src 'self' data: blob:", "https://images.unsplash.com", "https://cdn.dummyjson.com", supabase?.http]
     .filter(Boolean)
     .join(" "),
   "font-src 'self' data:",
-  ["connect-src 'self'", "https://*.supabase.co", "wss://*.supabase.co", supabase?.http, supabase?.ws]
-    .filter(Boolean)
-    .join(" "),
+  ["connect-src 'self'", supabase?.http, supabase?.ws].filter(Boolean).join(" "),
   `frame-src ${PAYMOB_FRAMES.join(" ")}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
@@ -88,18 +103,8 @@ const nextConfig: NextConfig = {
         hostname: "cdn.dummyjson.com",
         pathname: "/**",
       },
-      /* ── Supabase Storage ──────────────────────────────── */
-      {
-        protocol: "https",
-        hostname: "*.supabase.co",
-        pathname: "/storage/**",
-      },
-      /* ── Supabase Self-hosted (if applicable) ──────────── */
-      {
-        protocol: "https",
-        hostname: "*.supabase.in",
-        pathname: "/storage/**",
-      },
+      /* ── This project's Supabase Storage only ───────────── */
+      ...(supabaseHost ? [{ protocol: "https" as const, hostname: supabaseHost, pathname: "/storage/**" }] : []),
       /* ── Local Supabase (development only) ─────────────── */
       ...(isDev
         ? [

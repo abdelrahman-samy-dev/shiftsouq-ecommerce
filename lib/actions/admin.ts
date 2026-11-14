@@ -166,8 +166,9 @@ export async function markCashCollected(orderId: string): Promise<ActionResult> 
 }
 
 /**
- * Internal note on an order (orders.notes). Never shown to the customer;
- * it starts with any delivery note the customer typed at checkout.
+ * Internal note on an order (order_internal_notes: team only, row-level
+ * security is_admin()). The buyer's own delivery note stays in orders.notes,
+ * which the buyer can read, so staff text never goes there.
  */
 export async function saveOrderNote(orderId: string, note: string): Promise<ActionResult> {
   const ctx = await adminOrFail();
@@ -177,11 +178,17 @@ export async function saveOrderNote(orderId: string, note: string): Promise<Acti
   const text = note.replace(/\r\n/g, "\n").trim();
   if (text.length > 2000) return fail("note_too_long");
 
+  const { data: order, error: readError } = await ctx.supabase.from("orders").select("id").eq("id", orderId).maybeSingle();
+  if (readError) return (logDb("saveOrderNote.read", readError), fail("save_failed"));
+  if (!order) return fail("not_found");
+
   const { data, error } = await ctx.supabase
-    .from("orders")
-    .update({ notes: text || null })
-    .eq("id", orderId)
-    .select("id");
+    .from("order_internal_notes")
+    .upsert(
+      { order_id: orderId, note: text, updated_at: new Date().toISOString(), updated_by: ctx.profileId },
+      { onConflict: "order_id" },
+    )
+    .select("order_id");
   if (error) return (logDb("saveOrderNote", error), fail("save_failed"));
   if (!data?.length) return fail("not_found");
   await logAdminAction(ctx, "order.note", "orders", orderId, { length: text.length });

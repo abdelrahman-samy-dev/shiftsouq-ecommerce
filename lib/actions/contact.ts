@@ -2,10 +2,10 @@
    Server Actions — Contact Form
    ──────────────────────────────────────────────────────────────
    Inserts contact form submissions into the contact_messages
-   table. Uses the service role client because the public anon
-   key needs an INSERT policy (which we've created), but we use
-   the admin client here for reliability and to avoid any RLS
-   edge cases.
+   table with the service role client. There is deliberately no
+   public INSERT policy (migration 20261114080000), so the honeypot
+   and the per-address throttle below can't be bypassed by
+   writing to the table with the public key.
 
    Replies are written in the visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */

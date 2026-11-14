@@ -1,10 +1,12 @@
 /**
  * Prepares the LOCAL database for the browser tests:
- * a buyer and an admin account, and enough stock on the test product.
+ * a buyer and an admin account, enough stock on the test product, and no
+ * leftovers from earlier runs that would trip the order limits (at most 3
+ * open unpaid orders per phone / email, a few orders per hour).
  * Refuses to run against anything but a local Supabase.
  */
 import { createClient } from "@supabase/supabase-js";
-import { ACCOUNTS, TEST_PRODUCT_SLUG } from "./fixtures";
+import { ACCOUNTS, E2E_PHONE, TEST_PRODUCT_SLUG } from "./fixtures";
 
 export default async function globalSetup() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -44,4 +46,17 @@ export default async function globalSetup() {
     .single();
   if (productError) throw productError;
   await db.from("product_variants").update({ stock: 50 }).eq("product_id", product.id);
+
+  // Earlier runs' orders still waiting for payment / confirmation (test phone or test accounts).
+  const emails = Object.values(ACCOUNTS).map((a) => a.email);
+  const { error: openError } = await db
+    .from("orders")
+    .update({ status: "cancelled" })
+    .eq("status", "pending")
+    .in("payment_status", ["unpaid", "failed"])
+    .or(`shipping_phone.eq.${E2E_PHONE},shipping_email.in.(${emails.join(",")})`);
+  if (openError) throw openError;
+  // Hourly order limits (local counters only).
+  const { error: limitError } = await db.from("rate_limits").delete().like("key", "order%");
+  if (limitError) throw limitError;
 }

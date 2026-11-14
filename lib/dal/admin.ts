@@ -182,7 +182,8 @@ export async function getOrderForAdmin(id: string): Promise<AdminOrderDetail | n
     .from("orders")
     .select(
       `${ORDER_LIST_COLUMNS}, user_id, updated_at, subtotal, discount_amount, shipping_cost, tax_amount,
-       shipping_country, shipping_address, notes, transaction_id, paymob_order_id, stock_released,
+       shipping_country, shipping_address, notes, transaction_id, paymob_order_id, stock_released, needs_refund,
+       internal:order_internal_notes(note),
        promo:promocodes(code),
        items:order_items(id, product_name, variant_label, unit_price, quantity, image_url, created_at,
          variant:product_variants(sku, product:products(slug)))`,
@@ -219,6 +220,8 @@ export async function getOrderForAdmin(id: string): Promise<AdminOrderDetail | n
     transaction_id: string | null;
     paymob_order_id: string | null;
     stock_released: boolean | null;
+    needs_refund: boolean | null;
+    internal: { note: string | null } | { note: string | null }[] | null;
     promo: { code: string } | { code: string }[] | null;
     items: ItemRow[] | null;
   };
@@ -235,9 +238,11 @@ export async function getOrderForAdmin(id: string): Promise<AdminOrderDetail | n
     country: row.shipping_country,
     address: row.shipping_address,
     notes: row.notes,
+    internal_note: one(row.internal)?.note ?? null,
     transaction_id: row.transaction_id,
     paymob_order_id: row.paymob_order_id,
     stock_released: Boolean(row.stock_released),
+    needs_refund: Boolean(row.needs_refund),
     has_account: Boolean(row.user_id),
     customer_id: row.user_id,
     items: (row.items ?? [])
@@ -548,14 +553,14 @@ async function toAuditEntries(rows: AuditRow[]): Promise<AuditEntry[]> {
   });
 }
 
-/** What admins did to one order, oldest first. */
+/** What admins did to one order, and payment events recorded for it, oldest first. */
 export async function getOrderTimeline(orderId: string): Promise<AuditEntry[]> {
   const ctx = await getAdminContext();
   if (!ctx || !GUID.test(orderId)) return [];
   const { data, error } = await ctx.supabase
     .from("audit_log")
     .select(AUDIT_COLUMNS)
-    .eq("entity", "orders")
+    .in("entity", ["orders", "payment"])
     .eq("entity_id", orderId)
     .order("created_at", { ascending: true })
     .limit(200);

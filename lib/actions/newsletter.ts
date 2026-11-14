@@ -7,20 +7,19 @@
    the service client: RLS lets only admins read or write the
    table directly.
    • Honeypot ("company"): bots that fill it get a quiet success.
-   • Light rate limit per IP and per address (in memory).
+   • Rate limit per client (hashed IP) and per address, shared by
+     every server instance (lib/checkout/rate-limit).
    • Idempotent: an address already on the list is a success;
-     an address that had unsubscribed is subscribed again.
+     an address that had unsubscribed is subscribed again. Every
+     success gets the SAME answer, so the form can't be used to
+     find out who is subscribed.
    Replies follow the visitor's language (NEXT_LOCALE).
    ══════════════════════════════════════════════════════════════ */
 
-import { headers } from "next/headers";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getLocale } from "@/lib/i18n/server";
 import { NEWSLETTER_MESSAGES, parseNewsletterEmail, type NewsletterState, type NewsletterStatus } from "@/lib/validations/newsletter";
-import { createRateLimiter } from "@/components/layout/shell-rules";
-
-const byIp = createRateLimiter({ limit: 6, windowMs: 10 * 60 * 1000 });
-const byEmail = createRateLimiter({ limit: 3, windowMs: 10 * 60 * 1000 });
+import { clientKey, NEWSLETTER_CLIENT_LIMIT, NEWSLETTER_EMAIL_LIMIT, rateLimit, targetKey } from "@/lib/checkout/rate-limit";
 
 const SOURCES = new Set(["footer", "home", "checkout"]);
 
@@ -37,9 +36,11 @@ export async function subscribeToNewsletter(_prev: NewsletterState, formData: Fo
     const email = parseNewsletterEmail(formData.get("email"));
     if (!email) return reply("invalid");
 
-    const h = await headers();
-    const ip = (h.get("x-forwarded-for")?.split(",")[0] || h.get("x-real-ip") || "unknown").trim();
-    if (!byIp.hit(`ip:${ip}`) || !byEmail.hit(`email:${email}`)) return reply("too_many");
+    const [byClient, byEmail] = await Promise.all([
+      rateLimit("newsletter", await clientKey(null), NEWSLETTER_CLIENT_LIMIT),
+      rateLimit("newsletter-email", targetKey(email), NEWSLETTER_EMAIL_LIMIT),
+    ]);
+    if (!byClient || !byEmail) return reply("too_many");
 
     const rawSource = String(formData.get("source") ?? "footer");
     const source = SOURCES.has(rawSource) ? rawSource : "footer";
@@ -49,14 +50,14 @@ export async function subscribeToNewsletter(_prev: NewsletterState, formData: Fo
     if (!error) return reply("subscribed");
 
     if (error.code === "23505") {
-      const { data: back, error: updateError } = await db
+      // Already on the list (or coming back): same answer as a new sign-up.
+      const { error: updateError } = await db
         .from("newsletter_subscribers")
         .update({ unsubscribed_at: null, locale })
         .eq("email", email)
-        .not("unsubscribed_at", "is", null)
-        .select("id");
+        .not("unsubscribed_at", "is", null);
       if (updateError) console.error("[newsletter] resubscribe:", updateError.message);
-      return reply(back && back.length ? "resubscribed" : "already");
+      return reply("subscribed");
     }
 
     console.error("[newsletter] insert:", error.message);

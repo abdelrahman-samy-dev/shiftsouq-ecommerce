@@ -59,6 +59,7 @@ import {
   formatEgyptianMobile,
   formatMoney,
   normalizeEgyptianMobile,
+  orderLimitMessage,
   paymentOptions,
   paymentUnavailableMessage,
   promoErrorMessage,
@@ -355,7 +356,7 @@ export function CheckoutPageContent({ locale, prefill, rates, etaByZone, payment
           window.scrollTo({ top: 0, behavior: "smooth" });
           return;
         default:
-          setProblem({ kind: "error", message: t.genericError });
+          setProblem({ kind: "error", message: orderLimitMessage(r.code, lang) || t.genericError });
       }
     },
     [lang, t.genericError, router],
