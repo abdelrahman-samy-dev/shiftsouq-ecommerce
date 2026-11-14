@@ -83,7 +83,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
             <h2 id="newsletter-title" className="t-h2 text-balance">
               {copy.newsletterTitle}
             </h2>
-            <p className="max-w-[44ch] text-pretty text-text-secondary">{copy.newsletterBody}</p>
+            <p className="max-w-[44ch] text-balance text-text-secondary">{copy.newsletterBody}</p>
           </div>
           <div className="md:justify-self-end md:w-full md:max-w-md">
             <NewsletterForm
@@ -146,7 +146,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
               </a>
             ) : null}
             {address ? <span>{address}</span> : null}
-            {hours ? <span className="text-text-muted">{hours}</span> : null}
+            {hours ? <span className="text-pretty text-text-muted">{hours}</span> : null}
           </address>
         </div>
       </div>
