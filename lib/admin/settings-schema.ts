@@ -18,6 +18,17 @@ import { isAllowedImageUrl } from "./products";
 export const GOVERNORATE_KEYS: readonly string[] = Object.keys(GOVERNORATE_SHIPPING);
 
 export const MAX_ANNOUNCEMENTS = 8;
+
+export const HERO_TONES = ["light", "dark"] as const;
+export const HERO_ALIGNS = ["left", "right"] as const;
+export type HeroTone = (typeof HERO_TONES)[number];
+export type HeroAlign = (typeof HERO_ALIGNS)[number];
+
+/** Hero keys the shared settings reader (lib/settings) doesn’t expose yet; read from lib/dal/home getSettingsExtras(). */
+export interface HeroLook {
+  tone: HeroTone;
+  align: HeroAlign;
+}
 export const MAX_FEE = 10_000;
 
 export type SettingsErrorCode =
@@ -117,6 +128,10 @@ export const settingsSchema = z
         subtitle: localized(240),
         ctaLabel: localized(40),
         ctaHref: optionalBy(300, isSafeLink, "link"),
+        /** "light" = white text with scrims (dark photos), "dark" = ink text (light photos). */
+        tone: z.enum(HERO_TONES, { error: "required" }),
+        /** Physical side of the photo with free space for the headline on wide screens. */
+        align: z.enum(HERO_ALIGNS, { error: "required" }),
       }),
     }),
     inventory: z.object({ lowStockThreshold: wholeNumber(0, 1000) }),
@@ -135,7 +150,7 @@ export function settingsErrors(error: z.ZodError): Record<string, SettingsErrorC
 }
 
 /** Form values from the current settings (lib/settings, already merged over the defaults). */
-export function settingsToValues(s: StoreSettings): SettingsValues {
+export function settingsToValues(s: StoreSettings, look: HeroLook = { tone: "light", align: "left" }): SettingsValues {
   const hero = s.home.hero;
   const zones: Record<string, number> = {};
   for (const key of GOVERNORATE_KEYS) {
@@ -167,6 +182,8 @@ export function settingsToValues(s: StoreSettings): SettingsValues {
         subtitle: hero ? { ...hero.subtitle } : { en: "", ar: "" },
         ctaLabel: hero ? { ...hero.ctaLabel } : { en: "Shop now", ar: "تسوّق الآن" },
         ctaHref: hero?.ctaHref ?? "/shop",
+        tone: look.tone === "dark" ? "dark" : "light",
+        align: look.align === "right" ? "right" : "left",
       },
     },
     inventory: { lowStockThreshold: s.inventory.lowStockThreshold },
@@ -211,6 +228,8 @@ export function settingsToRow(v: SettingsParsed) {
         cta_label_en: v.home.hero.ctaLabel.en,
         cta_label_ar: v.home.hero.ctaLabel.ar,
         cta_href: v.home.hero.ctaHref,
+        tone: v.home.hero.tone,
+        align: v.home.hero.align,
       },
     },
     inventory: { low_stock_threshold: v.inventory.lowStockThreshold },

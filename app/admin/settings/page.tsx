@@ -13,6 +13,7 @@ import { formatDateTime, fill, getAdminText } from "@/lib/admin/i18n";
 import { settingsToValues } from "@/lib/admin/settings-schema";
 import { getLocale } from "@/lib/i18n/server";
 import { paymobConfigured, paymobMockEnabled } from "@/lib/payments/paymob";
+import { getSettingsExtras } from "@/lib/dal/home";
 import { getStoreSettings } from "@/lib/settings";
 import { Notice, PageHeader } from "../components/ui";
 import { SettingsForm, type PaymobStatus } from "./SettingsForm";
@@ -20,7 +21,7 @@ import { SettingsForm, type PaymobStatus } from "./SettingsForm";
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function AdminSettingsPage() {
-  const [ctx, locale, settings] = await Promise.all([getAdminContext(), getLocale(), getStoreSettings()]);
+  const [ctx, locale, settings, extras] = await Promise.all([getAdminContext(), getLocale(), getStoreSettings(), getSettingsExtras()]);
   if (!ctx) redirect("/admin");
   const t = getAdminText(locale);
   const S = t.settings;
@@ -44,7 +45,7 @@ export default async function AdminSettingsPage() {
       ) : null}
       <SettingsForm
         locale={locale}
-        initial={settingsToValues(settings)}
+        initial={settingsToValues(settings, { tone: extras.hero.tone, align: extras.hero.align })}
         updatedAt={settings.updatedAt}
         readOnly={!owner}
         paymob={{ card: status("card"), wallet: status("wallet") }}

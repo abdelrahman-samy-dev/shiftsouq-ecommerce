@@ -175,8 +175,16 @@ describe("settings schema", () => {
     v.home.hero.image = "/images/hero.jpg";
     v.home.hero.title = { en: "New season", ar: "موسم جديد" };
     v.contact.whatsapp = "+20 100 123 4567";
+    v.home.hero.tone = "dark";
+    v.home.hero.align = "right";
     const parsed = settingsSchema.parse(v);
     const row = settingsToRow(parsed);
+    expect(row.home.hero).toMatchObject({ tone: "dark", align: "right" });
+    // Hero look comes from the extras reader; defaults are light text on the left.
+    expect(settingsToValues(DEFAULT_SETTINGS).home.hero).toMatchObject({ tone: "light", align: "left" });
+    expect(settingsToValues(DEFAULT_SETTINGS, { tone: "dark", align: "right" }).home.hero).toMatchObject({ tone: "dark", align: "right" });
+    const bad = settingsSchema.safeParse({ ...v, home: { hero: { ...v.home.hero, tone: "neon" } } });
+    expect(settingsErrors(bad.error!)["home.hero.tone"]).toBeDefined();
     expect(row.shipping).toMatchObject({ default_fee: 75, free_threshold: 1200 });
     expect(row.shipping.zones.cairo).toBe(40);
     expect(row.contact.whatsapp).toBe("+201001234567");

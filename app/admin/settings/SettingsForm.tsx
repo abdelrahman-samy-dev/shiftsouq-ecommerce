@@ -424,24 +424,57 @@ export function SettingsForm({
                 {Text({ label: S.home.ctaEn, path: ["home", "hero", "ctaLabel", "en"], dir: "ltr" })}
                 {Text({ label: S.home.ctaAr, path: ["home", "hero", "ctaLabel", "ar"], dir: "rtl" })}
                 {Text({ label: S.home.ctaHref, path: ["home", "hero", "ctaHref"], dir: "ltr", hint: S.home.ctaHrefHint, className: "md:col-span-2" })}
+                <ChoiceGroup
+                  className="md:col-span-2"
+                  legend={S.home.tone}
+                  hint={S.home.toneHint}
+                  name="hero-tone"
+                  value={hero.tone}
+                  onChange={(v) => set(["home", "hero", "tone"], v)}
+                  options={[
+                    { value: "light", label: S.home.toneLight, desc: S.home.toneLightDesc },
+                    { value: "dark", label: S.home.toneDark, desc: S.home.toneDarkDesc },
+                  ]}
+                />
+                <ChoiceGroup
+                  className="md:col-span-2"
+                  legend={S.home.align}
+                  hint={S.home.alignHint}
+                  name="hero-align"
+                  physical
+                  value={hero.align}
+                  onChange={(v) => set(["home", "hero", "align"], v)}
+                  options={[
+                    { value: "left", label: S.home.alignLeft },
+                    { value: "right", label: S.home.alignRight },
+                  ]}
+                />
               </div>
-              <div>
+              <div className="w-full max-w-2xl">
                 <p className="mb-1.5 text-[0.8125rem] text-text-secondary">{S.home.preview}</p>
                 <div className="relative aspect-[16/10] overflow-hidden rounded-[3px] border border-border bg-surface">
                   {heroOk ? (
                     <>
                       <Image src={hero.image} alt="" fill unoptimized sizes="(min-width: 1536px) 26rem, 100vw" className="object-cover" />
-                      <div className="absolute inset-0 bg-black/30" />
-                      <div lang={heroLocal} dir={heroLocal === "ar" ? "rtl" : "ltr"} className="absolute inset-x-0 bottom-0 p-5 text-white">
-                        <p className="font-display text-[1.75rem] leading-[1.05] [&:lang(ar)]:font-sans [&:lang(ar)]:text-[1.375rem] [&:lang(ar)]:font-semibold">
-                          {hero.title[heroLocal] || "—"}
-                        </p>
-                        {hero.subtitle[heroLocal] ? <p className="mt-2 text-[0.8125rem] text-white/85">{hero.subtitle[heroLocal]}</p> : null}
-                        {hero.ctaLabel[heroLocal] ? (
-                          <span className="mt-4 inline-flex h-9 items-center rounded-[2px] bg-white px-4 text-[0.8125rem] font-medium text-[#161513]">
-                            {hero.ctaLabel[heroLocal]}
-                          </span>
-                        ) : null}
+                      {hero.tone === "light" ? <div className="absolute inset-0 bg-black/30" /> : null}
+                      {/* The headline sits on the photo's free side (a physical side, the same in both languages). */}
+                      <div className="absolute inset-y-0 flex w-[64%] items-end p-5" style={hero.align === "right" ? { right: 0 } : { left: 0 }}>
+                        <div lang={heroLocal} dir={heroLocal === "ar" ? "rtl" : "ltr"} className={hero.tone === "dark" ? "text-[#161513]" : "text-white"}>
+                          <p className="font-display text-[1.75rem] leading-[1.05] [&:lang(ar)]:font-sans [&:lang(ar)]:text-[1.375rem] [&:lang(ar)]:font-semibold">
+                            {hero.title[heroLocal] || "—"}
+                          </p>
+                          {hero.subtitle[heroLocal] ? <p className="mt-2 text-[0.8125rem] opacity-85">{hero.subtitle[heroLocal]}</p> : null}
+                          {hero.ctaLabel[heroLocal] ? (
+                            <span
+                              className={cn(
+                                "mt-4 inline-flex h-9 items-center rounded-[2px] px-4 text-[0.8125rem] font-medium",
+                                hero.tone === "dark" ? "bg-[#161513] text-white" : "bg-white text-[#161513]",
+                              )}
+                            >
+                              {hero.ctaLabel[heroLocal]}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -522,6 +555,56 @@ function FieldRow({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** A small set of options as native radios (arrow keys move between them), styled as cards. */
+function ChoiceGroup({
+  legend,
+  hint,
+  name,
+  value,
+  options,
+  onChange,
+  className,
+  physical = false,
+}: {
+  legend: string;
+  hint?: string;
+  name: string;
+  /** Options name physical sides: keep Left on the left and Right on the right in Arabic too. */
+  physical?: boolean;
+  value: string;
+  options: { value: string; label: string; desc?: string }[];
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <fieldset className={cn("m-0 min-w-0 border-0 p-0", className)} aria-describedby={hint ? `${id}-hint` : undefined}>
+      <legend className="mb-1.5 text-[0.8125rem] text-text-secondary">{legend}</legend>
+      <div className={cn("flex flex-wrap gap-2", physical && "rtl:flex-row-reverse rtl:justify-end")}>
+        {options.map((o) => (
+          <label
+            key={o.value}
+            className={cn(
+              "flex min-h-11 min-w-32 cursor-pointer flex-col justify-center rounded-[3px] border px-3.5 py-2 transition-colors",
+              "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-text-primary has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-70",
+              value === o.value ? "border-text-primary bg-background shadow-[inset_0_0_0_1px_var(--text-primary)]" : "border-border hover:border-border-hover",
+            )}
+          >
+            <input type="radio" name={name} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} className="sr-only" />
+            <span className="text-[0.8125rem] text-text-primary">{o.label}</span>
+            {o.desc ? <span className="text-[0.75rem] text-text-muted">{o.desc}</span> : null}
+          </label>
+        ))}
+      </div>
+      {hint ? (
+        <p id={`${id}-hint`} className="mt-1.5 text-[0.75rem] text-text-muted">
+          {hint}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 
