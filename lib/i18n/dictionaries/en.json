@@ -231,20 +231,20 @@
     }
   },
   "contact": {
-    "title": "Contact Us",
+    "title": "Contact us",
     "subtitle": "We'd love to hear from you. Send us a message and we'll respond as soon as possible.",
     "form": {
-      "name": "Your Name",
-      "email": "Email Address",
+      "name": "Your name",
+      "email": "Email address",
       "subject": "Subject",
-      "message": "Your Message",
-      "submit": "Send Message",
-      "sending": "Sending...",
+      "message": "Your message",
+      "submit": "Send message",
+      "sending": "Sending…",
       "success": "Your message has been sent successfully! We'll get back to you within 24-48 hours.",
       "error": "Something went wrong. Please try again or email us directly.",
       "namePlaceholder": "Enter your name",
-      "subjectPlaceholder": "Select a subject...",
-      "messagePlaceholder": "Write your message here..."
+      "subjectPlaceholder": "Choose a subject",
+      "messagePlaceholder": "Write your message here…"
     },
     "info": {
       "title": "Get in Touch",
@@ -256,10 +256,10 @@
       "addressValue": "Cairo, Egypt"
     },
     "subjects": {
-      "general": "General Inquiry",
-      "order": "Order Issue",
-      "return": "Return / Refund",
-      "product": "Product Question",
+      "general": "General question",
+      "order": "An order",
+      "return": "Return or refund",
+      "product": "A product",
       "other": "Other"
     },
     "responseNote": "We aim to respond to all inquiries within 24-48 business hours. For urgent matters, please call us directly.",
@@ -272,15 +272,15 @@
   "legal": {
     "lastUpdated": "Last updated",
     "privacyPolicy": {
-      "title": "Privacy Policy",
+      "title": "Privacy policy",
       "description": "Learn how ShiftSouq collects, uses, and protects your personal information."
     },
     "terms": {
-      "title": "Terms & Conditions",
+      "title": "Terms & conditions",
       "description": "Read the terms and conditions governing your use of ShiftSouq."
     },
     "refundPolicy": {
-      "title": "Return & Refund Policy",
+      "title": "Returns & refunds",
       "description": "Learn about our return and refund policies at ShiftSouq."
     }
   },
@@ -523,7 +523,7 @@
       "description": "Create a ShiftSouq account to check out faster, follow your orders and keep a wishlist."
     },
     "contact": {
-      "title": "Contact Us",
+      "title": "Contact us",
       "description": "Get in touch with ShiftSouq. We're here to help with orders, returns, product questions, and more."
     },
     "profile": {
