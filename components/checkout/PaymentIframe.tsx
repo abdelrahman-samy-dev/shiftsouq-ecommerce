@@ -8,8 +8,9 @@
 
    Features:
    • Premium shimmer skeleton while the iFrame loads
-   • Responsive container that matches the design system
-   • beforeunload guard to prevent accidental navigation
+   • Responsive container: full screen on phones, a tall dialog on
+     larger screens; Paymob's whole form (including the 3-D Secure
+     step) scrolls inside the iframe — nothing is cropped
    • Smooth Framer Motion entrance/exit animations
    • Fallback timeout (12s) to escape stuck loading states
    • Listens for postMessage events from Paymob to detect
@@ -54,27 +55,10 @@ export function PaymentIframe({
   const [isTimeout, setIsTimeout] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  const iframeUrl = `${PAYMOB_IFRAME_BASE}/${iframeId}?payment_token=${paymentToken}`;
+  const iframeUrl = `${PAYMOB_IFRAME_BASE}/${encodeURIComponent(iframeId)}?payment_token=${encodeURIComponent(paymentToken)}`;
 
-  // Debug: log the iFrame URL on mount and on retry
-  useEffect(() => {
-    console.log("[PaymentIframe] Rendering with:", {
-      iframeId,
-      paymentToken: paymentToken ? `${paymentToken.slice(0, 20)}...` : "MISSING",
-      iframeUrl,
-      retryCount,
-    });
-  }, [iframeId, paymentToken, iframeUrl, retryCount]);
-
-  /* ── Navigation Guard ──────────────────────────────────────── */
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, []);
+  /* No beforeunload guard: after a payment Paymob's callback page navigates
+     this window to the receipt, and a "Leave site?" prompt would block it. */
 
   /* ── Fallback Timeout ──────────────────────────────────────── */
   useEffect(() => {
@@ -82,7 +66,6 @@ export function PaymentIframe({
 
     const timer = setTimeout(() => {
       if (isLoading) {
-        console.warn("[PaymentIframe] Load timeout reached — forcing visible.");
         // Don't show error — force the iframe visible in case it loaded
         // but onLoad didn't fire (cross-origin restriction)
         setIsLoading(false);
@@ -105,8 +88,6 @@ export function PaymentIframe({
         return;
       }
 
-      console.log("[PaymentIframe] postMessage received:", event.data);
-
       // Paymob sends transaction status via postMessage
       if (event.data && typeof event.data === "object") {
         const { success, txn_response_code } = event.data;
@@ -124,20 +105,17 @@ export function PaymentIframe({
 
   /* ── iFrame Load Handler ───────────────────────────────────── */
   const handleIframeLoad = useCallback(() => {
-    console.log("[PaymentIframe] onLoad fired");
     setIsLoading(false);
     setIsTimeout(false);
     setHasError(false);
   }, []);
 
   const handleIframeError = useCallback(() => {
-    console.error("[PaymentIframe] onError fired");
     setIsLoading(false);
     setHasError(true);
   }, []);
 
   const handleRetry = useCallback(() => {
-    console.log("[PaymentIframe] Retrying...");
     setIsLoading(true);
     setHasError(false);
     setIsTimeout(false);
@@ -150,17 +128,18 @@ export function PaymentIframe({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-stretch sm:items-center justify-center p-0 sm:p-6 bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="payment-iframe-title"
     >
-      {/* Click-away backdrop */}
-      <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
-
+      {/* No click-away close: a stray tap must not abort a payment (e.g. during 3-D Secure). */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-        className="relative w-full max-w-[500px] flex flex-col bg-white dark:bg-[var(--background)] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh]"
+        className="relative w-full sm:max-w-[560px] h-full sm:h-[min(760px,92vh)] flex flex-col bg-white dark:bg-[var(--background)] sm:rounded-2xl shadow-2xl overflow-hidden"
         style={{ border: "1px solid var(--border)" }}
       >
         {/* ── Header ──────────────────────────────────────────── */}
@@ -176,7 +155,7 @@ export function PaymentIframe({
               <CreditCard size={20} strokeWidth={1.8} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-[var(--text-primary)]">
+              <h3 id="payment-iframe-title" className="text-sm font-bold text-[var(--text-primary)]">
                 {isAr ? "الدفع بالبطاقة" : "Card Payment"}
               </h3>
               <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
@@ -203,10 +182,7 @@ export function PaymentIframe({
         </div>
 
         {/* ── iFrame Container ────────────────────────────────── */}
-        <div
-          className="relative w-full bg-white overflow-y-auto overflow-x-hidden"
-          style={{ height: "520px" }}
-        >
+        <div className="relative w-full flex-1 min-h-0 bg-white">
           {/* Shimmer Loading Overlay */}
           <AnimatePresence>
             {isLoading && !hasError && (
@@ -306,16 +282,8 @@ export function PaymentIframe({
             title={isAr ? "نموذج الدفع الآمن" : "Secure Payment Form"}
             onLoad={handleIframeLoad}
             onError={handleIframeError}
-            scrolling="no"
-            style={{
-              position: "absolute",
-              top: "-150px",
-              left: "-18%",
-              width: "136%",
-              height: "810px",
-            }}
             className={cn(
-              "border-0 block transition-opacity duration-300",
+              "absolute inset-0 w-full h-full border-0 block transition-opacity duration-300",
               isLoading || hasError ? "opacity-0" : "opacity-100"
             )}
             allow="payment"

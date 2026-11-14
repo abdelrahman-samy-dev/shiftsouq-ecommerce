@@ -1,13 +1,18 @@
 /* ══════════════════════════════════════════════════════════════
    useCheckoutStore — Checkout Flow State (Zustand)
    ──────────────────────────────────────────────────────────────
-   Manages the multi-step checkout state including contact info,
-   shipping address, payment method, and shipping costs.
-   
-   Not persisted — checkout state should be fresh each visit.
+   Manages the multi-step checkout state: contact info, shipping
+   address, payment method, applied promo code and the unpaid
+   online order of this visit.
+
+   Kept in sessionStorage (this tab only, cleared when it closes)
+   so a buyer who comes back from a failed card / wallet payment
+   finds their details, promo code and order still there. Prices
+   and totals are never stored here — the server computes them.
    ══════════════════════════════════════════════════════════════ */
 
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -64,6 +69,15 @@ export interface ShippingAddress {
   saveAddress: boolean;
 }
 
+/** Unpaid card / wallet order created in this visit — retrying payment reuses it. */
+export interface PendingOrder {
+  /** Fingerprint of what was ordered (details, method, promo, cart lines). */
+  key: string;
+  orderId: string;
+  orderNumber: string;
+  method: "card" | "wallet";
+}
+
 interface CheckoutState {
   /** Current step (1 = Contact, 2 = Shipping, 3 = Payment) */
   step: CheckoutStep;
@@ -73,8 +87,10 @@ interface CheckoutState {
   shipping: ShippingAddress;
   /** Selected payment method */
   paymentMethod: PaymentMethod;
-  /** Calculated shipping cost */
-  shippingCost: number;
+  /** Promo code accepted by the server for this cart, or null */
+  promoCode: string | null;
+  /** Unpaid online order of this visit, if any */
+  pendingOrder: PendingOrder | null;
   /** Whether the order is being processed */
   isProcessing: boolean;
 
@@ -83,19 +99,20 @@ interface CheckoutState {
   setContact: (contact: ContactInfo) => void;
   setShipping: (shipping: ShippingAddress) => void;
   setPaymentMethod: (method: PaymentMethod) => void;
-  setShippingCost: (cost: number) => void;
+  setPromoCode: (code: string | null) => void;
+  setPendingOrder: (order: PendingOrder | null) => void;
   setIsProcessing: (v: boolean) => void;
   resetCheckout: () => void;
 }
 
-const INITIAL_CONTACT: ContactInfo = {
+export const INITIAL_CONTACT: ContactInfo = {
   firstName: "",
   lastName: "",
   email: "",
   phone: "",
 };
 
-const INITIAL_SHIPPING: ShippingAddress = {
+export const INITIAL_SHIPPING: ShippingAddress = {
   governorate: "",
   city: "",
   address: "",
@@ -106,27 +123,47 @@ const INITIAL_SHIPPING: ShippingAddress = {
 
 /* ── Store ───────────────────────────────────────────────────── */
 
-export const useCheckoutStore = create<CheckoutState>()((set) => ({
-  step: 1,
-  contact: INITIAL_CONTACT,
-  shipping: INITIAL_SHIPPING,
-  paymentMethod: "cod",
-  shippingCost: 0,
-  isProcessing: false,
-
-  setStep: (step) => set({ step }),
-  setContact: (contact) => set({ contact }),
-  setShipping: (shipping) => set({ shipping }),
-  setPaymentMethod: (method) => set({ paymentMethod: method }),
-  setShippingCost: (cost) => set({ shippingCost: cost }),
-  setIsProcessing: (v) => set({ isProcessing: v }),
-  resetCheckout: () =>
-    set({
+export const useCheckoutStore = create<CheckoutState>()(
+  persist(
+    (set) => ({
       step: 1,
       contact: INITIAL_CONTACT,
       shipping: INITIAL_SHIPPING,
       paymentMethod: "cod",
-      shippingCost: 0,
+      promoCode: null,
+      pendingOrder: null,
       isProcessing: false,
+
+      setStep: (step) => set({ step }),
+      setContact: (contact) => set({ contact }),
+      setShipping: (shipping) => set({ shipping }),
+      setPaymentMethod: (method) => set({ paymentMethod: method }),
+      setPromoCode: (promoCode) => set({ promoCode }),
+      setPendingOrder: (pendingOrder) => set({ pendingOrder }),
+      setIsProcessing: (v) => set({ isProcessing: v }),
+      resetCheckout: () =>
+        set({
+          step: 1,
+          contact: INITIAL_CONTACT,
+          shipping: INITIAL_SHIPPING,
+          paymentMethod: "cod",
+          promoCode: null,
+          pendingOrder: null,
+          isProcessing: false,
+        }),
     }),
-}));
+    {
+      name: "shiftsouq-checkout",
+      version: 1,
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (s) => ({
+        step: s.step,
+        contact: s.contact,
+        shipping: s.shipping,
+        paymentMethod: s.paymentMethod,
+        promoCode: s.promoCode,
+        pendingOrder: s.pendingOrder,
+      }),
+    },
+  ),
+);

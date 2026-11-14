@@ -1,7 +1,7 @@
 "use server";
 
 /* ══════════════════════════════════════════════════════════════
-   Checkout — create an order
+   Checkout — create an order, quote totals, preview a promo code
    ──────────────────────────────────────────────────────────────
    The browser sends only WHAT it wants (variant ids + quantities,
    contact details, payment method, optional promo code). Prices,
@@ -9,13 +9,25 @@
    shipping from lib/checkout/shipping, everything else inside the
    place_order() database function, which also reserves stock in
    the same transaction.
+
+   quoteCheckout() shows the buyer the same numbers before they
+   order: server prices, promo discount, shipping and total.
    ══════════════════════════════════════════════════════════════ */
 
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { shippingFee, isKnownGovernorate } from "@/lib/checkout/shipping";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServiceClient, ServiceConfigError } from "@/lib/supabase/service";
+import { getPaymentAvailability, saveCheckoutAddress } from "@/lib/dal/orders";
+import { setReceiptCookie } from "@/lib/dal/receipt";
+import {
+  COD_MAX_AMOUNT,
+  checkoutTotals,
+  normalizeEgyptianMobile,
+  round2,
+  type CheckoutTotals,
+  type PromoFailure,
+} from "@/components/checkout/checkout-rules";
 
 /* ── Input ───────────────────────────────────────────────────── */
 
@@ -39,6 +51,8 @@ const orderSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   paymentMethod: z.enum(["cod", "card", "wallet"]),
   promoCode: z.string().trim().max(40).optional(),
+  /** Signed-in buyers only: keep this address on their profile for next time. */
+  saveAddress: z.boolean().optional(),
   items: z.array(itemSchema).min(1).max(50),
 });
 
@@ -54,15 +68,29 @@ export interface CreateOrderResult {
   accessToken?: string;
   error?: string;
   /** Machine-readable reason, e.g. "out_of_stock" */
-  code?: "invalid_input" | "out_of_stock" | "product_unavailable" | "choose_variant" | "invalid_promo" | "server";
+  code?:
+    | "invalid_input"
+    | "invalid_phone"
+    | "out_of_stock"
+    | "product_unavailable"
+    | "choose_variant"
+    | "invalid_promo"
+    | "payment_unavailable"
+    | "cod_limit"
+    | "server";
   /** Variant / product that caused the failure, when known. */
   itemId?: string;
 }
 
-/** httpOnly cookie "<orderId>.<accessToken>" for the latest order placed in this browser. */
-const RECEIPT_COOKIE = "ss_order";
-
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+type Line = { product_id: string; variant_id: string | null; quantity: number };
+
+const toLine = (it: z.infer<typeof itemSchema>): Line => ({
+  product_id: it.productId,
+  variant_id: it.variantId && isUuid(it.variantId) ? it.variantId : null,
+  quantity: it.quantity,
+});
 
 /* ── Action ──────────────────────────────────────────────────── */
 
@@ -74,6 +102,18 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   const data = parsed.data;
   if (!isKnownGovernorate(data.governorate)) {
     return { success: false, code: "invalid_input", error: "Unknown governorate." };
+  }
+  const phone = normalizeEgyptianMobile(data.phone);
+  if (!phone) {
+    return { success: false, code: "invalid_phone", error: "Please enter an Egyptian mobile number (01XXXXXXXXX)." };
+  }
+  // Refuse before anything is reserved: no order (and no held stock) for a payment that can't be taken.
+  if (data.paymentMethod !== "cod" && !getPaymentAvailability()[data.paymentMethod]) {
+    return {
+      success: false,
+      code: "payment_unavailable",
+      error: "This payment method is temporarily unavailable. Please choose cash on delivery.",
+    };
   }
 
   try {
@@ -90,25 +130,31 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     }
 
     /* Merge duplicate lines so quantities are checked against stock once. */
-    const lines = new Map<string, { product_id: string; variant_id: string | null; quantity: number }>();
+    const lines = new Map<string, Line>();
     for (const it of data.items) {
-      const variant = it.variantId && isUuid(it.variantId) ? it.variantId : null;
-      const key = `${it.productId}:${variant ?? ""}`;
+      const line = toLine(it);
+      const key = `${line.product_id}:${line.variant_id ?? ""}`;
       const prev = lines.get(key);
-      lines.set(key, {
-        product_id: it.productId,
-        variant_id: variant,
-        quantity: Math.min(99, (prev?.quantity ?? 0) + it.quantity),
-      });
+      lines.set(key, { ...line, quantity: Math.min(99, (prev?.quantity ?? 0) + line.quantity) });
     }
 
     /* Shipping needs the discounted subtotal: price once without shipping, then with. */
-    const pricing = await previewSubtotal([...lines.values()], data.promoCode);
-    const fee = shippingFee(data.governorate, pricing);
+    const priced = await priceLines([...lines.values()]);
+    const promo = data.promoCode ? await promoDiscount(data.promoCode, priced.subtotal) : null;
+    const afterDiscount = round2(priced.subtotal - (promo?.ok ? promo.discount : 0));
+    const fee = shippingFee(data.governorate, afterDiscount);
+
+    if (data.paymentMethod === "cod" && afterDiscount + fee > COD_MAX_AMOUNT) {
+      return {
+        success: false,
+        code: "cod_limit",
+        error: `Cash on delivery is available for orders up to EGP ${COD_MAX_AMOUNT}. Please pay online.`,
+      };
+    }
 
     const contact = {
       name: `${data.firstName} ${data.lastName}`.trim(),
-      phone: data.phone,
+      phone,
       email: data.email,
       governorate: data.governorate,
       city: data.city,
@@ -130,13 +176,14 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     if (!row) return { success: false, code: "server", error: "Failed to create order." };
 
     // Lets this browser see the receipt (and resume payment) even after leaving for Paymob.
-    (await cookies()).set(RECEIPT_COOKIE, `${row.order_id}.${row.access_token}`, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
-      path: "/",
-    });
+    await setReceiptCookie(row.order_id, row.access_token);
+
+    if (user && profileId && data.saveAddress) {
+      await saveCheckoutAddress(
+        { governorate: data.governorate, city: data.city, address: data.address, apartment: data.apartment, postalCode: data.postalCode },
+        phone,
+      );
+    }
 
     return {
       success: true,
@@ -152,37 +199,50 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   }
 }
 
+/* ── Pricing (display + shipping decision) ───────────────────── */
+
 /**
- * Subtotal after discount, used only to decide the shipping fee. The authoritative
- * amounts are recomputed (with row locks) by place_order().
+ * Unit prices from the database, priced exactly like place_order(). The
+ * authoritative amounts are recomputed (with row locks) by place_order().
  */
-async function previewSubtotal(
-  lines: { product_id: string; variant_id: string | null; quantity: number }[],
-  promoCode?: string,
-): Promise<number> {
+async function priceLines(lines: Line[]): Promise<{ subtotal: number; unitPrices: (number | null)[] }> {
   const db = getServiceClient();
   const productIds = [...new Set(lines.map((l) => l.product_id))];
   const { data: products } = await db
     .from("products")
-    .select("id, base_price, sale_price, product_variants(id, price_override)")
+    .select("id, base_price, sale_price, is_active, product_variants(id, price_override)")
     .in("id", productIds);
   let subtotal = 0;
-  for (const l of lines) {
+  const unitPrices = lines.map((l) => {
     const p = products?.find((x) => x.id === l.product_id);
-    if (!p) continue;
+    if (!p || !p.is_active) return null;
     const variants = (p.product_variants ?? []) as { id: string; price_override: number | null }[];
     const v = l.variant_id ? variants.find((x) => x.id === l.variant_id) : variants.length === 1 ? variants[0] : undefined;
+    if (!v) return null;
     const base = Number(p.base_price);
     const sale = p.sale_price != null ? Number(p.sale_price) : null;
-    const price = v?.price_override != null ? Number(v.price_override) : sale != null && sale > 0 && sale < base ? sale : base;
+    const price = v.price_override != null ? Number(v.price_override) : sale != null && sale > 0 && sale < base ? sale : base;
     subtotal += price * l.quantity;
-  }
-  if (promoCode) {
-    const { data } = await db.rpc("preview_promo", { p_code: promoCode, p_subtotal: subtotal });
-    const r = Array.isArray(data) ? data[0] : data;
-    if (r?.ok) subtotal -= Number(r.discount);
-  }
-  return subtotal;
+    return price;
+  });
+  return { subtotal: round2(subtotal), unitPrices };
+}
+
+/** Promo codes are checked for signed-in buyers only (checkout requires an account), so they can't be probed anonymously. */
+async function isSignedIn(): Promise<boolean> {
+  const {
+    data: { user },
+  } = await (await createServerClient()).auth.getUser();
+  return !!user;
+}
+
+async function promoDiscount(code: string, subtotal: number): Promise<PromoPreview> {
+  const { data } = await getServiceClient().rpc("preview_promo", { p_code: code, p_subtotal: subtotal });
+  const r = Array.isArray(data) ? data[0] : data;
+  if (!r) return { ok: false, discount: 0, reason: "invalid" };
+  return r.ok
+    ? { ok: true, discount: Number(r.discount) }
+    : { ok: false, discount: 0, reason: r.reason, minOrder: r.reason === "min_order" ? Number(r.discount) : undefined };
 }
 
 function mapOrderError(message: string): CreateOrderResult {
@@ -212,7 +272,7 @@ function mapOrderError(message: string): CreateOrderResult {
 export interface PromoPreview {
   ok: boolean;
   discount: number;
-  reason?: "invalid" | "expired" | "used_up" | "min_order";
+  reason?: PromoFailure;
   minOrder?: number;
 }
 
@@ -221,19 +281,62 @@ export async function previewPromoCode(code: string, items: CreateOrderInput["it
   const its = z.array(itemSchema).min(1).max(50).safeParse(items);
   if (!c.success || !its.success) return { ok: false, discount: 0, reason: "invalid" };
   try {
-    const lines = its.data.map((it) => ({
-      product_id: it.productId,
-      variant_id: it.variantId && isUuid(it.variantId) ? it.variantId : null,
-      quantity: it.quantity,
-    }));
-    const subtotal = await previewSubtotal(lines);
-    const { data } = await getServiceClient().rpc("preview_promo", { p_code: c.data, p_subtotal: subtotal });
-    const r = Array.isArray(data) ? data[0] : data;
-    if (!r) return { ok: false, discount: 0, reason: "invalid" };
-    return r.ok
-      ? { ok: true, discount: Number(r.discount) }
-      : { ok: false, discount: 0, reason: r.reason, minOrder: r.reason === "min_order" ? Number(r.discount) : undefined };
+    if (!(await isSignedIn())) return { ok: false, discount: 0, reason: "invalid" };
+    const { subtotal } = await priceLines(its.data.map(toLine));
+    return await promoDiscount(c.data, subtotal);
   } catch {
     return { ok: false, discount: 0, reason: "invalid" };
+  }
+}
+
+/* ── Quote: what the server will charge ──────────────────────── */
+
+export interface CheckoutQuote extends CheckoutTotals {
+  ok: boolean;
+  /** Server unit price per cart line, keyed "<productId>:<variantId>" exactly as sent; null = can't be bought. */
+  unitPrices: Record<string, number | null>;
+  /** Result for the promo code sent, if any. */
+  promo: (PromoPreview & { code: string }) | null;
+}
+
+const quoteSchema = z.object({
+  items: z.array(itemSchema).min(1).max(50),
+  governorate: z.string().trim().max(40).optional(),
+  promoCode: z.string().trim().max(40).optional(),
+});
+
+export async function quoteCheckout(input: z.input<typeof quoteSchema>): Promise<CheckoutQuote> {
+  const empty: CheckoutQuote = {
+    ok: false,
+    ...checkoutTotals(0, 0, null),
+    unitPrices: {},
+    promo: null,
+  };
+  const parsed = quoteSchema.safeParse(input);
+  if (!parsed.success) return empty;
+  try {
+    const { items, governorate, promoCode } = parsed.data;
+    const priced = await priceLines(items.map(toLine));
+    const promo = promoCode
+      ? {
+          code: promoCode,
+          ...((await isSignedIn())
+            ? await promoDiscount(promoCode, priced.subtotal)
+            : { ok: false, discount: 0, reason: "invalid" as const }),
+        }
+      : null;
+    const unitPrices: Record<string, number | null> = {};
+    items.forEach((it, i) => {
+      unitPrices[`${it.productId}:${it.variantId ?? ""}`] = priced.unitPrices[i];
+    });
+    return {
+      ok: true,
+      ...checkoutTotals(priced.subtotal, promo?.ok ? promo.discount : 0, governorate),
+      unitPrices,
+      promo,
+    };
+  } catch (err) {
+    console.error("[quoteCheckout]", err);
+    return empty;
   }
 }

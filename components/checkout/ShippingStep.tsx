@@ -3,39 +3,24 @@
 /* ══════════════════════════════════════════════════════════════
    ShippingStep — Step 2: Shipping Address Form
    ──────────────────────────────────────────────────────────────
-   Collects the customer's delivery address with governorate-based
-   shipping cost calculation. Includes a "Save address" toggle.
+   Collects the customer's delivery address. The shipping fee shown
+   comes from the same table and rule the server charges with
+   (lib/checkout/shipping: by governorate, free from EGP 500 after
+   discount). "Save this address" stores it on the buyer's profile
+   when the order is placed, and prefills the next checkout.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useRef, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, MapPin, Home, Building2, Truck, ChevronDown, Search } from "lucide-react";
-import {
-  GOVERNORATES,
-  GOVERNORATE_SHIPPING,
-  type ShippingAddress,
-} from "@/lib/store/useCheckoutStore";
+import { ArrowLeft, ArrowRight, MapPin, Home, Building2, Truck, ChevronDown, Search, Check } from "lucide-react";
+import { GOVERNORATES, type ShippingAddress } from "@/lib/store/useCheckoutStore";
+import { shippingFee } from "@/lib/checkout/shipping";
 import { cn } from "@/lib/utils";
-import { formatPrice } from "@/lib/utils";
-import type { Locale } from "@/lib/types";
-import { useCartStore, selectCartSubtotal } from "@/lib/store/useCartStore";
-import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
+import { formatMoney, shippingSchema } from "./checkout-rules";
 
-/* ── Schema ──────────────────────────────────────────────────── */
-
-const shippingSchema = z.object({
-  governorate: z.string().min(1, "Please select a governorate"),
-  city: z.string().min(2, "City must be at least 2 characters"),
-  address: z.string().min(5, "Please enter a detailed address"),
-  apartment: z.string(),
-  postalCode: z.string(),
-  saveAddress: z.boolean(),
-});
-
-type ShippingFormValues = z.infer<typeof shippingSchema>;
+type ShippingFormValues = ShippingAddress;
 
 /* ── Animation ───────────────────────────────────────────────── */
 
@@ -55,6 +40,10 @@ interface ShippingStepProps {
   onSubmit: (data: ShippingAddress) => void;
   onBack: () => void;
   locale: string;
+  /** Order subtotal after the promo discount — decides free shipping, as on the server. */
+  subtotalAfterDiscount: number;
+  /** Lets the order summary follow the governorate while the buyer is still typing. */
+  onGovernorateChange?: (governorate: string) => void;
 }
 
 export function ShippingStep({
@@ -62,21 +51,25 @@ export function ShippingStep({
   onSubmit,
   onBack,
   locale,
+  subtotalAfterDiscount,
+  onGovernorateChange,
 }: ShippingStepProps) {
   const isAr = locale === "ar";
+  const schema = useMemo(() => shippingSchema(isAr ? "ar" : "en"), [isAr]);
 
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors },
   } = useForm<ShippingFormValues>({
-    resolver: zodResolver(shippingSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       ...defaultValues,
       apartment: defaultValues.apartment || "",
       postalCode: defaultValues.postalCode || "",
+      saveAddress: !!defaultValues.saveAddress,
     },
   });
 
@@ -94,20 +87,17 @@ export function ShippingStep({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const subtotal = useCartStore(selectCartSubtotal);
-  const selectedGov = watch("governorate");
-  const baseShippingCost = selectedGov
-    ? GOVERNORATE_SHIPPING[selectedGov] ?? 100
-    : 0;
-  const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : baseShippingCost;
+  const selectedGov = useWatch({ control, name: "governorate" });
+  const saveAddress = useWatch({ control, name: "saveAddress" });
+  const shippingCost = selectedGov ? shippingFee(selectedGov, subtotalAfterDiscount) : 0;
 
   const handleFormSubmit = (data: ShippingFormValues) => {
     onSubmit({
       governorate: data.governorate,
-      city: data.city,
-      address: data.address,
-      apartment: data.apartment,
-      postalCode: data.postalCode,
+      city: data.city.trim(),
+      address: data.address.trim(),
+      apartment: data.apartment.trim(),
+      postalCode: data.postalCode.trim(),
       saveAddress: data.saveAddress,
     });
   };
@@ -140,23 +130,26 @@ export function ShippingStep({
           >
             {isAr ? "المحافظة" : "Governorate"}
           </label>
-          <div
+          <button
+            type="button"
+            id="checkout-governorate"
+            aria-expanded={isGovOpen}
             onClick={() => setIsGovOpen(!isGovOpen)}
             className={cn(
-              "flex items-center gap-3 px-3.5 py-1 input-field cursor-pointer focus-within:ring-2 focus-within:ring-[var(--primary)]/20 focus-within:border-[var(--primary)] transition-all",
+              "w-full text-start flex items-center gap-3 px-3.5 py-1 input-field cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/20 focus-visible:border-[var(--primary)] transition-all",
               errors.governorate && "border-[var(--destructive)]"
             )}
           >
             <MapPin size={18} className="text-[var(--text-faint)] flex-shrink-0" />
-            <div className="flex-1 py-2 text-sm text-[var(--text-primary)] select-none">
+            <span className="flex-1 py-2 text-sm text-[var(--text-primary)] select-none">
               {selectedGov ? (
                 isAr ? GOVERNORATES.find(g => g.value === selectedGov)?.ar : GOVERNORATES.find(g => g.value === selectedGov)?.en
               ) : (
                 <span className="text-[var(--text-muted)]">{isAr ? "اختر المحافظة" : "Select governorate"}</span>
               )}
-            </div>
+            </span>
             <ChevronDown size={16} className={cn("text-[var(--text-faint)] transition-transform", isGovOpen && "rotate-180")} />
-          </div>
+          </button>
 
           <AnimatePresence>
             {isGovOpen && (
@@ -167,9 +160,11 @@ export function ShippingStep({
                 className="absolute top-[72px] left-0 right-0 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg z-50 overflow-hidden flex flex-col max-h-[240px]"
               >
                 <div className="p-2 border-b border-[var(--border-subtle)] flex items-center gap-2">
-                  <Search size={16} className="text-[var(--text-faint)] ml-2" />
+                  <Search size={16} className="text-[var(--text-faint)] ms-2" />
                   <input
                     type="text"
+                    aria-label={isAr ? "ابحث عن محافظة" : "Search governorate"}
+                    autoFocus
                     className="flex-1 bg-transparent border-none focus:outline-none text-sm text-[var(--text-primary)] py-1.5"
                     placeholder={isAr ? "ابحث عن محافظة..." : "Search governorate..."}
                     value={govSearch}
@@ -182,8 +177,10 @@ export function ShippingStep({
                     <button
                       key={g.value}
                       type="button"
+                      aria-pressed={selectedGov === g.value}
                       onClick={() => {
                         setValue("governorate", g.value, { shouldValidate: true });
+                        onGovernorateChange?.(g.value);
                         setIsGovOpen(false);
                         setGovSearch("");
                       }}
@@ -351,18 +348,18 @@ export function ShippingStep({
             {shippingCost === 0 ? (
               <span className="text-success">{isAr ? "مجانًا" : "Free"}</span>
             ) : (
-              formatPrice(shippingCost, locale as Locale)
+              formatMoney(shippingCost, isAr ? "ar" : "en")
             )}
           </span>
         </motion.div>
       )}
 
-      {/* Save Address Toggle */}
+      {/* Save Address Toggle — stored on the buyer's profile when the order is placed */}
       <motion.label
         custom={6}
         variants={fieldVariant}
         htmlFor="checkout-saveAddress"
-        className="flex items-center gap-3 cursor-pointer group"
+        className="flex items-start gap-3 cursor-pointer group"
       >
         <input
           id="checkout-saveAddress"
@@ -370,22 +367,26 @@ export function ShippingStep({
           className="sr-only peer"
           {...register("saveAddress")}
         />
-        <div
-          className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200 peer-checked:bg-[var(--primary)] peer-checked:border-[var(--primary)] peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/20"
-          style={{ borderColor: "var(--border-hover)" }}
+        <span
+          className={cn(
+            "mt-0.5 w-5 h-5 rounded-md border-2 flex flex-shrink-0 items-center justify-center transition-all duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/20",
+            saveAddress ? "bg-[var(--primary)] border-[var(--primary)]" : "border-[var(--border-hover)]"
+          )}
+          aria-hidden="true"
         >
-          <svg
-            className="w-3 h-3 text-[var(--primary-foreground)] opacity-0 peer-checked:opacity-100 transition-opacity"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={3}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
+          <Check
+            size={12}
+            strokeWidth={3.5}
+            className={cn("text-[var(--primary-foreground)] transition-opacity", saveAddress ? "opacity-100" : "opacity-0")}
+          />
+        </span>
         <span className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">
-          {isAr ? "حفظ العنوان للمرات القادمة" : "Save this address for future orders"}
+          {isAr ? "احفظ هذا العنوان في حسابي للطلبات القادمة" : "Save this address to my account for future orders"}
+          <span className="block text-xs text-[var(--text-faint)] mt-0.5">
+            {isAr
+              ? "سيُحفظ عند تأكيد الطلب، وسنملؤه لك تلقائيًا في المرة القادمة."
+              : "Saved when you place the order, and filled in for you next time."}
+          </span>
         </span>
       </motion.label>
 

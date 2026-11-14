@@ -2,7 +2,9 @@
    Checkout Page — /checkout
    ──────────────────────────────────────────────────────────────
    Server component wrapper for the multi-step checkout flow.
-   Passes locale down to the client CheckoutPageContent component.
+   Passes down the locale, the signed-in buyer's saved details
+   (to prefill the form) and which online payment methods the
+   server can take right now (unavailable ones are disabled).
 
    Uses generateMetadata for locale-aware SEO (N4).
    ══════════════════════════════════════════════════════════════ */
@@ -11,6 +13,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import type { Locale } from "@/lib/types";
 import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getCheckoutPrefill, getPaymentAvailability } from "@/lib/dal/orders";
 import { CheckoutPageContent } from "@/components/checkout/CheckoutPageContent";
 import { APP_NAME } from "@/lib/constants";
 
@@ -35,6 +38,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function CheckoutPage() {
   const cookieStore = await cookies();
   const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const prefill = await getCheckoutPrefill();
 
-  return <CheckoutPageContent locale={locale} />;
+  return <CheckoutPageContent locale={locale} prefill={prefill} availability={getPaymentAvailability()} />;
 }
