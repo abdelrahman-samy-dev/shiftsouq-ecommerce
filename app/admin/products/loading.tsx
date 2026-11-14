@@ -1,78 +1,38 @@
+import { Skeleton } from "@/components/ds";
+
+/* Matches the products list: header, toolbar, rows. */
 export default function AdminProductsLoading() {
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* ── Page Header Skeleton ────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div className="space-y-2 animate-pulse">
-          <div className="h-8 bg-zinc-200 dark:bg-zinc-800 rounded-lg w-32"></div>
-          <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded-lg w-64"></div>
+    <div className="pb-16" aria-hidden="true">
+      <div className="flex flex-col gap-5 border-b border-border pb-6 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-9 w-48" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+          <Skeleton className="h-3.5 w-24" />
         </div>
-        
-        <div className="flex items-center gap-3 animate-pulse">
-          <div className="h-10 w-10 bg-zinc-200 dark:bg-zinc-800 rounded-lg"></div>
-          <div className="h-10 w-28 bg-zinc-200 dark:bg-zinc-800 rounded-lg"></div>
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <div className="flex flex-col gap-3 py-4 lg:flex-row">
+        <Skeleton className="h-10 w-full lg:max-w-sm" />
+        <div className="flex gap-2">
+          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-10 w-28" />
+          <Skeleton className="h-10 w-28" />
         </div>
       </div>
-
-      {/* ── Filters & Search Bar Skeleton ───────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-2 shadow-sm flex flex-col sm:flex-row items-center gap-2 animate-pulse">
-         <div className="relative w-full sm:w-96">
-            <div className="h-10 bg-zinc-100 dark:bg-zinc-900/50 rounded-xl w-full"></div>
-         </div>
-         <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="h-8 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-lg"></div>
-            <div className="h-8 w-20 bg-zinc-100 dark:bg-zinc-900/50 rounded-lg"></div>
-            <div className="h-8 w-20 bg-zinc-100 dark:bg-zinc-900/50 rounded-lg"></div>
-            <div className="h-8 w-24 bg-zinc-100 dark:bg-zinc-900/50 rounded-lg"></div>
-         </div>
-      </div>
-
-      {/* ── Data Table Skeleton ─────────────────────────────── */}
-      <div className="bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left whitespace-nowrap">
-            <thead className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800/80">
-              <tr>
-                <th className="px-6 py-4"><div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-24 animate-pulse"></div></th>
-                <th className="px-6 py-4"><div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-20 animate-pulse"></div></th>
-                <th className="px-6 py-4"><div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-16 animate-pulse"></div></th>
-                <th className="px-6 py-4"><div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-16 animate-pulse"></div></th>
-                <th className="px-6 py-4 text-center"><div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-16 mx-auto animate-pulse"></div></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-              {[...Array(6)].map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0"></div>
-                      <div className="space-y-2">
-                        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-32"></div>
-                        <div className="h-3 bg-zinc-100 dark:bg-zinc-900 rounded w-24"></div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="h-6 bg-zinc-200 dark:bg-zinc-800 rounded-md w-24"></div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="space-y-2">
-                      <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-16"></div>
-                      <div className="h-3 bg-zinc-100 dark:bg-zinc-900 rounded w-12"></div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="h-5 bg-zinc-200 dark:bg-zinc-800 rounded-full w-16"></div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="h-8 bg-zinc-200 dark:bg-zinc-800 rounded w-16 mx-auto"></div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="border-t border-border">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 border-b border-border px-3 py-3">
+            <Skeleton className="h-[45px] w-9 shrink-0" />
+            <div className="flex flex-1 flex-col gap-2">
+              <Skeleton className="h-3.5 w-1/3" />
+              <Skeleton className="h-3 w-1/4" />
+            </div>
+            <Skeleton className="hidden h-3.5 w-20 md:block" />
+            <Skeleton className="hidden h-3.5 w-16 md:block" />
+            <Skeleton className="h-3.5 w-14" />
+          </div>
+        ))}
       </div>
     </div>
   );
