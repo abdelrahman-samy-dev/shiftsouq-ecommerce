@@ -19,6 +19,7 @@ import { getMyOrders, type MyOrderSummary } from "@/lib/dal/orders";
 import { normalizeOrderNumber, splitFullName } from "@/components/checkout/checkout-rules";
 import { emailsMatch } from "@/lib/checkout/secure-compare";
 import type { OrderStatusValue, PaymentMethodValue, PaymentStatusValue } from "@/components/orders/order-rules";
+import { unstable_rethrow } from "next/navigation";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -102,6 +103,7 @@ export async function getAccountUser(): Promise<AccountUser | null> {
       memberSince: (b.profile.created_at as string | null) ?? b.user.created_at,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getAccountUser]", err);
     return null;
   }
@@ -167,6 +169,7 @@ export async function getMyAddresses(): Promise<SavedAddress[]> {
     }
     return ((data ?? []) as AddressRow[]).map(toAddress);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getMyAddresses] unexpected:", err);
     return [];
   }
@@ -213,6 +216,7 @@ export async function saveAddressFromCheckout(a: {
     if (!b.profile.phone) await b.supabase.from("profiles").update({ phone: a.phone }).eq("id", b.profile.id);
     return true;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:saveAddressFromCheckout] unexpected:", err);
     return false;
   }
@@ -224,6 +228,7 @@ export async function rememberBuyerPhone(phone: string): Promise<void> {
     const b = await sessionBuyer();
     if (b && !b.profile.phone) await b.supabase.from("profiles").update({ phone }).eq("id", b.profile.id);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:rememberBuyerPhone]", err);
   }
 }
@@ -291,6 +296,7 @@ export async function trackGuestOrder(orderNumber: string, email: string): Promi
       items,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:trackGuestOrder]", err);
     return null;
   }

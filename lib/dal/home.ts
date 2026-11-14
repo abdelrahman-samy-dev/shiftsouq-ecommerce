@@ -13,6 +13,7 @@ import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
 import type { ListingProduct, ListingVariant } from "@/lib/dal/products";
 import type { ProductImage } from "@/lib/types";
+import { unstable_rethrow } from "next/navigation";
 
 /** Only the columns ProductCard reads: every byte here is sent to the browser twice (HTML + RSC payload). */
 const CARD_SELECT = `id, slug, name_en, name_ar, base_price, sale_price, is_new,
@@ -46,6 +47,7 @@ async function query(build: (q: ReturnType<typeof base>) => QueryResult): Promis
     if (error) throw error;
     return ((data ?? []) as unknown as CardRow[]).map(toCard);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:home]", err instanceof Error ? err.message : err);
     return [];
   }
@@ -121,6 +123,7 @@ export const getFeaturedCollection = cache(async (): Promise<HomeCollection | nu
       productCount: row.collection_products?.[0]?.count ?? 0,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getFeaturedCollection]", err instanceof Error ? err.message : err);
     return null;
   }
@@ -206,6 +209,7 @@ export const getSettingsExtras = cache(async (): Promise<SettingsExtras> => {
       etaByZone,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getSettingsExtras]", err instanceof Error ? err.message : err);
     return DEFAULT_EXTRAS;
   }

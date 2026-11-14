@@ -13,6 +13,7 @@ import { safeEqual } from "@/lib/payments/paymob";
 import { createServerClient } from "@/lib/supabase/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { orderCapabilities, type OrderStatusValue } from "@/components/orders/order-rules";
+import { unstable_rethrow } from "next/navigation";
 
 export interface Receipt {
   orderNumber: string;
@@ -178,6 +179,7 @@ export async function getReceipt(orderNumber?: string): Promise<Receipt | null> 
         })),
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[getReceipt]", err);
     return null;
   }

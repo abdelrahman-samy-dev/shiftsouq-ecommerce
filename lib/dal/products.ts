@@ -33,6 +33,7 @@ import type { ListingSort } from "@/lib/search/listing-params";
 import { cleanQuery, textMatchLevel } from "@/lib/search/normalize";
 import { compareSizes } from "@/lib/search/sizes";
 import { getCategories } from "./categories";
+import { unstable_rethrow } from "next/navigation";
 
 /* ── Listing types ───────────────────────────────────────────── */
 
@@ -130,6 +131,7 @@ async function fetchListingProducts(ids: string[]): Promise<ListingProduct[]> {
       return row ? [reshapeProduct(row)] : [];
     });
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:fetchListingProducts] unexpected:", err);
     return [];
   }
@@ -206,6 +208,7 @@ export async function searchProductIds(
       total: Number(result.total) || 0,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:searchProductIds] unexpected:", err);
     return { ids: [], total: 0 };
   }
@@ -232,6 +235,7 @@ export async function getListingFacets(query: ListingQuery): Promise<ListingFace
     }
     return parseFacets(data);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getListingFacets] unexpected:", err);
     return EMPTY_FACETS;
   }
@@ -331,6 +335,7 @@ const getSearchSynonyms = cache(async (): Promise<Map<string, string[]>> => {
       (data ?? []).map((row) => [String(row.term), Array.isArray(row.alternatives) ? row.alternatives.map(String) : []]),
     );
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getSearchSynonyms] unexpected:", err);
     return new Map();
   }
@@ -467,6 +472,7 @@ export const getProductBySlug = cache(async (slug: string) => {
 
     return data;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getProductBySlug] unexpected:", err);
     return null;
   }

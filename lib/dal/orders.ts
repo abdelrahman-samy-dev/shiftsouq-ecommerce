@@ -29,6 +29,7 @@ import {
 } from "@/components/orders/order-rules";
 import { normalizeEgyptianMobile, splitFullName } from "@/components/checkout/checkout-rules";
 import { getMyAddresses, type SavedAddress } from "@/lib/dal/account";
+import { unstable_rethrow } from "next/navigation";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -207,6 +208,7 @@ export const getZoneEtas = cache(async (): Promise<EtaByZone> => {
     }
     return out;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getZoneEtas]", err);
     return {};
   }
@@ -231,6 +233,7 @@ export async function getMyOrders(page = 1, pageSize = 10): Promise<{ orders: My
     }
     return { orders: ((data ?? []) as unknown as OrderRow[]).map(toSummary), count: count ?? 0 };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getMyOrders] unexpected:", err);
     return { orders: [], count: 0 };
   }
@@ -269,6 +272,7 @@ export async function getMyOrder(orderId: string): Promise<MyOrder | null> {
       },
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getMyOrder] unexpected:", err);
     return null;
   }
@@ -337,6 +341,7 @@ export async function getCheckoutPrefill(): Promise<CheckoutPrefill | null> {
 
     return { contact: { firstName, lastName, email: buyer.user.email ?? "", phone }, addresses };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getCheckoutPrefill]", err);
     return null;
   }
@@ -377,6 +382,7 @@ export async function cancelMyOrder(orderId: string): Promise<CancelOrderResult>
       .maybeSingle();
     return { ok: false, code: exists ? "not_cancellable" : "not_found" };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:cancelMyOrder] unexpected:", err);
     return { ok: false, code: "server" };
   }

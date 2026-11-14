@@ -19,6 +19,7 @@
 import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
 import type { Category, CategoryWithChildren } from "@/lib/types";
+import { unstable_rethrow } from "next/navigation";
 
 /* ── Private Helpers ─────────────────────────────────────────── */
 
@@ -153,6 +154,7 @@ export const getCategoryBySlug = cache(
 
       return data as Category | null;
     } catch (err) {
+      unstable_rethrow(err);
       console.error("[DAL:getCategoryBySlug] unexpected:", err);
       return null;
     }
@@ -210,6 +212,7 @@ export const getCategoryWithDescendantIds = cache(
 
       return { category, ids };
     } catch (err) {
+      unstable_rethrow(err);
       console.error("[DAL:getCategoryWithDescendantIds] unexpected:", err);
       return null;
     }

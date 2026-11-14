@@ -18,6 +18,7 @@ import { getPublicClient } from "@/lib/supabase/public";
 import { createServerClient } from "@/lib/supabase/server";
 import { getProducts, getProductsByIds, type ListingProduct } from "./products";
 import { toSizeSystem, type PdpVariant, type RatingSummary, type SizeSystem } from "@/components/product/pdp-logic";
+import { unstable_rethrow } from "next/navigation";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -210,6 +211,7 @@ export const getProductPage = cache(async (slug: string): Promise<ProductPageDat
     }
     return data ? reshape(data as Record<string, unknown>) : null;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getProductPage] unexpected:", err);
     return null;
   }
@@ -261,6 +263,7 @@ export async function getReviewSummary(productId: string): Promise<RatingSummary
     const average = total ? Math.round((counts.reduce((sum, c) => sum + c.stars * c.count, 0) / total) * 10) / 10 : 0;
     return { average, count: total, distribution: counts };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getReviewSummary]", err instanceof Error ? err.message : err);
     return { average: 0, count: 0, distribution: [5, 4, 3, 2, 1].map((stars) => ({ stars, count: 0 })) };
   }
@@ -295,6 +298,7 @@ export async function getApprovedReviews(
       })),
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getApprovedReviews]", err instanceof Error ? err.message : err);
     return { reviews: [], total: 0 };
   }
@@ -373,6 +377,7 @@ export async function getReviewerState(productId: string): Promise<ReviewerState
         : null,
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getReviewerState]", err instanceof Error ? err.message : err);
     return { status: "guest" };
   }
@@ -463,6 +468,7 @@ export const getCompleteTheLook = cache(async (productId: string, limit = 8): Pr
       products: sorted.map(toCard),
     };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getCompleteTheLook]", err instanceof Error ? err.message : err);
     return null;
   }

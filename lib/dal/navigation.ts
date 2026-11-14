@@ -15,6 +15,7 @@ import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
 import { createServerClient } from "@/lib/supabase/server";
 import { buildNavTree, type CategoryRow, type Navigation, type NavCollection } from "@/components/layout/shell-rules";
+import { unstable_rethrow } from "next/navigation";
 
 export type { Navigation, NavCategory, NavCollection, NavLink } from "@/components/layout/shell-rules";
 
@@ -91,6 +92,7 @@ export const getNavigation = cache(async (): Promise<Navigation> => {
 
     return { categories, collections };
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getNavigation]", err instanceof Error ? err.message : err);
     return { categories: [], collections: [] };
   }

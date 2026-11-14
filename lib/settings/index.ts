@@ -9,6 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
 import { DEFAULT_SETTINGS, normalizeSettings, type StoreSettings } from "./types";
+import { unstable_rethrow } from "next/navigation";
 
 export * from "./types";
 
@@ -18,6 +19,7 @@ export const getStoreSettings = cache(async (): Promise<StoreSettings> => {
     if (error) throw error;
     return normalizeSettings(data as Record<string, unknown> | null);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[settings] falling back to defaults:", err instanceof Error ? err.message : err);
     return DEFAULT_SETTINGS;
   }

@@ -11,6 +11,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getPublicClient } from "@/lib/supabase/public";
+import { unstable_rethrow } from "next/navigation";
 
 export interface Collection {
   id: string;
@@ -90,6 +91,7 @@ export const getCollections = cache(async (): Promise<CollectionSummary[]> => {
       })
       .filter((c) => c.productCount > 0);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getCollections] unexpected:", err);
     return [];
   }
@@ -110,6 +112,7 @@ export const getCollectionBySlug = cache(async (slug: string): Promise<Collectio
     }
     return (data as Collection | null) ?? null;
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[DAL:getCollectionBySlug] unexpected:", err);
     return null;
   }
