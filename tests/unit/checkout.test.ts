@@ -1,7 +1,7 @@
 import { createHmac } from "crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { FREE_SHIPPING_THRESHOLD, shippingFee } from "@/lib/checkout/shipping";
-import { orderIdFromMerchantId, safeEqual, verifyPaymobHmac } from "@/lib/payments/paymob";
+import { paymentSecondsLeft, safeEqual, signedPaymobOrderId, verifyPaymobHmac } from "@/lib/payments/paymob";
 
 describe("shipping fee", () => {
   it("charges by governorate and is free above the threshold", () => {
@@ -60,9 +60,52 @@ describe("Paymob helpers", () => {
     expect(verifyPaymobHmac(txn, "")).toBe(false);
     expect(verifyPaymobHmac(txn, null)).toBe(false);
   });
-  it("finds our order id inside a retried merchant id", () => {
-    expect(orderIdFromMerchantId(txn.order.merchant_order_id)).toBe("11111111-2222-3333-4444-555555555555");
-    expect(orderIdFromMerchantId("SS_123")).toBeNull();
+  it("reads Paymob's signed order id (never merchant_order_id)", () => {
+    expect(signedPaymobOrderId(txn)).toBe("789");
+    expect(signedPaymobOrderId({ order: { merchant_order_id: txn.order.merchant_order_id } })).toBeNull();
+    expect(signedPaymobOrderId({ order: "789", merchant_order_id: "x" }, true)).toBe("789");
+    expect(signedPaymobOrderId({ order: "1;drop" }, true)).toBeNull();
+  });
+  it("verifies the flat redirect query, where Paymob names the order id `order`", () => {
+    // The GET response callback flattens the transaction into query parameters.
+    const flat: Record<string, string> = {
+      amount_cents: "15000",
+      created_at: txn.created_at,
+      currency: "EGP",
+      error_occured: "false",
+      has_parent_transaction: "false",
+      id: "123",
+      integration_id: "456",
+      is_3d_secure: "true",
+      is_auth: "false",
+      is_capture: "false",
+      is_refunded: "false",
+      is_standalone_payment: "true",
+      is_voided: "false",
+      order: "789",
+      owner: "1",
+      pending: "false",
+      "source_data.pan": "2346",
+      "source_data.sub_type": "MasterCard",
+      "source_data.type": "card",
+      success: "true",
+      merchant_order_id: txn.order.merchant_order_id,
+    };
+    expect(verifyPaymobHmac(flat, sign(txn), true)).toBe(true);
+    // Older shape with an "order.id" key keeps working.
+    const { order, ...rest } = flat;
+    expect(verifyPaymobHmac({ ...rest, "order.id": order }, sign(txn), true)).toBe(true);
+    // Another order id breaks the signature; merchant_order_id isn't signed, so changing it doesn't matter.
+    expect(verifyPaymobHmac({ ...flat, order: "790" }, sign(txn), true)).toBe(false);
+    expect(verifyPaymobHmac({ ...flat, merchant_order_id: "someone-else" }, sign(txn), true)).toBe(true);
+  });
+  it("gives the payment key only what is left of the 60-minute window", () => {
+    const now = Date.parse("2026-11-14T12:00:00Z");
+    expect(paymentSecondsLeft("2026-11-14T12:00:00Z", now)).toBe(3600);
+    expect(paymentSecondsLeft("2026-11-14T11:30:00Z", now)).toBe(1800);
+    expect(paymentSecondsLeft("2026-11-14T10:00:00Z", now)).toBe(0);
+    expect(paymentSecondsLeft(null, now)).toBe(0);
+    expect(paymentSecondsLeft("not a date", now)).toBe(0);
   });
   it("compares secrets in constant time", () => {
     expect(safeEqual("abc", "abc")).toBe(true);

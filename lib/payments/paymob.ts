@@ -10,12 +10,19 @@ import "server-only";
    • Only the buyer can start a payment: they must present the
      order's access token (handed to them when the order was
      created) or be the signed-in owner of the order.
+   • Every Paymob order we register is recorded in payment_attempts
+     (Paymob order id → our order, amount). The webhook finds the
+     order from Paymob's SIGNED order id through that table, never
+     from merchant_order_id (which the HMAC does not cover).
+   • The payment key lives only for what is left of the order's
+     60-minute payment window.
    • Mock payments exist only for local development and only when
      PAYMOB_MOCK=1 — in production a missing configuration is an
-     error, never a silent "success".
+     error, never a silent "success". They record an attempt too
+     ("mock-<uuid>"), so they are confirmed the same way.
    ══════════════════════════════════════════════════════════════ */
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const PAYMOB_BASE = "https://accept.paymob.com/api";
@@ -54,6 +61,7 @@ interface PayableOrder {
   id: string;
   order_number: string;
   total: number;
+  created_at: string;
   status: string;
   payment_status: string;
   payment_method: string | null;
@@ -91,6 +99,26 @@ async function paymobPost<T>(path: string, body: unknown): Promise<T> {
 
 const orDash = (s: string | null | undefined, max = 100) => (s && s.trim() ? s.trim().slice(0, max) : "NA");
 
+/** An unpaid card / wallet order is cancelled (stock released) this long after it was placed. */
+export const PAYMENT_WINDOW_SECONDS = 60 * 60;
+/** Less than this left in the window: don't start a payment the buyer can't finish. */
+export const MIN_PAYMENT_SECONDS = 60;
+
+/** Whole seconds left in the order's payment window (0 when it has run out or the date is unreadable). */
+export function paymentSecondsLeft(createdAt: string | Date | null | undefined, now: number = Date.now()): number {
+  const placed = createdAt ? new Date(createdAt).getTime() : NaN;
+  if (!Number.isFinite(placed)) return 0;
+  return Math.max(0, Math.floor(PAYMENT_WINDOW_SECONDS - (now - placed) / 1000));
+}
+
+/** Records a Paymob order (or a local test payment) as an attempt to pay this order. */
+async function recordAttempt(paymobOrderId: string, orderId: string, amountCents: number): Promise<void> {
+  const { error } = await getServiceClient()
+    .from("payment_attempts")
+    .insert({ paymob_order_id: paymobOrderId, order_id: orderId, amount_cents: amountCents });
+  if (error) throw new Error(`payment attempt not recorded: ${error.message}`);
+}
+
 /* ── Start a payment ─────────────────────────────────────────── */
 
 export async function startOnlinePayment(input: StartPaymentInput, ownerProfileId?: string | null): Promise<StartPaymentResult> {
@@ -98,7 +126,7 @@ export async function startOnlinePayment(input: StartPaymentInput, ownerProfileI
   const { data: order } = await db
     .from("orders")
     .select(
-      "id, order_number, total, status, payment_status, payment_method, access_token, user_id, shipping_name, shipping_phone, shipping_email, shipping_city, shipping_governorate, shipping_address",
+      "id, order_number, total, created_at, status, payment_status, payment_method, access_token, user_id, shipping_name, shipping_phone, shipping_email, shipping_city, shipping_governorate, shipping_address",
     )
     .eq("id", input.orderId)
     .maybeSingle<PayableOrder & { user_id: string | null }>();
@@ -114,10 +142,22 @@ export async function startOnlinePayment(input: StartPaymentInput, ownerProfileI
     return { success: false, code: "not_payable", error: "This order can no longer be paid online." };
   }
 
+  // The payment key must not outlive the order's payment window.
+  const secondsLeft = paymentSecondsLeft(order.created_at);
+  if (secondsLeft < MIN_PAYMENT_SECONDS) {
+    return { success: false, code: "not_payable", error: "The time to pay for this order has run out." };
+  }
+
   const amountCents = Math.round(Number(order.total) * 100);
 
   if (!paymobConfigured(input.method)) {
     if (paymobMockEnabled()) {
+      try {
+        await recordAttempt(`mock-${randomUUID()}`, order.id, amountCents);
+      } catch (err) {
+        console.error("[Paymob mock]", err);
+        return { success: false, code: "gateway", error: "The payment gateway is not responding. Please try again." };
+      }
       return input.method === "card"
         ? { success: true, method: "card", paymentToken: `MOCK_${order.id}`, iframeId: "MOCK", mock: true }
         : { success: true, method: "wallet", redirectUrl: "/api/checkout/paymob/mock", mock: true };
@@ -147,13 +187,15 @@ export async function startOnlinePayment(input: StartPaymentInput, ownerProfileI
       if ((err as { status?: number }).status !== 422) throw err;
       paymobOrder = await register(`${order.id}__${Date.now()}`);
     }
+    // The webhook resolves the order from this record (Paymob's signed order id), so it comes first.
+    await recordAttempt(String(paymobOrder.id), order.id, amountCents);
     await db.from("orders").update({ paymob_order_id: String(paymobOrder.id) }).eq("id", order.id);
 
     const [first, ...rest] = (order.shipping_name || "Customer").split(" ");
     const { token: paymentKey } = await paymobPost<{ token: string }>("/acceptance/payment_keys", {
       auth_token: authToken,
       amount_cents: amountCents,
-      expiration: 3600,
+      expiration: secondsLeft,
       order_id: paymobOrder.id,
       currency: "EGP",
       integration_id: Number(input.method === "card" ? e.cardIntegration : e.walletIntegration),
@@ -227,17 +269,40 @@ function pick(obj: Record<string, unknown>, path: string): string {
   return cur === null || cur === undefined ? "" : String(cur);
 }
 
+/**
+ * A field of the flat redirect query. Paymob names the order id `order`
+ * there (the webhook body nests it as order.id); `order.id` is accepted too.
+ */
+function flatField(data: Record<string, unknown>, field: string): string {
+  const value = field === "order.id" ? (data.order ?? data["order.id"]) : data[field];
+  return value === null || value === undefined ? "" : String(value);
+}
+
 /** Verifies a webhook body object (`obj`) or flat redirect query params against Paymob's HMAC. */
 export function verifyPaymobHmac(data: Record<string, unknown>, received: string | null | undefined, flat = false): boolean {
   const secret = env().hmacSecret;
   if (!secret || !received) return false;
-  const concatenated = HMAC_FIELDS.map((f) => (flat ? String(data[f] ?? "") : pick(data, f))).join("");
+  const concatenated = HMAC_FIELDS.map((f) => (flat ? flatField(data, f) : pick(data, f))).join("");
   const computed = createHmac("sha512", secret).update(concatenated).digest("hex");
   return safeEqual(computed, String(received).toLowerCase());
 }
 
-/** Our order id is the merchant_order_id, optionally with a "__retry" suffix. */
-export function orderIdFromMerchantId(merchantOrderId: unknown): string | null {
-  const m = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(String(merchantOrderId ?? ""));
-  return m ? m[1] : null;
+/**
+ * Paymob's order id — one of the signed fields — from a webhook body or the
+ * flat redirect query. Our order is found from it through payment_attempts.
+ */
+export function signedPaymobOrderId(data: Record<string, unknown>, flat = false): string | null {
+  const id = flat ? flatField(data, "order.id") : pick(data, "order.id");
+  return /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : null;
+}
+
+/** The order a registered Paymob order (payment attempt) belongs to, or null. */
+export async function orderForPaymobOrder(paymobOrderId: string): Promise<{ orderId: string; amountCents: number } | null> {
+  const { data, error } = await getServiceClient()
+    .from("payment_attempts")
+    .select("order_id, amount_cents")
+    .eq("paymob_order_id", paymobOrderId)
+    .maybeSingle();
+  if (error) throw new Error(`payment attempt lookup failed: ${error.message}`);
+  return data ? { orderId: String(data.order_id), amountCents: Number(data.amount_cents) } : null;
 }
