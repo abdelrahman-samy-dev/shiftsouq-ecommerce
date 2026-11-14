@@ -99,7 +99,16 @@ const nextConfig: NextConfig = {
         hostname: "*.supabase.in",
         pathname: "/storage/**",
       },
+      /* ── Local Supabase (development only) ─────────────── */
+      ...(isDev
+        ? [
+            { protocol: "http" as const, hostname: "127.0.0.1", port: "54321", pathname: "/storage/**" },
+            { protocol: "http" as const, hostname: "localhost", port: "54321", pathname: "/storage/**" },
+          ]
+        : []),
     ],
+    // Local Supabase runs on a private address; allow it only in development.
+    dangerouslyAllowLocalIP: isDev,
   },
 };
 
