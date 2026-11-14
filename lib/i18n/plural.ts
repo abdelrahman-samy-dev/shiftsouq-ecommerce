@@ -18,7 +18,7 @@ export interface PluralForms {
   other: string;
 }
 
-const numberLocale = (locale: Locale) => (locale === "ar" ? "ar-EG" : "en-US");
+const numberLocale = (locale: Locale) => (locale === "ar" ? "ar-EG-u-nu-latn" : "en-US");
 
 /** Formats a plain number the same way prices are formatted. */
 export function formatNumber(value: number, locale: Locale): string {
