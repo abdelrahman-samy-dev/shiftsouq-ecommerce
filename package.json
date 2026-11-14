@@ -13,7 +13,9 @@
     "e2e": "playwright test",
     "db:start": "npx -y supabase@2 start",
     "db:reset": "npx -y supabase@2 db reset",
-    "admin:create": "node --env-file=.env.local scripts/create-admin.mjs"
+    "admin:create": "node --env-file=.env.local scripts/create-admin.mjs",
+    "catalog:seed": "node scripts/catalog/build-seed.mjs",
+    "catalog:import": "node scripts/catalog/import.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
