@@ -33,7 +33,7 @@ jobs:
           version: 2.122.1
 
       - name: Start Supabase (migrations + seed)
-        run: supabase start -x studio,edge-runtime,imgproxy,logflare,vector,realtime,storage-api,postgres-meta,supavisor
+        run: supabase start -x studio,edge-runtime,imgproxy,logflare,vector
 
       - name: Write .env.local for the local stack
         run: |
