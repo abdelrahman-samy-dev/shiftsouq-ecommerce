@@ -183,6 +183,8 @@ export interface Review {
 export interface ProductWithDetails extends Product {
   category: Pick<Category, "name_en" | "name_ar" | "slug"> | null;
   primary_image: ProductImage | null;
+  /** Second photo, shown on hover in product cards. */
+  secondary_image?: ProductImage | null;
   store: Pick<Store, "name" | "slug"> | null;
   variants?: Pick<ProductVariant, "id" | "size" | "color_en">[];
 }

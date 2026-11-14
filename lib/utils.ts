@@ -25,7 +25,7 @@ export function formatPrice(
   locale: Locale = "en",
   _currency: string = "EGP"
 ): string {
-  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-EG" : "en-US", {
+  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-EG-u-nu-latn" : "en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });

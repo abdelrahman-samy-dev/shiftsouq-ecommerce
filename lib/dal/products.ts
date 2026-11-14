@@ -65,9 +65,13 @@ const LISTING_SELECT = `*, category:categories!category_id(name_en, name_ar, slu
  */
 function reshapeProduct(raw: Record<string, unknown>): ListingProduct {
   const rawImages = raw.product_images;
-  const images = Array.isArray(rawImages) ? (rawImages as ProductImage[]) : [];
+  const images = (Array.isArray(rawImages) ? (rawImages as ProductImage[]) : [])
+    .slice()
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const primaryImage =
     images.length > 0 ? { ...images[0], product_id: raw.id as string } : null;
+  // Second photo for the card hover swap.
+  const secondaryImage = images.length > 1 ? { ...images[1], product_id: raw.id as string } : null;
 
   return {
     ...(raw as unknown as Product),
@@ -75,6 +79,7 @@ function reshapeProduct(raw: Record<string, unknown>): ListingProduct {
     store: (raw.store as ProductWithDetails["store"]) ?? null,
     variants: (raw.variants as ListingVariant[]) ?? [],
     primary_image: primaryImage,
+    secondary_image: secondaryImage,
   };
 }
 
