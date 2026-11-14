@@ -93,6 +93,11 @@ describe("menu items", () => {
     // The collections panel itself only adds Discover.
     expect(items[3].panel?.extras.map((c) => c.heading)).toEqual(["Discover"]);
   });
+  it("drops the Discover \"New in\" link when a collection has that name", () => {
+    const withNewIn: Navigation = { ...nav, collections: [...nav.collections, { slug: "new-in", title: { en: "New In", ar: "وصل حديثًا" }, image: null }] };
+    const items = buildMenuItems(withNewIn, "en", { ...labels, discover: "Discover", bestSellers: "Best sellers" });
+    expect(items[0].panel?.extras[1].links.map((l) => l.label)).toEqual(["Best sellers"]);
+  });
   it("speaks Arabic and avoids two items with the same label", () => {
     const ar = buildMenuItems(nav, "ar", { ...labels, collections: "حقائب" });
     expect(ar.map((i) => i.label)).toEqual(["ملابس", "حقائب", "New in"]);

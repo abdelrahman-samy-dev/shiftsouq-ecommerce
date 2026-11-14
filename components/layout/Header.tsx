@@ -43,6 +43,8 @@ import {
 } from "./shell-rules";
 
 const HIDE_AT: Record<NavBreakpoint, string> = { lg: "lg:hidden", xl: "xl:hidden", "2xl": "2xl:hidden" };
+const SHOW_AT: Record<NavBreakpoint, string> = { lg: "lg:inline-flex", xl: "xl:inline-flex", "2xl": "2xl:inline-flex" };
+const searchHover = "text-current! group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5";
 
 export default async function Header({ locale = "en" }: { locale?: Locale }) {
   const copy = shellCopy(locale);
@@ -90,6 +92,8 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
         <div className="container-x grid h-full grid-cols-[1fr_auto_1fr] items-center gap-4">
           <div className="flex h-full min-w-0 items-center">
             <MobileMenu items={items} locale={locale} viewer={viewer} className={HIDE_AT[breakpoint]} />
+            {/* Phones: search sits beside the menu so both sides weigh the same and the wordmark stays centred. */}
+            <SearchOverlayTrigger locale={locale} className={`${searchHover} ${HIDE_AT[breakpoint]}`} />
             <DesktopNav items={items} label={copy.primaryNav} openLabel={copy.openSubmenu("{name}")} breakpoint={breakpoint} />
           </div>
 
@@ -99,7 +103,7 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
           </Link>
 
           <div className="flex items-center justify-end gap-0.5 -me-2 lg:me-0">
-            <SearchOverlayTrigger locale={locale} className="text-current! group-data-[overlay=light]/header:hover:bg-white/10 group-data-[overlay=dark]/header:hover:bg-black/5" />
+            <SearchOverlayTrigger locale={locale} className={`${searchHover} hidden ${SHOW_AT[breakpoint]}`} />
             <div className="hidden lg:flex">
               <Suspense fallback={<AccountLink locale={locale} />}>
                 <AccountMenu viewer={viewer} locale={locale} />

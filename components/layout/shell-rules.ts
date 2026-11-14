@@ -144,11 +144,14 @@ export function buildMenuItems(
   const pick = (v: LocalizedText) => (locale === "ar" ? v.ar || v.en : v.en || v.ar);
 
   const collectionLinks: MenuLink[] = nav.collections.map((c) => ({ href: collectionHref(c.slug), label: pick(c.title), prefetch: false }));
+  // A collection already called "New in" makes the Discover link of the same name redundant.
+  const sameLabel = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const newInTaken = collectionLinks.some((l) => sameLabel(l.label, labels.newIn));
   const discover: MenuColumn | null = labels.discover
     ? {
         heading: labels.discover,
         links: [
-          { href: NEW_IN_HREF, label: labels.newIn },
+          ...(newInTaken ? [] : [{ href: NEW_IN_HREF, label: labels.newIn }]),
           ...(labels.bestSellers ? [{ href: BEST_SELLERS_HREF, label: labels.bestSellers }] : []),
         ],
       }
