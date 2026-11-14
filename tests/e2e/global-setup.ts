@@ -56,7 +56,7 @@ export default async function globalSetup() {
     .in("payment_status", ["unpaid", "failed"])
     .or(`shipping_phone.eq.${E2E_PHONE},shipping_email.in.(${emails.join(",")})`);
   if (openError) throw openError;
-  // Hourly order limits (local counters only).
-  const { error: limitError } = await db.from("rate_limits").delete().like("key", "order%");
+  // Rate-limit counters from earlier runs (orders, tracking, login, reset…). Local database only.
+  const { error: limitError } = await db.from("rate_limits").delete().neq("key", "");
   if (limitError) throw limitError;
 }
