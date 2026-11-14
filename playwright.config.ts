@@ -1,60 +1,40 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from "@playwright/test";
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
+/*
+ * Browser tests run against a LOCAL Supabase (npm run db:start) — never production.
+ *   Locally:  npm run dev   (PAYMOB_MOCK=1)  then  E2E_MOCK_PAYMENTS=1 npm run e2e
+ *   CI:       npm run build, then npm run e2e starts `next start` itself.
  */
-// require('dotenv').config();
+try {
+  process.loadEnvFile(".env.local");
+} catch {
+  /* CI writes .env.local before this runs; without it global-setup explains what's missing. */
+}
 
-/**
- * See https://playwright.dev/docs/test-configuration.
- */
+const port = 3020;
+const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${port}`;
+
 export default defineConfig({
-  testDir: './tests/e2e',
-  /* Run tests in files in parallel */
-  fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
+  testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
+  // Tests share the buyer account and its cart, so run them one at a time.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:3000',
-
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
-
-    /* Take screenshot on failure */
-    screenshot: 'only-on-failure',
+    baseURL,
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
   },
-
-  /* Configure projects for major browsers */
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // You can enable Firefox or WebKit later if needed:
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    // },
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    // },
-  ],
-
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: process.env.CI ? `npx next start -p ${port}` : "npm run dev",
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 180_000,
+      },
 });
