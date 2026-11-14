@@ -35,7 +35,8 @@ export async function addTestProductToCart(page: Page) {
     if (!chosen) await options.and(page.locator(":not([disabled])")).first().click();
   }
   await page.getByRole("button", { name: /add to (cart|bag)/i }).first().click();
-  await expect(page.getByRole("button", { name: /added to (cart|bag)/i }).first()).toBeVisible();
+  // The product page confirms with a toast (and opens the mini-cart).
+  await expect(page.getByText(/added to (cart|bag)/i).first()).toBeVisible();
 }
 
 /**
@@ -50,9 +51,9 @@ export async function fillCheckoutDetails(page: Page, email: string = ACCOUNTS.b
   // Contact: open it if it was filled in from the profile, then (re)enter the details.
   const contactEdit = page.getByRole("button", { name: /edit contact/i });
   if (await contactEdit.isVisible()) await contactEdit.click();
-  await page.locator("input[name=email]").fill(email);
+  await page.locator("main input[name=email]").fill(email);
   await page.locator("input[name=phone]").fill("01012345678");
-  await page.locator("form", { has: page.locator("input[name=email]") }).getByRole("button", { name: /continue/i }).click();
+  await page.locator("main form", { has: page.locator("input[name=email]") }).getByRole("button", { name: /continue/i }).click();
 
   // Delivery: a new Cairo address (signed-in buyers may have saved ones).
   const deliveryEdit = page.getByRole("button", { name: /edit delivery/i });

@@ -10,8 +10,8 @@ import type { ValidationMessages } from "@/lib/validations/messages";
 import { fieldErrors } from "@/components/checkout/checkout-rules";
 import { noticeTone } from "@/components/checkout/ui";
 import { cn } from "@/lib/utils";
-import { PasswordInput } from "@/app/account/_components/PasswordInput";
-import { authCopy } from "@/app/(auth)/_components/copy";
+import { PasswordInput } from "@/app/(store)/account/_components/PasswordInput";
+import { authCopy } from "@/app/(store)/(auth)/_components/copy";
 
 export function ResetPasswordForm({ locale, messages, email }: { locale: string; messages: ValidationMessages; email: string }) {
   const t = authCopy(locale);

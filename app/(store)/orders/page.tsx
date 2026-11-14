@@ -11,10 +11,10 @@ import { getLocale } from "@/lib/i18n/server";
 import { getMyOrders } from "@/lib/dal/orders";
 import Pagination from "@/components/shared/Pagination";
 import { ButtonLink } from "@/components/ds";
-import { AccountShell } from "@/app/account/_components/AccountShell";
-import { OrderCard } from "@/app/account/_components/OrderCard";
-import { accountCopy } from "@/app/account/_components/copy";
-import { requireAccountUser } from "@/app/account/_components/require-user";
+import { AccountShell } from "@/app/(store)/account/_components/AccountShell";
+import { OrderCard } from "@/app/(store)/account/_components/OrderCard";
+import { accountCopy } from "@/app/(store)/account/_components/copy";
+import { requireAccountUser } from "@/app/(store)/account/_components/require-user";
 
 const PAGE_SIZE = 10;
 

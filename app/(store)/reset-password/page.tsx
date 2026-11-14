@@ -11,8 +11,8 @@ import { RECOVERY_COOKIE } from "@/lib/validations/auth";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { getAccountUser } from "@/lib/dal/account";
 import { ButtonLink } from "@/components/ds";
-import { AuthSplit } from "@/app/(auth)/_components/AuthSplit";
-import { authCopy } from "@/app/(auth)/_components/copy";
+import { AuthSplit } from "@/app/(store)/(auth)/_components/AuthSplit";
+import { authCopy } from "@/app/(store)/(auth)/_components/copy";
 import { ResetPasswordForm } from "./ResetPasswordForm";
 
 export async function generateMetadata(): Promise<Metadata> {

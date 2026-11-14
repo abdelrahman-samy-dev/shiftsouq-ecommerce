@@ -11,6 +11,7 @@ import { getLocale } from "@/lib/i18n/server";
 import { getNavigation } from "@/lib/dal/navigation";
 import { buttonClasses } from "@/components/ds/Button";
 import { categoryHref, NEW_IN_HREF } from "@/components/layout/shell-rules";
+import { StoreChrome } from "@/components/layout/StoreChrome";
 
 const COPY = {
   en: {
@@ -33,7 +34,8 @@ const COPY = {
   },
 } as const;
 
-export default async function NotFound() {
+/** The 404 body; rendered inside the store frame by app/(store)/not-found.tsx and below. */
+export async function NotFoundContent() {
   const [locale, nav] = await Promise.all([getLocale(), getNavigation()]);
   const c = COPY[locale];
   const links = [
@@ -74,5 +76,15 @@ export default async function NotFound() {
         </nav>
       ) : null}
     </section>
+  );
+}
+
+/** Unknown URLs render outside every route group, so add the store frame here. */
+export default async function NotFound() {
+  const locale = await getLocale();
+  return (
+    <StoreChrome locale={locale}>
+      <NotFoundContent />
+    </StoreChrome>
   );
 }

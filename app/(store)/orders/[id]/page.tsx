@@ -17,9 +17,9 @@ import { OrderTimeline } from "@/components/orders/OrderTimeline";
 import { formatOrderDate, formatTime, methodLabel, paymentStatusLabel } from "@/components/orders/order-copy";
 import { formatAddress, formatEgyptianMobile, formatMoney } from "@/components/checkout/checkout-rules";
 import { metaText, panelTitle, totalRow } from "@/components/checkout/ui";
-import { AccountShell } from "@/app/account/_components/AccountShell";
-import { accountCopy } from "@/app/account/_components/copy";
-import { requireAccountUser } from "@/app/account/_components/require-user";
+import { AccountShell } from "@/app/(store)/account/_components/AccountShell";
+import { accountCopy } from "@/app/(store)/account/_components/copy";
+import { requireAccountUser } from "@/app/(store)/account/_components/require-user";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: accountCopy(await getLocale()).ordersTitle, robots: { index: false, follow: false } };

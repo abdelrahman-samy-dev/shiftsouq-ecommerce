@@ -9,8 +9,8 @@ import type { Metadata } from "next";
 import { getLocale } from "@/lib/i18n/server";
 import { getAccountUser } from "@/lib/dal/account";
 import { WishlistPageContent } from "@/components/wishlist/WishlistPageContent";
-import { AccountShell } from "@/app/account/_components/AccountShell";
-import { accountCopy } from "@/app/account/_components/copy";
+import { AccountShell } from "@/app/(store)/account/_components/AccountShell";
+import { accountCopy } from "@/app/(store)/account/_components/copy";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: accountCopy(await getLocale()).wishlist, robots: { index: false, follow: true } };

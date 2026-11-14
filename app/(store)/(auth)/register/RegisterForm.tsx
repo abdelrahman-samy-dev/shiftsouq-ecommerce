@@ -10,7 +10,7 @@ import { createRegisterSchema, type RegisterInput } from "@/lib/validations/auth
 import type { ValidationMessages } from "@/lib/validations/messages";
 import { fieldErrors } from "@/components/checkout/checkout-rules";
 import { noticeTone, textLink } from "@/components/checkout/ui";
-import { PasswordInput } from "@/app/account/_components/PasswordInput";
+import { PasswordInput } from "@/app/(store)/account/_components/PasswordInput";
 import { cn } from "@/lib/utils";
 import { authCopy } from "../_components/copy";
 

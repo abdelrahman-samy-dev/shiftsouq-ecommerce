@@ -6,8 +6,8 @@
 
 import type { Metadata } from "next";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
-import { AuthSplit } from "@/app/(auth)/_components/AuthSplit";
-import { authCopy } from "@/app/(auth)/_components/copy";
+import { AuthSplit } from "@/app/(store)/(auth)/_components/AuthSplit";
+import { authCopy } from "@/app/(store)/(auth)/_components/copy";
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
 
 export async function generateMetadata(): Promise<Metadata> {

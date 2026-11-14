@@ -9,7 +9,7 @@ import { updateProfile } from "@/lib/actions/profile";
 import { createProfileSchema } from "@/lib/validations/profile";
 import type { ValidationMessages } from "@/lib/validations/messages";
 import { fieldErrors } from "@/components/checkout/checkout-rules";
-import { accountCopy } from "@/app/account/_components/copy";
+import { accountCopy } from "@/app/(store)/account/_components/copy";
 
 interface ProfileFormProps {
   locale: string;

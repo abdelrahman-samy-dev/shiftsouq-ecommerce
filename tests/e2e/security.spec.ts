@@ -10,7 +10,7 @@ test.describe("access control and hardening", () => {
   test("customers cannot open the admin area", async ({ page }) => {
     await login(page, "buyer");
     await page.goto("/admin");
-    await expect(page.getByRole("heading", { name: /access denied|غير مصرح/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /no access|access denied|لا تملك صلاحية/i })).toBeVisible();
   });
 
   test("admins can open the admin area", async ({ page }) => {

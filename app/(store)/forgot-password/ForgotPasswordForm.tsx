@@ -10,7 +10,7 @@ import { createForgotPasswordSchema } from "@/lib/validations/auth";
 import type { ValidationMessages } from "@/lib/validations/messages";
 import { noticeTone, textLink } from "@/components/checkout/ui";
 import { cn } from "@/lib/utils";
-import { authCopy } from "@/app/(auth)/_components/copy";
+import { authCopy } from "@/app/(store)/(auth)/_components/copy";
 
 export function ForgotPasswordForm({ locale, messages, linkExpired }: { locale: string; messages: ValidationMessages; linkExpired: boolean }) {
   const t = authCopy(locale);

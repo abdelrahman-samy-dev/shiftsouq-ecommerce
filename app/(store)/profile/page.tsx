@@ -7,9 +7,9 @@
 import type { Metadata } from "next";
 import { getLocaleAndDictionary } from "@/lib/i18n/server";
 import { normalizeEgyptianMobile } from "@/components/checkout/checkout-rules";
-import { AccountShell } from "@/app/account/_components/AccountShell";
-import { accountCopy } from "@/app/account/_components/copy";
-import { requireAccountUser } from "@/app/account/_components/require-user";
+import { AccountShell } from "@/app/(store)/account/_components/AccountShell";
+import { accountCopy } from "@/app/(store)/account/_components/copy";
+import { requireAccountUser } from "@/app/(store)/account/_components/require-user";
 import ProfileForm from "./ProfileForm";
 
 const PHONE_MESSAGE = {

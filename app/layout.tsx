@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Instrument_Sans, Instrument_Serif, IBM_Plex_Sans_Arabic } from "next/font/google";
 import ThemeProvider from "@/components/providers/ThemeProvider";
 import { LocaleProvider } from "@/components/providers/LocaleProvider";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { getDirection } from "@/lib/i18n/config";
@@ -79,16 +77,8 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-text-primary">
         <LocaleProvider locale={locale}>
           <ThemeProvider>
-            {/* ── Global Header ─────────────────────────────── */}
-            <Header locale={locale} />
-
-            {/* ── Page Content ──────────────────────────────── */}
-            <main id="main" tabIndex={-1} className="flex-1 outline-none">
-              {children}
-            </main>
-
-            {/* ── Global Footer ─────────────────────────────── */}
-            <Footer locale={locale} />
+            {/* Store pages get their header/footer from app/(store)/layout.tsx; the admin has its own frame. */}
+            {children}
           </ThemeProvider>
           {/* Toasts in the house style: ink panel, square corners, no colour washes. */}
           <Toaster
