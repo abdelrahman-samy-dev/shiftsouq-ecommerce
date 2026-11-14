@@ -1,7 +1,7 @@
 /**
  * Admin operations: roles, owner-only settings, dashboard functions.
  * Runs against the LOCAL Supabase only (npm run test:db).
- * Uses the seeded accounts: owner admin@shiftsouq.local, admin e2e.admin@shiftsouq.local,
+ * Uses (and creates if missing) owner admin@shiftsouq.local, admin e2e.admin@shiftsouq.local,
  * buyer buyer@shiftsouq.local. Nothing is left changed: settings and roles are restored.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -32,6 +32,27 @@ async function signIn(email: string, password: string) {
   return c;
 }
 
+/** Makes sure a test account exists with this password and role (fresh databases, e.g. CI, have none). */
+async function ensureAccount(email: string, password: string, role: "super_admin" | "admin" | "customer") {
+  const { data: list, error } = await service.auth.admin.listUsers({ perPage: 1000 });
+  if (error) throw error;
+  let id = list.users.find((u) => u.email?.toLowerCase() === email)?.id;
+  if (!id) {
+    const created = await service.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { first_name: "Test", last_name: role },
+    });
+    if (created.error) throw created.error;
+    id = created.data.user.id;
+  } else {
+    await service.auth.admin.updateUserById(id, { password });
+  }
+  const { error: roleError } = await service.from("profiles").upsert({ auth_user_id: id, role }, { onConflict: "auth_user_id" });
+  if (roleError) throw roleError;
+}
+
 async function profileOf(c: SupabaseClient) {
   const { data: u } = await c.auth.getUser();
   const { data } = await service.from("profiles").select("id, role").eq("auth_user_id", u.user!.id).single();
@@ -42,6 +63,10 @@ d("admin operations (database)", () => {
   beforeAll(async () => {
     service = createClient(URL, SERVICE, opts);
     anon = createClient(URL, ANON, opts);
+    // Sequential: the owner must exist before the "last owner" rules are exercised.
+    await ensureAccount("admin@shiftsouq.local", "Admin12345!", "super_admin");
+    await ensureAccount("e2e.admin@shiftsouq.local", "E2e-Admin-12345", "admin");
+    await ensureAccount("buyer@shiftsouq.local", "Buyer12345!", "customer");
     [owner, admin, buyer] = await Promise.all([
       signIn("admin@shiftsouq.local", "Admin12345!"),
       signIn("e2e.admin@shiftsouq.local", "E2e-Admin-12345"),
