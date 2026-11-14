@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Breadcrumbs, Eyebrow } from "@/components/ds";
+import { Breadcrumbs, Eyebrow } from "@/components/ds/Display";
 import { cn } from "@/lib/utils";
 
 export interface QuickLink {

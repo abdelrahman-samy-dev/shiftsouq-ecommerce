@@ -10,7 +10,11 @@
 --      products, product_variants (colours) and categories (names,
 --      parents), with a pg_trgm GIN index.
 --   3. size_group(): which size system a size belongs to (clothing,
---      kids, waist, shoes EU, one size), so filters never mix them.
+--      kids, waist, shoes EU, one size), so filters never mix them;
+--      variant_size(): a one-size product without a size counts as
+--      "One size".
+--   3b. search_synonyms: admin-editable word → alternatives
+--      (بنطلون finds بنطال, pants finds trousers), seeded.
 --   4. search_products(): filtered, sorted page of product ids +
 --      total, priced on the price buyers pay (lowest variant price
 --      after sale price and overrides, as lib/seo/pricing does).
@@ -120,6 +124,16 @@ AS $$
     ELSE 'apparel'
   END
   FROM (SELECT upper(btrim(COALESCE(p_size, ''))) AS v, COALESCE(p_system, 'apparel') AS sys) s;
+$$;
+
+-- The size a buyer filters by: one-size products often store no size at all.
+CREATE OR REPLACE FUNCTION public.variant_size(p_system text, p_size text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT COALESCE(NULLIF(btrim(p_size), ''), CASE WHEN p_system = 'one_size' THEN 'One size' END);
 $$;
 
 -- p_tokens holds "group.value" (e.g. "shoes.42", "apparel.M") or a bare value.
@@ -285,6 +299,57 @@ CREATE INDEX IF NOT EXISTS idx_products_search_document_trgm
   ON products USING gin (search_document gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_products_active_created ON products (is_active, created_at DESC);
 
+-- ── 3b. Search synonyms ───────────────────────────────────────
+-- One normalised word → words that should match too (Egyptian and
+-- everyday words for catalogue terms). Editable by admins; the
+-- defaults below never overwrite an edited row.
+CREATE TABLE IF NOT EXISTS search_synonyms (
+  term         TEXT PRIMARY KEY CHECK (term <> '' AND position(' ' IN term) = 0),
+  alternatives TEXT[] NOT NULL DEFAULT '{}',
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE search_synonyms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pub_read_search_synonyms" ON search_synonyms;
+CREATE POLICY "pub_read_search_synonyms" ON search_synonyms FOR SELECT USING (true);
+DROP POLICY IF EXISTS "admin_search_synonyms" ON search_synonyms;
+CREATE POLICY "admin_search_synonyms" ON search_synonyms FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+WITH groups(words) AS (
+  VALUES
+    -- every word in a group matches the others
+    (ARRAY['بنطلون', 'بنطلونات', 'بنطال', 'بناطيل', 'سروال']),
+    (ARRAY['pants', 'trousers', 'slacks']),
+    (ARRAY['جزمه', 'حذاء', 'احذيه']),
+    (ARRAY['شنطه', 'شنط', 'حقيبه', 'حقايب']),
+    (ARRAY['جاكت', 'جاكيت', 'جاكيتات', 'ستره', 'سترات']),
+    (ARRAY['بلوفر', 'سويتر', 'كنزه', 'كنزات']),
+    (ARRAY['jumper', 'pullover', 'sweater']),
+    (ARRAY['trainers', 'trainer', 'sneakers', 'sneaker']),
+    (ARRAY['tshirt', 'tshirts', 'tee', 'tees']),
+    (ARRAY['تيشرت', 'تيشيرت', 'تيشيرتات']),
+    (ARRAY['نضاره', 'نظاره', 'نظارات']),
+    (ARRAY['purse', 'wallet']),
+    (ARRAY['shades', 'sunglasses'])
+),
+oneway(term, words) AS (
+  VALUES
+    ('كوتشي', ARRAY['سنيكرز', 'رياضي', 'sneakers']),
+    ('كوتش', ARRAY['سنيكرز', 'رياضي', 'sneakers']),
+    ('قمصان', ARRAY['قميص']),
+    ('قميص', ARRAY['قمصان'])
+),
+rows AS (
+  SELECT w AS term, array_remove(words, w) AS alternatives FROM groups, unnest(words) AS w
+  UNION ALL
+  SELECT term, words FROM oneway
+)
+INSERT INTO search_synonyms (term, alternatives)
+SELECT DISTINCT ON (public.normalize_ar(term))
+       public.normalize_ar(term), ARRAY(SELECT public.normalize_ar(x) FROM unnest(alternatives) AS x)
+FROM rows
+ON CONFLICT (term) DO NOTHING;
+
 -- ── 4. Shared search core ─────────────────────────────────────
 -- Products in scope (active, optional category tree / collection /
 -- new / featured) that match every query token, with relevance and
@@ -327,11 +392,17 @@ AS $$
     SELECT left(public.normalize_ar(COALESCE(p_query, '')), 100) AS nq
   ),
   toks AS (
-    SELECT t,
-           CASE WHEN char_length(t) > 4 THEN regexp_replace(t, '^(وال|بال|كال|فال|ال|لل)', '') ELSE t END AS ts
-    FROM (
-      SELECT DISTINCT t FROM q, unnest(string_to_array(q.nq, ' ')) AS t WHERE t <> '' LIMIT 8
-    ) x
+    SELECT DISTINCT t FROM q, unnest(string_to_array(q.nq, ' ')) AS t WHERE t <> '' LIMIT 8
+  ),
+  -- Each token also matches its synonyms (بنطلون → بنطال, pants → trousers).
+  alts AS (
+    SELECT tk.t, a,
+           CASE WHEN char_length(a) > 4 THEN regexp_replace(a, '^(وال|بال|كال|فال|ال|لل)', '') ELSE a END AS ts
+    FROM toks tk
+    CROSS JOIN LATERAL unnest(
+      ARRAY[tk.t] || COALESCE((SELECT s.alternatives FROM search_synonyms s WHERE s.term = tk.t), '{}'::text[])
+    ) AS a
+    WHERE a <> ''
   ),
   ntok AS (SELECT count(*)::int AS n FROM toks),
   scope AS (
@@ -360,15 +431,15 @@ AS $$
   tw AS (
     SELECT t.t, l.w,
       CASE
-        WHEN left(l.w, char_length(t.t)) = t.t OR left(l.ws, char_length(t.ts)) = t.ts THEN 3
-        WHEN char_length(t.t) > 3 AND (t.t = l.w || 's' OR t.t = l.w || 'es') THEN 3
+        WHEN left(l.w, char_length(t.a)) = t.a OR left(l.ws, char_length(t.ts)) = t.ts THEN 3
+        WHEN char_length(t.a) > 3 AND (t.a = l.w || 's' OR t.a = l.w || 'es') THEN 3
         WHEN char_length(t.ts) >= 4
              AND abs(char_length(l.ws) - char_length(t.ts)) <= (CASE WHEN char_length(t.ts) >= 7 THEN 2 ELSE 1 END)
              AND levenshtein_less_equal(t.ts, l.ws, 4) <= (CASE WHEN char_length(t.ts) >= 7 THEN 4 ELSE 2 END)
              AND public.search_edit_distance(t.ts, l.ws) <= (CASE WHEN char_length(t.ts) >= 7 THEN 2 ELSE 1 END) THEN 2
-        WHEN char_length(t.t) >= 3 AND strpos(l.w, t.t) > 0 THEN 1
+        WHEN char_length(t.a) >= 3 AND strpos(l.w, t.a) > 0 THEN 1
       END AS lvl
-    FROM toks t CROSS JOIN lex l
+    FROM alts t CROSS JOIN lex l
   ),
   ptl AS (
     SELECT pr.id, tw.t, max(tw.lvl) AS lvl
@@ -489,7 +560,8 @@ AS $$
         OR EXISTS (
           SELECT 1 FROM product_variants v
           WHERE v.product_id = b.product_id
-            AND (COALESCE(cardinality(p_sizes), 0) = 0 OR public.size_matches(b.size_system, v.size, p_sizes))
+            AND (COALESCE(cardinality(p_sizes), 0) = 0
+                 OR public.size_matches(b.size_system, public.variant_size(b.size_system, v.size), p_sizes))
             AND (COALESCE(cardinality(p_colors), 0) = 0
                  OR lower(btrim(v.color_en)) IN (SELECT lower(btrim(x)) FROM unnest(p_colors) AS x))
             AND (NOT COALESCE(p_in_stock, false) OR v.stock > 0)
@@ -548,14 +620,17 @@ AS $$
            ARRAY(SELECT lower(btrim(x)) FROM unnest(COALESCE(p_colors, '{}'::text[])) AS x) AS colors
   ),
   vars AS (
-    SELECT v.product_id, v.size, v.color_en, v.color_ar, v.color_hex, v.stock,
-           public.size_group(b.size_system, v.size) AS sgroup,
-           (NOT o.by_size OR public.size_matches(b.size_system, v.size, p_sizes)) AS size_ok,
-           (NOT o.by_color OR lower(btrim(v.color_en)) = ANY (o.colors)) AS color_ok,
-           (NOT o.by_stock OR v.stock > 0) AS stock_ok
-    FROM b
+    SELECT x.*,
+           public.size_group(x.size_system, x.size) AS sgroup,
+           (NOT o.by_size OR public.size_matches(x.size_system, x.size, p_sizes)) AS size_ok,
+           (NOT o.by_color OR lower(btrim(x.color_en)) = ANY (o.colors)) AS color_ok,
+           (NOT o.by_stock OR x.stock > 0) AS stock_ok
+    FROM (
+      SELECT v.product_id, b.size_system, public.variant_size(b.size_system, v.size) AS size,
+             v.color_en, v.color_ar, v.color_hex, v.stock
+      FROM b JOIN product_variants v ON v.product_id = b.product_id
+    ) x
     CROSS JOIN opts o
-    JOIN product_variants v ON v.product_id = b.product_id
   ),
   flags AS (
     SELECT b.*,
@@ -632,6 +707,7 @@ REVOKE ALL ON FUNCTION public.normalize_ar(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.search_edit_distance(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.size_group(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.size_matches(text, text, text[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.variant_size(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.search_product_base(text, uuid[], uuid, boolean, boolean) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.search_products(text, uuid[], uuid, uuid[], text[], text[], numeric, numeric, boolean, boolean, boolean, boolean, text, integer, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.product_facets(text, uuid[], uuid, uuid[], text[], text[], numeric, numeric, boolean, boolean, boolean, boolean) FROM PUBLIC;
@@ -640,6 +716,7 @@ GRANT EXECUTE ON FUNCTION public.normalize_ar(text) TO anon, authenticated, serv
 GRANT EXECUTE ON FUNCTION public.search_edit_distance(text, text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.size_group(text, text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.size_matches(text, text, text[]) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.variant_size(text, text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.search_product_base(text, uuid[], uuid, boolean, boolean) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.search_products(text, uuid[], uuid, uuid[], text[], text[], numeric, numeric, boolean, boolean, boolean, boolean, text, integer, integer) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.product_facets(text, uuid[], uuid, uuid[], text[], text[], numeric, numeric, boolean, boolean, boolean, boolean) TO anon, authenticated, service_role;

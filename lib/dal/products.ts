@@ -319,16 +319,40 @@ const toSuggestCategory = ({ id, slug, name_en, name_ar, parent_en, parent_ar }:
   parent_ar,
 });
 
+/** Search synonyms (normalised word → alternatives), as the database search uses them. */
+const getSearchSynonyms = cache(async (): Promise<Map<string, string[]>> => {
+  try {
+    const { data, error } = await getPublicClient().from("search_synonyms").select("term, alternatives").limit(2000);
+    if (error) {
+      console.error("[DAL:getSearchSynonyms]", error.message);
+      return new Map();
+    }
+    return new Map(
+      (data ?? []).map((row) => [String(row.term), Array.isArray(row.alternatives) ? row.alternatives.map(String) : []]),
+    );
+  } catch (err) {
+    console.error("[DAL:getSearchSynonyms] unexpected:", err);
+    return new Map();
+  }
+});
+
 /** Up to 6 products and 4 categories for a typed query. */
 export async function getSearchSuggestions(rawQuery: string): Promise<SearchSuggestions> {
   const query = cleanQuery(rawQuery);
   if (!query) return { query, total: 0, products: [], categories: [] };
 
-  const [{ ids, total }, categories] = await Promise.all([searchProductIds({ q: query }, 6), flatCategories()]);
+  const [{ ids, total }, categories, synonyms] = await Promise.all([
+    searchProductIds({ q: query }, 6),
+    flatCategories(),
+    getSearchSynonyms(),
+  ]);
   const products = (await fetchListingProducts(ids)).map(toSuggestProduct);
 
   const matched = categories
-    .map((c) => ({ c, level: Math.max(textMatchLevel(query, c.name_en), textMatchLevel(query, c.name_ar)) }))
+    .map((c) => ({
+      c,
+      level: Math.max(textMatchLevel(query, c.name_en, synonyms), textMatchLevel(query, c.name_ar, synonyms)),
+    }))
     .filter((m) => m.level > 0)
     .sort((a, b) => b.level - a.level || a.c.depth - b.c.depth)
     .slice(0, 4)

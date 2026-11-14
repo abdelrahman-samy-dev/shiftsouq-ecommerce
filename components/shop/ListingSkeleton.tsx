@@ -1,6 +1,6 @@
 /* Placeholders with the exact geometry of what they stand for, so nothing shifts when content streams in. */
 
-import { Skeleton } from "@/components/ds";
+import { Skeleton } from "@/components/ds/Display";
 
 /** The sticky toolbar while filter options load. */
 export function ToolbarSkeleton() {

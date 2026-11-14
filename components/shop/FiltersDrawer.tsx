@@ -12,7 +12,9 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
-import { Button, Drawer, Input } from "@/components/ds";
+import { Button } from "@/components/ds/Button";
+import { Input } from "@/components/ds/Field";
+import { Drawer } from "@/components/ds/Overlay";
 import { cn, formatPrice } from "@/lib/utils";
 import { discoveryCopy } from "@/lib/search/copy";
 import { priceRangeLabel } from "@/lib/search/filter-labels";

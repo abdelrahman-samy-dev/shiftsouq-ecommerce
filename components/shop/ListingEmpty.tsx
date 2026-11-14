@@ -4,7 +4,8 @@
    ══════════════════════════════════════════════════════════════ */
 
 import Link from "next/link";
-import { ButtonLink, EmptyState } from "@/components/ds";
+import { ButtonLink } from "@/components/ds/Button";
+import { EmptyState } from "@/components/ds/Display";
 import type { Locale } from "@/lib/types";
 import { discoveryCopy } from "@/lib/search/copy";
 

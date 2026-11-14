@@ -2,7 +2,8 @@
 
 /* Error boundary content for listing routes: calm, bilingual, no animation library (it ships with every listing page). */
 
-import { Button, ButtonLink, EmptyState } from "@/components/ds";
+import { Button, ButtonLink } from "@/components/ds/Button";
+import { EmptyState } from "@/components/ds/Display";
 import { useLocale } from "@/components/providers/LocaleProvider";
 
 export function ListingError({

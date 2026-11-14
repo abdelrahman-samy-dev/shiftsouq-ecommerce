@@ -79,7 +79,8 @@ export function SearchOverlayTrigger({ locale, className }: { locale: string; cl
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          "inline-flex size-10 items-center justify-center rounded-sm text-text-primary transition-colors hover:bg-surface",
+          // text-current: inherits white over the transparent home header.
+          "inline-flex size-10 items-center justify-center rounded-sm text-current transition-colors hover:bg-surface/60",
           className,
         )}
       >
