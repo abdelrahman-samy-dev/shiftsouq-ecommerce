@@ -149,7 +149,7 @@ export default async function AdminCustomerPage({ params }: { params: Promise<{ 
                         {a.source === "checkout" ? <Tag tone="neutral">{C.savedAtCheckout}</Tag> : null}
                       </div>
                       <address className="not-italic text-text-secondary">
-                        {a.fullName ? <bdi className="block text-text-primary">{a.fullName}</bdi> : null}
+                        {a.fullName ? <span className="block text-text-primary"><bdi>{a.fullName}</bdi></span> : null}
                         <span className="block">
                           <bdi>{a.address}</bdi>
                           {a.apartment ? (

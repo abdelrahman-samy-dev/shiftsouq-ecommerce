@@ -26,7 +26,7 @@ export const metadata: Metadata = { title: "Print" };
 const PRINT_CSS = `
 @page { size: A4; margin: 14mm 12mm; }
 @media print {
-  html, body { background: #fff !important; }
+  html, body { background: #fff !important; overflow: visible !important; height: auto !important; }
   body > *:not(main) { display: none !important; }
   [data-print-sheet] { box-shadow: none !important; border: 0 !important; margin: 0 !important; padding: 0 !important; max-width: none !important; width: auto !important; }
   [data-print-sheet] tr { break-inside: avoid; }
@@ -129,8 +129,8 @@ export default async function OrderPrintPage({
               {P.deliverTo}
             </h2>
             <address className="not-italic leading-relaxed">
-              <bdi className="block font-medium">{order.customer_name || t.orders.guest}</bdi>
-              {order.address ? <bdi className="block whitespace-pre-line">{order.address}</bdi> : null}
+              <span className="block font-medium"><bdi>{order.customer_name || t.orders.guest}</bdi></span>
+              {order.address ? <span className="block whitespace-pre-line"><bdi>{order.address}</bdi></span> : null}
               <span className="block">
                 {[order.city, governorate].filter(Boolean).map((part, i) => (
                   <span key={i}>

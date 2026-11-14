@@ -250,8 +250,8 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
 
           <Panel title={t.detail.address}>
             <address className="not-italic text-[0.8125rem] leading-relaxed text-text-primary">
-              {order.customer_name ? <bdi className="block">{order.customer_name}</bdi> : null}
-              {order.address ? <bdi className="block whitespace-pre-line">{order.address}</bdi> : null}
+              {order.customer_name ? <span className="block"><bdi>{order.customer_name}</bdi></span> : null}
+              {order.address ? <span className="block whitespace-pre-line"><bdi>{order.address}</bdi></span> : null}
               <span className="block">
                 {[order.city, governorate].filter(Boolean).length
                   ? [order.city, governorate].filter(Boolean).map((part, i) => (
