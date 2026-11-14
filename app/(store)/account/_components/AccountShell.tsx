@@ -43,9 +43,10 @@ export function AccountShell({ locale, user, active, title, intro, aside, childr
     <div className="container-x pb-24 pt-8 md:pt-12">
       <p className="t-eyebrow">{t.account}</p>
 
-      <div className="mt-6 grid gap-x-16 lg:grid-cols-[200px_minmax(0,1fr)] xl:gap-x-24">
+      {/* grid-cols-1 + min-w-0: the scrolling tab row must not widen the page on phones. */}
+      <div className="mt-6 grid grid-cols-1 gap-x-16 lg:grid-cols-[200px_minmax(0,1fr)] xl:gap-x-24">
         {/* Navigation: tabs on phones / tablets, a side list on desktop */}
-        <nav aria-label={t.accountNav} className="-mx-5 border-b border-border md:-mx-8 lg:mx-0 lg:border-0">
+        <nav aria-label={t.accountNav} className="-mx-5 min-w-0 border-b border-border md:-mx-8 lg:mx-0 lg:border-0">
           <ul className="no-scrollbar flex gap-6 overflow-x-auto px-5 md:px-8 lg:sticky lg:top-[calc(var(--header-height)+1.5rem)] lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0">
             {links.map((l) => {
               const current = l.key === active;
