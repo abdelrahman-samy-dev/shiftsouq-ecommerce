@@ -275,6 +275,9 @@ select:focus-visible {
 :lang(ar) .t-display { font-size: clamp(2.25rem, 6vw, 5rem); }
 /* Letter-spacing and uppercase break Arabic joining. */
 :lang(ar) .t-eyebrow { letter-spacing: 0; text-transform: none; font-size: 0.75rem; }
+/* Clamped and truncated text is clipped at its line box; Arabic descenders (the dots under a final ي)
+   fall below a tight one, so give those lines the room Arabic needs. */
+:lang(ar) :is(.line-clamp-1, .line-clamp-2, .line-clamp-3, .truncate) { line-height: 1.7; }
 
 .container-x {
   width: 100%;
