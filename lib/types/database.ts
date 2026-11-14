@@ -4,7 +4,7 @@
    ══════════════════════════════════════════════════════════════ */
 
 // ── Enums ─────────────────────────────────────────────────────
-export type UserRole = "customer" | "admin";
+export type UserRole = "customer" | "admin" | "super_admin";
 export type OrderStatus = "pending" | "confirmed" | "processing" | "shipped" | "delivered" | "cancelled" | "refunded";
 export type PaymentStatus = "unpaid" | "paid" | "failed" | "refunded";
 export type DiscountType = "percentage" | "fixed";

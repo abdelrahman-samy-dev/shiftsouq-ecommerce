@@ -41,7 +41,7 @@ export default async function AdminLayout({
     .eq("auth_user_id", user.id)
     .single();
 
-  if (!profile || profile.role !== "admin") {
+  if (!profile || (profile.role !== "admin" && profile.role !== "super_admin")) {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white p-4">
         <div className="text-center bg-white dark:bg-zinc-900 p-8 rounded-2xl max-w-md w-full border border-red-500/20 shadow-xl shadow-red-500/5">

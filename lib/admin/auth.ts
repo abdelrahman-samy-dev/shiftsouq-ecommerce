@@ -21,6 +21,8 @@ export interface AdminContext {
   userId: string;
   profileId: string;
   email: string;
+  /** "super_admin" = store owner (settings, team); "admin" = staff. */
+  role: "admin" | "super_admin";
 }
 
 /** The signed-in admin for this request, or null. Cached per request. */
@@ -37,9 +39,15 @@ export const getAdminContext = cache(async (): Promise<AdminContext | null> => {
     .select("id, role")
     .eq("auth_user_id", user.id)
     .maybeSingle();
-  if (!profile || profile.role !== "admin") return null;
+  if (!profile || (profile.role !== "admin" && profile.role !== "super_admin")) return null;
 
-  return { supabase, userId: user.id, profileId: profile.id as string, email: user.email ?? "" };
+  return {
+    supabase,
+    userId: user.id,
+    profileId: profile.id as string,
+    email: user.email ?? "",
+    role: profile.role as AdminContext["role"],
+  };
 });
 
 export class AdminAccessError extends Error {
