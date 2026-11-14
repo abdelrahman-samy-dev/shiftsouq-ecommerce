@@ -248,7 +248,9 @@ export function deliveryEta(eta: { min: number; max: number }, lang: Lang): stri
   const min = Math.max(0, Math.round(eta.min));
   const max = Math.max(min, Math.round(eta.max));
   const range = min === max ? `${max}` : `${min}–${max}`;
-  if (lang === "ar") return max <= 1 ? "التوصيل خلال يوم عمل واحد" : `التوصيل خلال ${range} أيام عمل`;
+  // Arabic spells the range out: a dash between digits flips in right-to-left text.
+  const arRange = min === max ? `${max}` : `${min} إلى ${max}`;
+  if (lang === "ar") return max <= 1 ? "التوصيل خلال يوم عمل واحد" : `التوصيل خلال ${arRange} ${max <= 10 ? "أيام" : "يوم"} عمل`;
   return max <= 1 ? "Delivery in 1 working day" : `Delivery in ${range} working days`;
 }
 

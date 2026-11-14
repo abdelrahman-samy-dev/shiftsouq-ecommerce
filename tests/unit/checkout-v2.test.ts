@@ -55,7 +55,7 @@ describe("delivery from the store settings", () => {
   it("describes the delivery time from the ETA setting", () => {
     expect(deliveryEta({ min: 2, max: 5 }, "en")).toBe("Delivery in 2–5 working days");
     expect(deliveryEta({ min: 1, max: 1 }, "en")).toBe("Delivery in 1 working day");
-    expect(deliveryEta({ min: 2, max: 5 }, "ar")).toContain("2–5");
+    expect(deliveryEta({ min: 2, max: 5 }, "ar")).toBe("التوصيل خلال 2 إلى 5 أيام عمل");
   });
 });
 

@@ -221,6 +221,7 @@ describe("policy facts come from settings", () => {
       ["Luxor and Aswan", "4–6"],
     ]);
     expect(legalFacts(DEFAULT_SETTINGS, "en").etaRows).toEqual([]);
+    expect(legalFacts(DEFAULT_SETTINGS, "ar", { cairo: { min: 1, max: 2 } }).etaRows[0][1]).toBe("1 إلى 2");
   });
   it("follows edited settings (return days, threshold, payment methods)", () => {
     const s = normalizeSettings({

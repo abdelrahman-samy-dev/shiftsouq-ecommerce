@@ -93,7 +93,8 @@ export function legalFacts(
   }
   const etaRows: [string, string][] = [...etaGroups.values()]
     .sort((a, b) => a.min - b.min || a.max - b.max)
-    .map((g) => [joinList(g.names, locale), g.min === g.max ? `${g.min}` : `${g.min}–${g.max}`]);
+    // Arabic spells the range out: a dash between digits flips in right-to-left text ("2–1").
+    .map((g) => [joinList(g.names, locale), g.min === g.max ? `${g.min}` : locale === "ar" ? `${g.min} إلى ${g.max}` : `${g.min}–${g.max}`]);
 
   const tel = phoneHref(contact.phone);
 
