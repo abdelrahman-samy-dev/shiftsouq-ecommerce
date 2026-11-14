@@ -6,7 +6,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Heart, KeyRound, MapPin, Package, User } from "lucide-react";
+import { ArrowRight, Heart, KeyRound, LifeBuoy, MapPin, Package, User } from "lucide-react";
 import { getLocale } from "@/lib/i18n/server";
 import { getAccountOverview } from "@/lib/dal/account";
 import { ButtonLink } from "@/components/ds";
@@ -37,6 +37,8 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     { href: "/wishlist", icon: Heart, label: t.wishlist, hint: t.wishlistHint },
     { href: "/profile", icon: User, label: t.profile, hint: t.profileHint },
     { href: "/account/security", icon: KeyRound, label: t.security, hint: t.securityHint },
+    // Six tiles fill the 2- and 3-column grids without an empty cell.
+    { href: "/contact", icon: LifeBuoy, label: t.help, hint: t.helpHint },
   ];
 
   return (

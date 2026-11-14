@@ -52,7 +52,8 @@ export function OrderTimeline({ status, createdAt, updatedAt, lang, className }:
   }
 
   return (
-    <ol className={cn("grid gap-0 md:grid-cols-5", className)} aria-label={ar ? "حالة الطلب" : "Order status"}>
+    // The last step takes only its own width, so the line runs the full width of the order above it.
+    <ol className={cn("grid gap-0 md:grid-cols-[repeat(4,minmax(0,1fr))_max-content]", className)} aria-label={ar ? "حالة الطلب" : "Order status"}>
       {steps.map((step, i) => {
         const date =
           step.key === "pending" ? formatOrderDate(createdAt, lang) : step.state === "current" && updatedAt ? formatOrderDate(updatedAt, lang) : null;
@@ -60,7 +61,7 @@ export function OrderTimeline({ status, createdAt, updatedAt, lang, className }:
           <li
             key={step.key}
             aria-current={step.state === "current" ? "step" : undefined}
-            className="relative flex gap-4 pb-6 last:pb-0 md:flex-col md:gap-3 md:pb-0 md:pe-4"
+            className="relative flex gap-4 pb-6 last:pb-0 md:flex-col md:gap-3 md:pb-0 md:pe-4 md:last:pe-0"
           >
             {/* connector */}
             {i < steps.length - 1 ? (

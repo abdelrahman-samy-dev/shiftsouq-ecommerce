@@ -1,5 +1,7 @@
 /* Account area copy — English and Modern Standard Arabic. */
 
+import { pluralize } from "@/lib/i18n/plural";
+
 const en = {
   account: "Account",
   accountNav: "Account sections",
@@ -21,11 +23,13 @@ const en = {
   viewOrder: "View order",
   allOrders: "All orders",
   quickLinks: "Your account",
-  ordersCount: (n: number) => (n === 1 ? "1 order" : `${n} orders`),
+  ordersCount: (n: number) => (n === 0 ? "No orders yet" : n === 1 ? "1 order" : `${n} orders`),
   addressesCount: (n: number) => (n === 0 ? "No saved addresses" : n === 1 ? "1 saved address" : `${n} saved addresses`),
   wishlistHint: "Pieces you saved for later",
   profileHint: "Name, phone and email",
   securityHint: "Change your password",
+  help: "Help",
+  helpHint: "Questions about an order or a return",
   passwordUpdated: "Your password was updated.",
   items: (n: number) => (n === 1 ? "1 item" : `${n} items`),
   itemsTitle: "Items",
@@ -133,13 +137,24 @@ const ar: Copy = {
   viewOrder: "عرض الطلب",
   allOrders: "كل الطلبات",
   quickLinks: "حسابك",
-  ordersCount: (n) => (n === 1 ? "طلب واحد" : n === 2 ? "طلبان" : n <= 10 ? `${n} طلبات` : `${n} طلبًا`),
-  addressesCount: (n) => (n === 0 ? "لا توجد عناوين محفوظة" : n === 1 ? "عنوان محفوظ واحد" : n === 2 ? "عنوانان محفوظان" : `${n} عناوين محفوظة`),
+  ordersCount: (n) =>
+    pluralize("ar", n, { zero: "لا توجد طلبات بعد", one: "طلب واحد", two: "طلبان", few: "{count} طلبات", many: "{count} طلبًا", other: "{count} طلب" }),
+  addressesCount: (n) =>
+    pluralize("ar", n, {
+      zero: "لا توجد عناوين محفوظة",
+      one: "عنوان محفوظ واحد",
+      two: "عنوانان محفوظان",
+      few: "{count} عناوين محفوظة",
+      many: "{count} عنوانًا محفوظًا",
+      other: "{count} عنوان محفوظ",
+    }),
   wishlistHint: "قطع حفظتها لوقت لاحق",
   profileHint: "الاسم والهاتف والبريد الإلكتروني",
   securityHint: "تغيير كلمة المرور",
+  help: "المساعدة",
+  helpHint: "أسئلة عن طلب أو إرجاع",
   passwordUpdated: "تم تحديث كلمة المرور.",
-  items: (n) => (n === 1 ? "قطعة واحدة" : n === 2 ? "قطعتان" : n <= 10 ? `${n} قطع` : `${n} قطعة`),
+  items: (n) => pluralize("ar", n, { zero: "لا توجد قطع", one: "قطعة واحدة", two: "قطعتان", few: "{count} قطع", many: "{count} قطعة", other: "{count} قطعة" }),
   itemsTitle: "القطع",
 
   ordersTitle: "الطلبات",
