@@ -8,7 +8,7 @@
    close. Animations are CSS (see globals.css "ds-overlay").
    ══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,10 +59,11 @@ export function Drawer({
   side = "end",
 }: OverlayProps & { side?: "start" | "end" }) {
   const ref = useDialog(open, onClose);
+  const titleId = useId();
   return (
     <dialog
       ref={ref}
-      aria-labelledby="drawer-title"
+      aria-labelledby={titleId}
       onClick={(e) => onBackdrop(e, onClose)}
       data-side={side}
       className={cn(
@@ -73,7 +74,7 @@ export function Drawer({
     >
       <div className="flex h-full flex-col">
         <div className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-5">
-          <h2 id="drawer-title" className={cn("text-base font-medium", hideTitle && "sr-only")}>
+          <h2 id={titleId} className={cn("text-base font-medium", hideTitle && "sr-only")}>
             {title}
           </h2>
           <button
@@ -94,10 +95,11 @@ export function Drawer({
 
 export function Dialog({ open, onClose, title, children, footer, className, closeLabel = "Close", hideTitle }: OverlayProps) {
   const ref = useDialog(open, onClose);
+  const titleId = useId();
   return (
     <dialog
       ref={ref}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       onClick={(e) => onBackdrop(e, onClose)}
       className={cn(
         "ds-overlay ds-dialog m-auto w-[min(92vw,520px)] max-h-[85dvh] bg-surface-elevated text-text-primary p-0 rounded-sm",
@@ -106,7 +108,7 @@ export function Dialog({ open, onClose, title, children, footer, className, clos
     >
       <div className="flex max-h-[85dvh] flex-col">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
-          <h2 id="dialog-title" className={cn("t-h3", hideTitle && "sr-only")}>
+          <h2 id={titleId} className={cn("t-h3", hideTitle && "sr-only")}>
             {title}
           </h2>
           <button
