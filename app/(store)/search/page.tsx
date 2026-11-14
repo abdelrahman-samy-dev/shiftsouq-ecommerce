@@ -82,7 +82,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
         breadcrumbs={crumbs}
         eyebrow={copy.search}
         title={copy.resultsFor(state.q)}
-        count={copy.productCount(listing.total)}
+        // No count beside "Results for …" when the empty state below already says nothing matched.
+        count={listing.total > 0 ? copy.productCount(listing.total) : undefined}
         aside={<SearchPageForm key={state.q} locale={locale} initialQuery={state.q} />}
       />
       <ProductListing

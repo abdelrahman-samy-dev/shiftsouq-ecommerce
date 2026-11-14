@@ -102,8 +102,8 @@ export const DISCOVERY_COPY = {
     shop: "المتجر",
     allProducts: "جميع المنتجات",
     newArrivals: "وصل حديثًا",
-    collections: "التشكيلات",
-    collection: "تشكيلة",
+    collections: "المجموعات",
+    collection: "مجموعة",
     search: "البحث",
     resultsFor: (q: string) => `نتائج البحث عن «${q}»`,
     productCount: (n: number) =>
@@ -175,8 +175,8 @@ export const DISCOVERY_COPY = {
     inCategory: (name: string) => `في ${name}`,
     from: "من",
     collectionsIntro: "مختارات منسّقة حول مزاج أو موسم أو أسلوب في اللباس.",
-    collectionsEmptyTitle: "لا توجد تشكيلات بعد",
-    collectionsEmptyBody: "ستظهر التشكيلات هنا فور نشرها.",
+    collectionsEmptyTitle: "لا توجد مجموعات بعد",
+    collectionsEmptyBody: "ستظهر المجموعات هنا فور نشرها.",
     explore: "استكشف",
   },
 } satisfies Record<Locale, Record<string, unknown>>;
