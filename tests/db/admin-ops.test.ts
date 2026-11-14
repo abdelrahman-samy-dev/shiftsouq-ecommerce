@@ -154,19 +154,27 @@ d("admin operations (database)", () => {
   });
 
   it("revenue in the dashboard uses the same rule as the order screens", async () => {
-    const from = new Date(Date.now() - 400 * 86_400_000 + 60_000).toISOString();
-    const to = new Date(Date.now() + 60_000).toISOString();
-    const { data: stats, error } = await admin.rpc("admin_period_stats", { p_from: from, p_to: to }).single();
-    expect(error).toBeNull();
-    const { data: orders } = await service
-      .from("orders")
-      .select("total, status, payment_status, payment_method, created_at")
-      .gte("created_at", from)
-      .lt("created_at", to);
-    const received = (orders ?? []).filter((o) => countsAsRevenue(toOrderState(o)));
-    const revenue = received.reduce((s, o) => s + Number(o.total), 0);
-    const s = stats as { revenue: number | string; revenue_orders: number };
-    expect(Number(s.revenue)).toBeCloseTo(revenue, 2);
-    expect(Number(s.revenue_orders)).toBe(received.length);
+    // Other local test runs may place or update orders meanwhile: compare up to 3 times.
+    let last: { db: number; js: number; dbCount: number; jsCount: number } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const from = new Date(Date.now() - 400 * 86_400_000 + 60_000).toISOString();
+      const to = new Date(Date.now() - 1_000).toISOString();
+      const [{ data: stats, error }, { data: orders }] = await Promise.all([
+        admin.rpc("admin_period_stats", { p_from: from, p_to: to }).single(),
+        service.from("orders").select("total, status, payment_status, payment_method").gte("created_at", from).lt("created_at", to),
+      ]);
+      expect(error).toBeNull();
+      const received = (orders ?? []).filter((o) => countsAsRevenue(toOrderState(o)));
+      const s = stats as { revenue: number | string; revenue_orders: number };
+      last = {
+        db: Number(s.revenue),
+        js: received.reduce((sum, o) => sum + Number(o.total), 0),
+        dbCount: Number(s.revenue_orders),
+        jsCount: received.length,
+      };
+      if (Math.abs(last.db - last.js) < 0.005 && last.dbCount === last.jsCount) break;
+    }
+    expect(last!.db).toBeCloseTo(last!.js, 2);
+    expect(last!.dbCount).toBe(last!.jsCount);
   });
 });

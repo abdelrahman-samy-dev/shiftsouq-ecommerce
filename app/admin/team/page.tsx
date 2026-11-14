@@ -53,8 +53,8 @@ export default async function AdminTeamPage() {
                         <span className="truncate">{m.name || m.email || T.noAccount}</span>
                         {m.id === ctx.profileId ? <Tag tone="neutral">{T.you}</Tag> : null}
                       </p>
-                      <p className="truncate text-[0.75rem] text-text-muted" dir="ltr">
-                        {m.email || T.noAccount}
+                      <p className="truncate text-[0.75rem] text-text-muted">
+                        <bdi>{m.email || T.noAccount}</bdi>
                       </p>
                     </div>
                   </div>

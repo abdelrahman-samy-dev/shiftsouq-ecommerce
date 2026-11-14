@@ -82,9 +82,9 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
 
   const customerCell = (o: AdminOrderListItem) => (
     <div className="min-w-0 max-w-64">
-      <p className="truncate text-text-primary">{o.customer_name || t.orders.guest}</p>
-      <p className="truncate text-[0.75rem] text-text-muted" dir="ltr">
-        {o.email || o.phone || t.orders.noEmail}
+      <p className="truncate text-text-primary"><bdi>{o.customer_name || t.orders.guest}</bdi></p>
+      <p className="truncate text-[0.75rem] text-text-muted">
+        <bdi dir="ltr">{o.email || o.phone || t.orders.noEmail}</bdi>
       </p>
     </div>
   );
@@ -138,7 +138,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                 <li key={o.id} className="flex gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-baseline justify-between gap-3">
-                      <Link href={`/admin/orders/${o.id}`} className="font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                      <Link href={`/admin/orders/${o.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
                         {o.order_number}
                       </Link>
                       <span className="whitespace-nowrap text-[0.8125rem] font-medium tabular-nums">{formatAmount(o.total, locale, 2)}</span>
@@ -172,7 +172,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
                   sortKey: "date",
                   cell: (o) => (
                     <div>
-                      <Link href={`/admin/orders/${o.id}`} className="font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                      <Link href={`/admin/orders/${o.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
                         {o.order_number}
                       </Link>
                       <p className="whitespace-nowrap text-[0.75rem] text-text-muted">{formatDateTime(o.created_at, locale)}</p>

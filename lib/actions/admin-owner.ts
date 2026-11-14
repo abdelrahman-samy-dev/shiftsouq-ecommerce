@@ -18,7 +18,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/admin/auth";
 import { logAdminAction } from "@/lib/admin/audit";
-import { settingsErrors, settingsSchema, settingsToRow, type SettingsErrorCode } from "@/lib/admin/settings-schema";
+import { mergeSettingsJson, sameJson, settingsErrors, settingsSchema, settingsToRow, type SettingsErrorCode } from "@/lib/admin/settings-schema";
 import { checkOwnershipTransfer, checkRoleChange, isRole, temporaryPassword, type Role } from "@/lib/admin/team";
 import { getServiceClient } from "@/lib/supabase/service";
 
@@ -64,18 +64,21 @@ export async function saveStoreSettings(input: unknown, expectedUpdatedAt: strin
     return fail("changed");
   }
 
+  // Merge over what is stored: keys this form doesn't edit (hero alt text, photo credit,
+  // delivery days per governorate…) are kept.
+  const stored = (current ?? {}) as Record<string, unknown>;
+  const merged = Object.fromEntries(SECTIONS.map((k) => [k, mergeSettingsJson(stored[k], row[k])]));
+
   const updatedAt = new Date().toISOString();
   const { data, error } = await ctx.supabase
     .from("store_settings")
-    .update({ ...row, updated_at: updatedAt, updated_by: ctx.profileId })
+    .update({ ...merged, updated_at: updatedAt, updated_by: ctx.profileId })
     .eq("id", 1)
     .select("id");
   if (error) return (logDb("settings.update", error), fail("save_failed"));
   if (!data?.length) return fail("owner_only"); // row-level security refused the update
 
-  const changed = SECTIONS.filter(
-    (k) => JSON.stringify((current as Record<string, unknown> | null)?.[k] ?? null) !== JSON.stringify(row[k]),
-  );
+  const changed = SECTIONS.filter((k) => !sameJson(stored[k], merged[k]));
   await logAdminAction(ctx, "settings.update", "store_settings", "1", { sections: changed });
   // Announcement bar, footer, checkout fees, home hero… every storefront page reads settings.
   revalidatePath("/", "layout");

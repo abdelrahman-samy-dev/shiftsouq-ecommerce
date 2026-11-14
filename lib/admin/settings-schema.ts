@@ -220,3 +220,33 @@ export function settingsToRow(v: SettingsParsed) {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * Deep-merges what the form writes over what is stored, so keys the form
+ * doesn't edit survive a save (e.g. home.hero.alt_en, home.hero.credit,
+ * shipping.eta_days_by_zone). Objects merge key by key; arrays and plain
+ * values from `next` replace the stored ones.
+ */
+export function mergeSettingsJson(current: unknown, next: unknown): unknown {
+  if (!isPlainObject(current) || !isPlainObject(next)) return next;
+  const out: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(next)) out[key] = mergeSettingsJson(current[key], value);
+  return out;
+}
+
+/** Key-order-insensitive JSON equality (jsonb does not keep key order). */
+export function sameJson(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown): unknown =>
+    isPlainObject(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, norm(v[k])]),
+        )
+      : Array.isArray(v)
+        ? v.map(norm)
+        : v;
+  return JSON.stringify(norm(a ?? null)) === JSON.stringify(norm(b ?? null));
+}

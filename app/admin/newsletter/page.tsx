@@ -70,8 +70,8 @@ export default async function AdminNewsletterPage({
                   key: "email",
                   header: N.col.email,
                   cell: (s) => (
-                    <span className="block max-w-72 truncate text-text-primary" dir="ltr">
-                      {s.email}
+                    <span className="block max-w-72 truncate text-text-primary">
+                      <bdi dir="ltr">{s.email}</bdi>
                     </span>
                   ),
                 },

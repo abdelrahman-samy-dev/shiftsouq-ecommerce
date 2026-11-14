@@ -94,7 +94,12 @@ export function activeNavItem(pathname: string): NavItem | null {
 /** Where an audited entity lives in the admin (null when it has no page). */
 export function entityHref(entity: string, id: string | null, action = ""): string | null {
   if (action.startsWith("team.")) return "/admin/team";
-  if (!id) return entity === "store_settings" ? "/admin/settings" : null;
+  if (!id) {
+    if (entity === "store_settings") return "/admin/settings";
+    if (entity === "product_variants") return "/admin/inventory";
+    if (entity === "products") return "/admin/products";
+    return null;
+  }
   const safe = encodeURIComponent(id);
   switch (entity) {
     case "orders":
@@ -102,11 +107,13 @@ export function entityHref(entity: string, id: string | null, action = ""): stri
     case "profiles":
       return `/admin/customers/${safe}`;
     case "products":
-      return `/admin/products/${safe}`;
+      return action.endsWith(".delete") ? null : `/admin/products/${safe}`;
     case "categories":
       return `/admin/categories`;
     case "collections":
-      return `/admin/collections`;
+      return action.endsWith(".delete") ? "/admin/collections" : `/admin/collections/${safe}`;
+    case "product_variants":
+      return "/admin/inventory";
     case "promocodes":
       return `/admin/promos`;
     case "reviews":
@@ -134,6 +141,8 @@ export const AUDIT_ENTITIES = [
   "newsletter_subscribers",
   "store_settings",
   "profiles",
+  "product_variants",
+  "storage",
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 export const isAuditEntity = (v: unknown): v is AuditEntity =>

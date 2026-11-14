@@ -34,6 +34,14 @@ function details(e: AuditEntry, t: AdminText, locale: string): string | null {
     const label = (s: string) => t.reviews.tabs[s as "pending"] ?? s;
     return pair(label(d.from), label(d.to));
   }
+  if (e.action === "inventory.set" && typeof d.to === "number") {
+    const sku = typeof d.sku === "string" ? `${d.sku}: ` : "";
+    return `${sku}${typeof d.from === "number" ? pair(String(d.from), String(d.to)) : String(d.to)}`;
+  }
+  if (e.action.startsWith("promo.") && typeof d.code === "string") return d.code;
+  if ((e.action.startsWith("product.") || e.action.startsWith("category.") || e.action.startsWith("collection.")) && typeof d.slug === "string") {
+    return d.slug;
+  }
   if (e.action === "settings.update" && Array.isArray(d.sections)) {
     const names = (d.sections as unknown[]).map((s) => t.settings.sections[s as "contact"] ?? String(s));
     return names.length ? fill(A.detail.sections, { list: names.join(locale === "ar" ? "، " : ", ") }) : null;

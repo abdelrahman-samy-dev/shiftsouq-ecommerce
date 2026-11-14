@@ -17,6 +17,7 @@ import { averageOrderValue, isKpiPeriod, percentChange, type KpiPeriod } from "@
 import { fill, formatAmount, formatDate, formatDateTime, formatInt, formatPercent, getAdminText } from "@/lib/admin/i18n";
 import { adminImage } from "@/lib/admin/images";
 import { getLocale } from "@/lib/i18n/server";
+import { getStoreSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { DataTable } from "./components/DataTable";
 import { RevenueChart } from "./components/RevenueChart";
@@ -31,13 +32,16 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
   const t = getAdminText(locale);
   const o = t.overview;
 
-  const [kpis, daily, queues, top, recent] = await Promise.all([
+  const [kpis, daily, queues, top, recent, settings] = await Promise.all([
     getKpis(period),
     getDailyRevenue(30),
     getQueueCounts(),
     getTopProducts("30d", 5),
     getRecentOrders(6),
+    getStoreSettings(),
   ]);
+  // The queue count uses the same threshold (admin_queue_counts reads store_settings.inventory).
+  const lowStockThreshold = settings.inventory.lowStockThreshold;
 
   const { current: cur, previous: prev } = kpis;
   const aov = averageOrderValue(cur.revenue, cur.revenueOrders);
@@ -59,7 +63,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
     {
       key: "lowStock",
       label: o.queue.lowStock,
-      hint: fill(o.queue.lowStockHint, { n: formatInt(queues.lowStockThreshold, locale) }),
+      hint: fill(o.queue.lowStockHint, { n: formatInt(lowStockThreshold, locale) }),
       count: queues.lowStock,
       href: "/admin/inventory?stock=low",
       icon: AlertTriangle,
@@ -183,7 +187,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
                   header: t.orders.order,
                   cell: (r) => (
                     <div className="min-w-0">
-                      <Link href={`/admin/orders/${r.id}`} className="font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
+                      <Link href={`/admin/orders/${r.id}`} className="whitespace-nowrap font-medium tabular-nums text-text-primary hover:underline" dir="ltr">
                         {r.order_number}
                       </Link>
                       <p className="text-[0.75rem] text-text-muted">{formatDateTime(r.created_at, locale)}</p>

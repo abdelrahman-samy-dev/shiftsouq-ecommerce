@@ -19,7 +19,6 @@ import { isOrderStatus, isPaymentMethod, isPaymentStatus, toOrderState } from "@
 import { cleanSearchTerm, ilikeAny, phoneDigits } from "@/lib/admin/search";
 import type { PromoRow } from "@/lib/admin/promos";
 import type {
-  AdminCategory,
   AdminCustomerAddress,
   AdminCustomerDetail,
   AdminCustomerListItem,
@@ -34,22 +33,13 @@ import type {
   TeamMember,
   TopProduct,
   AdminContactMessage,
-  AdminDashboardStats,
   AdminOrderDetail,
   AdminOrderListItem,
-  AdminProduct,
   InboxView,
-  LowStockVariant,
   OrderFilters,
 } from "@/lib/admin/types";
 import type { PaginationParams } from "@/lib/types";
-
-export interface AdminPaginationParams extends PaginationParams {
-  search?: string;
-  status?: string;
-}
-
-export const LOW_STOCK_THRESHOLD = 5;
+import { DEFAULT_SETTINGS } from "@/lib/settings/types";
 
 /** Page numbers from the URL: a whole number from 1 to 10 000. */
 export function clampPage(raw: unknown): number {
@@ -327,229 +317,6 @@ export async function getOrdersForExport(filters: OrderFilters): Promise<OrderEx
   return rows;
 }
 
-/* ── Dashboard ────────────────────────────────────────────────── */
-
-const EMPTY_STATS: AdminDashboardStats = {
-  totalOrders: 0,
-  revenue: 0,
-  revenueOrders: 0,
-  awaitingPayment: 0,
-  toFulfil: 0,
-  cashToCollect: 0,
-  totalProducts: 0,
-  totalUsers: 0,
-  recentOrders: [],
-  lowStock: [],
-  lowStockCount: 0,
-};
-
-export async function getLowStockVariants(
-  limit = 8,
-  threshold = LOW_STOCK_THRESHOLD,
-): Promise<{ items: LowStockVariant[]; count: number }> {
-  const ctx = await getAdminContext();
-  if (!ctx) return { items: [], count: 0 };
-  const { data, count, error } = await ctx.supabase
-    .from("product_variants")
-    .select("id, sku, size, color_en, stock, product:products(id, name_en, name_ar, is_active)", { count: "exact" })
-    .lte("stock", threshold)
-    .order("stock", { ascending: true })
-    .order("sku", { ascending: true })
-    .limit(limit);
-  if (error) {
-    console.error("[getLowStockVariants]", error.message);
-    return { items: [], count: 0 };
-  }
-  type Row = {
-    id: string;
-    sku: string;
-    size: string | null;
-    color_en: string | null;
-    stock: number | null;
-    product: { id: string; name_en: string; name_ar: string; is_active: boolean | null } | { id: string; name_en: string; name_ar: string; is_active: boolean | null }[] | null;
-  };
-  const items = ((data ?? []) as unknown as Row[]).flatMap((r) => {
-    const p = one(r.product);
-    if (!p) return [];
-    return [
-      {
-        id: r.id,
-        sku: r.sku,
-        size: r.size,
-        color_en: r.color_en,
-        stock: r.stock ?? 0,
-        product_id: p.id,
-        product_name_en: p.name_en,
-        product_name_ar: p.name_ar,
-        product_active: p.is_active !== false,
-      },
-    ];
-  });
-  return { items, count: count ?? items.length };
-}
-
-export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
-  const ctx = await getAdminContext();
-  if (!ctx) return EMPTY_STATS;
-  const { supabase } = ctx;
-
-  const [stats, products, users, recent, lowStock] = await Promise.all([
-    supabase.rpc("admin_order_stats").single(),
-    supabase.from("products").select("id", { count: "exact", head: true }),
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("orders").select(ORDER_LIST_COLUMNS).order("created_at", { ascending: false }).limit(6),
-    getLowStockVariants(),
-  ]);
-
-  for (const r of [stats, products, users, recent]) {
-    if (r.error) console.error("[getAdminDashboardStats]", r.error.message);
-  }
-  const s = (stats.data ?? {}) as Record<string, unknown>;
-
-  return {
-    totalOrders: num(s.total_orders),
-    revenue: num(s.revenue),
-    revenueOrders: num(s.revenue_orders),
-    awaitingPayment: num(s.awaiting_payment),
-    toFulfil: num(s.to_fulfil),
-    cashToCollect: num(s.cash_to_collect),
-    totalProducts: products.count ?? 0,
-    totalUsers: users.count ?? 0,
-    recentOrders: ((recent.data ?? []) as unknown as OrderListRow[]).map(toOrderListItem),
-    lowStock: lowStock.items,
-    lowStockCount: lowStock.count,
-  };
-}
-
-/* ── Products ─────────────────────────────────────────────────── */
-
-export async function getAllProducts({
-  page = 1,
-  pageSize = 10,
-  search,
-  status,
-}: AdminPaginationParams): Promise<{ products: AdminProduct[]; count: number; totalPages: number }> {
-  const ctx = await getAdminContext();
-  if (!ctx) return { products: [], count: 0, totalPages: 0 };
-  const offset = (clampPage(page) - 1) * pageSize;
-
-  let query = ctx.supabase
-    .from("products")
-    .select(
-      `id, slug, name_en, name_ar, description_en, description_ar, base_price, sale_price, category_id, is_active, created_at,
-       category:categories(name_en, name_ar),
-       images:product_images(url, is_primary, sort_order),
-       variants:product_variants(id, sku, size, color_en, color_ar, stock, price_override, created_at)`,
-      { count: "exact" },
-    );
-
-  const term = cleanSearchTerm(search);
-  if (term) query = query.or(ilikeAny(["name_en", "name_ar"], term));
-  if (status === "active") query = query.eq("is_active", true);
-  if (status === "draft") query = query.eq("is_active", false);
-
-  const { data, count, error } = await query
-    .order("created_at", { ascending: false })
-    .range(offset, offset + pageSize - 1);
-
-  if (error) {
-    console.error("[getAllProducts]", error.message);
-    return { products: [], count: 0, totalPages: 0 };
-  }
-
-  type Row = Omit<AdminProduct, "category" | "images" | "variants" | "total_stock"> & {
-    category: AdminProduct["category"] | AdminProduct["category"][];
-    images: AdminProduct["images"] | null;
-    variants: (AdminProduct["variants"][number] & { created_at: string | null })[] | null;
-  };
-  const products = ((data ?? []) as unknown as Row[]).map((p): AdminProduct => {
-    const variants = (p.variants ?? [])
-      .slice()
-      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.sku.localeCompare(b.sku))
-      .map((v) => ({
-        id: v.id,
-        sku: v.sku,
-        size: v.size,
-        color_en: v.color_en,
-        color_ar: v.color_ar,
-        stock: v.stock ?? 0,
-        price_override: v.price_override == null ? null : num(v.price_override),
-      }));
-    return {
-      id: p.id,
-      slug: p.slug,
-      name_en: p.name_en,
-      name_ar: p.name_ar,
-      description_en: p.description_en,
-      description_ar: p.description_ar,
-      base_price: num(p.base_price),
-      sale_price: p.sale_price == null ? null : num(p.sale_price),
-      category_id: p.category_id,
-      is_active: p.is_active !== false,
-      category: one(p.category),
-      images: (p.images ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
-      variants,
-      total_stock: variants.reduce((sum, v) => sum + v.stock, 0),
-    };
-  });
-
-  return { products, count: count ?? 0, totalPages: count ? Math.ceil(count / pageSize) : 0 };
-}
-
-/** All products flattened for CSV (newest first). */
-export async function getProductsForExport(): Promise<Record<string, string | number | boolean | null>[]> {
-  const ctx = await getAdminContext();
-  if (!ctx) return [];
-  const { data, error } = await ctx.supabase
-    .from("products")
-    .select(
-      "name_en, name_ar, slug, base_price, sale_price, is_active, created_at, category:categories(name_en, name_ar), variants:product_variants(sku, size, color_en, stock)",
-    )
-    .order("created_at", { ascending: false })
-    .limit(1000);
-  if (error) {
-    console.error("[getProductsForExport]", error.message);
-    return [];
-  }
-  type Row = {
-    name_en: string;
-    name_ar: string;
-    slug: string;
-    base_price: number | string;
-    sale_price: number | string | null;
-    is_active: boolean | null;
-    created_at: string;
-    category: { name_en: string; name_ar: string } | { name_en: string; name_ar: string }[] | null;
-    variants: { sku: string; size: string | null; color_en: string | null; stock: number | null }[] | null;
-  };
-  return ((data ?? []) as unknown as Row[]).map((p) => {
-    const variants = p.variants ?? [];
-    return {
-      name_en: p.name_en,
-      name_ar: p.name_ar,
-      category_en: one(p.category)?.name_en ?? null,
-      category_ar: one(p.category)?.name_ar ?? null,
-      base_price: num(p.base_price),
-      sale_price: p.sale_price == null ? null : num(p.sale_price),
-      active: p.is_active !== false,
-      total_stock: variants.reduce((s, v) => s + (v.stock ?? 0), 0),
-      variants: variants
-        .map((v) => `${v.sku}${v.size || v.color_en ? ` (${[v.size, v.color_en].filter(Boolean).join(" / ")})` : ""}: ${v.stock ?? 0}`)
-        .join("; "),
-      slug: p.slug,
-      created_at: p.created_at,
-    };
-  });
-}
-
-export async function getAdminCategories(): Promise<AdminCategory[]> {
-  const ctx = await getAdminContext();
-  if (!ctx) return [];
-  const { data, error } = await ctx.supabase.from("categories").select("id, name_en, name_ar").order("name_en");
-  if (error) console.error("[getAdminCategories]", error.message);
-  return (data ?? []) as AdminCategory[];
-}
-
 /* ── Contact inbox ────────────────────────────────────────────── */
 
 const MESSAGE_COLUMNS = "id, name, email, subject, message, is_read, read_at, archived_at, created_at";
@@ -634,7 +401,7 @@ const EMPTY_QUEUES: QueueCounts = {
   lowStock: 0,
   pendingReviews: 0,
   unreadMessages: 0,
-  lowStockThreshold: LOW_STOCK_THRESHOLD,
+  lowStockThreshold: DEFAULT_SETTINGS.inventory.lowStockThreshold,
 };
 
 /** Work queues for the dashboard and the sidebar counters (one query, cached per request). */
@@ -1239,42 +1006,6 @@ export async function quickSearch(raw: string): Promise<QuickSearchResults> {
       (p) => ({ id: p.id, nameEn: p.name_en, nameAr: p.name_ar, slug: p.slug, active: p.is_active !== false }),
     ),
   };
-}
-
-/* ── Low stock for the dashboard (live products, threshold from settings) ── */
-
-export async function getLowStockLive(limit: number, threshold: number): Promise<LowStockVariant[]> {
-  const ctx = await getAdminContext();
-  if (!ctx) return [];
-  const { data, error } = await ctx.supabase
-    .from("product_variants")
-    .select("id, sku, size, color_en, stock, product:products!inner(id, name_en, name_ar, is_active)")
-    .lte("stock", threshold)
-    .eq("product.is_active", true)
-    .order("stock", { ascending: true })
-    .order("sku", { ascending: true })
-    .limit(limit);
-  if (error) console.error("[getLowStockLive]", error.message);
-  type P = { id: string; name_en: string; name_ar: string; is_active: boolean | null };
-  type Row = { id: string; sku: string; size: string | null; color_en: string | null; stock: number | null; product: P | P[] | null };
-  return ((data ?? []) as unknown as Row[]).flatMap((r) => {
-    const p = one(r.product);
-    return p
-      ? [
-          {
-            id: r.id,
-            sku: r.sku,
-            size: r.size,
-            color_en: r.color_en,
-            stock: r.stock ?? 0,
-            product_id: p.id,
-            product_name_en: p.name_en,
-            product_name_ar: p.name_ar,
-            product_active: p.is_active !== false,
-          },
-        ]
-      : [];
-  });
 }
 
 /** Display name of the signed-in admin (top bar). */

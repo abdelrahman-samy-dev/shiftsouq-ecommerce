@@ -139,8 +139,8 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                       </p>
                       {item.variant_label ? <p className="text-[0.8125rem] text-text-muted">{item.variant_label}</p> : null}
                       {item.sku ? (
-                        <p className="text-[0.75rem] tabular-nums text-text-faint" dir="ltr">
-                          {item.sku}
+                        <p className="text-[0.75rem] tabular-nums text-text-faint">
+                          <bdi dir="ltr">{item.sku}</bdi>
                         </p>
                       ) : null}
                     </div>
@@ -250,9 +250,18 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
 
           <Panel title={t.detail.address}>
             <address className="not-italic text-[0.8125rem] leading-relaxed text-text-primary">
-              {order.customer_name ? <span className="block">{order.customer_name}</span> : null}
-              {order.address ? <span className="block whitespace-pre-line">{order.address}</span> : null}
-              <span className="block">{[order.city, governorate].filter(Boolean).join(locale === "ar" ? "، " : ", ") || t.detail.none}</span>
+              {order.customer_name ? <bdi className="block">{order.customer_name}</bdi> : null}
+              {order.address ? <bdi className="block whitespace-pre-line">{order.address}</bdi> : null}
+              <span className="block">
+                {[order.city, governorate].filter(Boolean).length
+                  ? [order.city, governorate].filter(Boolean).map((part, i) => (
+                      <span key={i}>
+                        {i > 0 ? (locale === "ar" ? "، " : ", ") : null}
+                        <bdi>{part}</bdi>
+                      </span>
+                    ))
+                  : t.detail.none}
+              </span>
               {order.country ? <span className="block text-text-muted">{order.country}</span> : null}
             </address>
           </Panel>

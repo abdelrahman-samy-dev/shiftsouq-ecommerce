@@ -99,7 +99,7 @@ export default async function AdminCustomerPage({ params }: { params: Promise<{ 
                   header: t.orders.order,
                   cell: (o) => (
                     <div>
-                      <Link href={`/admin/orders/${o.id}`} className="font-medium tabular-nums hover:underline" dir="ltr">
+                      <Link href={`/admin/orders/${o.id}`} className="whitespace-nowrap font-medium tabular-nums hover:underline" dir="ltr">
                         {o.order_number}
                       </Link>
                       <p className="whitespace-nowrap text-[0.75rem] text-text-muted">{formatDateTime(o.created_at, locale)}</p>
@@ -149,16 +149,28 @@ export default async function AdminCustomerPage({ params }: { params: Promise<{ 
                         {a.source === "checkout" ? <Tag tone="neutral">{C.savedAtCheckout}</Tag> : null}
                       </div>
                       <address className="not-italic text-text-secondary">
-                        {a.fullName ? <span className="block text-text-primary">{a.fullName}</span> : null}
+                        {a.fullName ? <bdi className="block text-text-primary">{a.fullName}</bdi> : null}
                         <span className="block">
-                          {a.address}
-                          {a.apartment ? `${sep}${fill(C.apartment, { value: a.apartment })}` : ""}
+                          <bdi>{a.address}</bdi>
+                          {a.apartment ? (
+                            <>
+                              {sep}
+                              {fill(C.apartment, { value: a.apartment })}
+                            </>
+                          ) : null}
                         </span>
-                        <span className="block">{[a.city, gov(a.governorate)].filter(Boolean).join(sep)}</span>
+                        <span className="block">
+                          {[a.city, gov(a.governorate)].filter(Boolean).map((part, i) => (
+                            <span key={i}>
+                              {i > 0 ? sep : null}
+                              <bdi>{part}</bdi>
+                            </span>
+                          ))}
+                        </span>
                         {a.postalCode ? <span className="block">{fill(C.postal, { value: a.postalCode })}</span> : null}
                         {a.phone ? (
-                          <span className="block tabular-nums" dir="ltr">
-                            {a.phone}
+                          <span className="block tabular-nums">
+                            <bdi dir="ltr">{a.phone}</bdi>
                           </span>
                         ) : null}
                       </address>

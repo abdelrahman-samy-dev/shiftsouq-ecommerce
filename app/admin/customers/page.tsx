@@ -86,8 +86,8 @@ export default async function AdminCustomersPage({
                       <Avatar name={c.name} email={c.email} size={32} />
                       <span className="min-w-0">
                         <span className="block max-w-56 truncate text-text-primary group-hover:underline">{c.name || C.noName}</span>
-                        <span className="block max-w-56 truncate text-[0.75rem] text-text-muted md:hidden" dir="ltr">
-                          {c.email || c.phone}
+                        <span className="block max-w-56 truncate text-[0.75rem] text-text-muted md:hidden">
+                          <bdi dir="ltr">{c.email || c.phone}</bdi>
                         </span>
                       </span>
                     </Link>
@@ -100,8 +100,8 @@ export default async function AdminCustomersPage({
                   firstDir: "asc",
                   hideBelow: "md",
                   cell: (c) => (
-                    <span className="block max-w-64 truncate text-text-secondary" dir="ltr">
-                      {c.email || t.common.none}
+                    <span className="block max-w-64 truncate text-text-secondary">
+                      <bdi dir="ltr">{c.email || t.common.none}</bdi>
                     </span>
                   ),
                 },

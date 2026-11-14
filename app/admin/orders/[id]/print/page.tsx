@@ -129,12 +129,19 @@ export default async function OrderPrintPage({
               {P.deliverTo}
             </h2>
             <address className="not-italic leading-relaxed">
-              <span className="block font-medium">{order.customer_name || t.orders.guest}</span>
-              {order.address ? <span className="block whitespace-pre-line">{order.address}</span> : null}
-              <span className="block">{[order.city, governorate].filter(Boolean).join(sep)}</span>
+              <bdi className="block font-medium">{order.customer_name || t.orders.guest}</bdi>
+              {order.address ? <bdi className="block whitespace-pre-line">{order.address}</bdi> : null}
+              <span className="block">
+                {[order.city, governorate].filter(Boolean).map((part, i) => (
+                  <span key={i}>
+                    {i > 0 ? sep : null}
+                    <bdi>{part}</bdi>
+                  </span>
+                ))}
+              </span>
               {order.phone ? (
-                <span className="block tabular-nums" dir="ltr">
-                  {order.phone}
+                <span className="block tabular-nums">
+                  <bdi dir="ltr">{order.phone}</bdi>
                 </span>
               ) : null}
             </address>
@@ -171,8 +178,8 @@ export default async function OrderPrintPage({
                   <p className="font-medium">{item.product_name}</p>
                   {item.variant_label ? <p className="text-[#4a4741]">{item.variant_label}</p> : null}
                   {item.sku ? (
-                    <p className="text-[0.75rem] tabular-nums text-[#6f6b63]" dir="ltr">
-                      {P.sku}: {item.sku}
+                    <p className="text-[0.75rem] tabular-nums text-[#6f6b63]">
+                      {P.sku}: <bdi dir="ltr">{item.sku}</bdi>
                     </p>
                   ) : null}
                 </td>

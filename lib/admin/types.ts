@@ -51,32 +51,6 @@ export interface AdminOrderDetail extends AdminOrderListItem {
   items: AdminOrderItem[];
 }
 
-export interface LowStockVariant {
-  id: string;
-  sku: string;
-  size: string | null;
-  color_en: string | null;
-  stock: number;
-  product_id: string;
-  product_name_en: string;
-  product_name_ar: string;
-  product_active: boolean;
-}
-
-export interface AdminDashboardStats {
-  totalOrders: number;
-  revenue: number;
-  revenueOrders: number;
-  awaitingPayment: number;
-  toFulfil: number;
-  cashToCollect: number;
-  totalProducts: number;
-  totalUsers: number;
-  recentOrders: AdminOrderListItem[];
-  lowStock: LowStockVariant[];
-  lowStockCount: number;
-}
-
 export interface AdminContactMessage {
   id: string;
   name: string;
@@ -90,39 +64,6 @@ export interface AdminContactMessage {
 }
 
 export type InboxView = "inbox" | "unread" | "archived";
-
-export interface AdminProductVariant {
-  id: string;
-  sku: string;
-  size: string | null;
-  color_en: string | null;
-  color_ar: string | null;
-  stock: number;
-  price_override: number | null;
-}
-
-export interface AdminProduct {
-  id: string;
-  slug: string;
-  name_en: string;
-  name_ar: string;
-  description_en: string | null;
-  description_ar: string | null;
-  base_price: number;
-  sale_price: number | null;
-  category_id: string;
-  is_active: boolean;
-  category: { name_en: string; name_ar: string } | null;
-  images: { url: string; is_primary: boolean; sort_order: number }[];
-  variants: AdminProductVariant[];
-  total_stock: number;
-}
-
-export interface AdminCategory {
-  id: string;
-  name_en: string;
-  name_ar: string;
-}
 
 export interface OrderFilters {
   search?: string;

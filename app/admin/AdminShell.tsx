@@ -114,9 +114,21 @@ export default function AdminShell({
   const crumbs: { label: string; href?: string }[] = [];
   if (item && group && group.id !== "overview") crumbs.push({ label: t.shell.groups[group.id] });
   if (item) crumbs.push({ label: t.shell.nav[item.id], href: item.href });
-  const deeper = item && pathname.replace(/\/+$/, "") !== item.href;
-  if (deeper && item) {
-    crumbs.push({ label: item.id === "orders" ? t.orders.order : item.id === "customers" ? t.customers.col.name : t.shell.detail });
+  // Deeper segments come from the route: /admin/orders/[id]/print → Order / Print, /admin/products/new → New product.
+  if (item) {
+    const C = t.shell.crumbs;
+    const entity: Partial<Record<string, string>> = {
+      orders: C.orders,
+      customers: C.customers,
+      products: C.products,
+      collections: C.collections,
+      categories: C.categories,
+    };
+    const rest = pathname.replace(/\/+$/, "").slice(item.href.length).split("/").filter(Boolean);
+    rest.forEach((seg, i) => {
+      const label = seg === "new" ? (C.new[item.id] ?? C.new.default) : seg === "print" ? C.print : (entity[item.id] ?? t.shell.detail);
+      crumbs.push({ label, href: `${item.href}/${rest.slice(0, i + 1).join("/")}` });
+    });
   }
   const current = crumbs[crumbs.length - 1]?.label ?? t.shell.admin;
   const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -252,7 +264,7 @@ export default function AdminShell({
         </header>
 
         <div id="admin-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none">
-          <div className="mx-auto w-full max-w-[1360px] px-4 pb-16 pt-6 sm:px-6 lg:px-8 lg:pt-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1360px] px-4 pb-16 pt-6 md:px-6 lg:px-8 lg:pt-8">{children}</div>
         </div>
       </div>
     </div>

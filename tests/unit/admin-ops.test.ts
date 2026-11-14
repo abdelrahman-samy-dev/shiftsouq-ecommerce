@@ -14,6 +14,8 @@ import {
   GOVERNORATE_KEYS,
   isHeroImage,
   isSafeLink,
+  mergeSettingsJson,
+  sameJson,
   settingsErrors,
   settingsSchema,
   settingsToRow,
@@ -184,6 +186,31 @@ describe("settings schema", () => {
     expect(back.home.hero?.title.ar).toBe("موسم جديد");
     expect(back.contact.address).toEqual(DEFAULT_SETTINGS.contact.address);
     expect(settingsToValues(back).shipping.zones.cairo).toBe(40);
+  });
+});
+
+describe("settings save keeps keys the form does not edit", () => {
+  it("deep-merges objects, replaces arrays and values", () => {
+    const stored = {
+      hero: { image: "/old.jpg", alt_en: "Man in a white T-shirt", credit: { photographer: "A. B." } },
+      eta_days: { min: 2, max: 5 },
+      eta_days_by_zone: { cairo: { min: 1, max: 2 } },
+      list: [1, 2, 3],
+    };
+    const next = { hero: { image: "/new.jpg", title_en: "New" }, eta_days: { min: 1, max: 3 }, list: [9] };
+    expect(mergeSettingsJson(stored, next)).toEqual({
+      hero: { image: "/new.jpg", alt_en: "Man in a white T-shirt", credit: { photographer: "A. B." }, title_en: "New" },
+      eta_days: { min: 1, max: 3 },
+      eta_days_by_zone: { cairo: { min: 1, max: 2 } },
+      list: [9],
+    });
+    expect(mergeSettingsJson(null, { a: 1 })).toEqual({ a: 1 });
+  });
+
+  it("compares stored JSON without caring about key order", () => {
+    expect(sameJson({ a: 1, b: { c: 2, d: 3 } }, { b: { d: 3, c: 2 }, a: 1 })).toBe(true);
+    expect(sameJson({ a: [1, 2] }, { a: [2, 1] })).toBe(false);
+    expect(sameJson(null, undefined)).toBe(true);
   });
 });
 
