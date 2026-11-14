@@ -271,12 +271,13 @@ export default function ProductDetail({ product, locale, initialColour, settings
                   </button>
                 ) : null}
               </div>
+              {/* auto-fit: a short run of sizes stretches to fill the row instead of leaving empty slots or one orphan. */}
               <div
                 className={cn(
                   "grid gap-1.5",
                   product.sizeSystem === "kids" && isAr
-                    ? "grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))]"
-                    : "grid-cols-[repeat(auto-fill,minmax(3.5rem,1fr))]",
+                    ? "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"
+                    : "grid-cols-[repeat(auto-fit,minmax(3rem,1fr))]",
                 )}
               >
                 {sizes.map((s) => {

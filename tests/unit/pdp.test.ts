@@ -201,8 +201,8 @@ describe("text", () => {
     expect(ar.onlyLeft(2)).toBe("لم يتبقَّ سوى قطعتين");
     expect(ar.onlyLeft(3)).toBe("لم يتبقَّ سوى 3 قطع");
     expect(ar.reviewsCount(12)).toBe("12 تقييمًا");
-    expect(ar.freeReturns(14)).toBe("إرجاع مجاني خلال 14 يومًا");
-    expect(ar.freeReturns(7)).toBe("إرجاع مجاني خلال 7 أيام");
+    expect(ar.freeReturns(14)).toBe("إرجاع سهل خلال 14 يومًا");
+    expect(ar.freeReturns(7)).toBe("إرجاع سهل خلال 7 أيام");
     expect(pdpCopy("en").onlyLeft(3)).toBe("Only 3 left");
     expect(reviewsCopy("en").basedOn(1)).toBe("Based on 1 review");
   });
