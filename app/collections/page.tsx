@@ -18,7 +18,8 @@ import { getRequestLocale } from "@/lib/seo/locale";
 import { buildPageMetadata } from "@/lib/seo/metadata";
 import { discoveryCopy } from "@/lib/search/copy";
 import { cn } from "@/lib/utils";
-import { Breadcrumbs, ButtonLink, EmptyState } from "@/components/ds";
+import { ButtonLink } from "@/components/ds/Button";
+import { Breadcrumbs, EmptyState } from "@/components/ds/Display";
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getRequestLocale();

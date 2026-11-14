@@ -72,6 +72,12 @@ describe("typo tolerance", () => {
     expect(textMatchLevel("أحذية", "احذيه رياضية")).toBe(4);
     expect(textMatchLevel("hats", "Sneakers")).toBe(0);
   });
+
+  it("uses the synonyms table for everyday words", () => {
+    const synonyms = new Map([["بنطلون", ["بنطال", "بناطيل"]]]);
+    expect(textMatchLevel("بنطلون", "بناطيل")).toBe(0);
+    expect(textMatchLevel("بنطلون", "بناطيل", synonyms)).toBe(3);
+  });
 });
 
 describe("size order", () => {

@@ -18,7 +18,7 @@ import Link from "next/link";
 import { Heart, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Product, ProductImage, ProductVariant } from "@/lib/types";
-import { Badge, Price } from "@/components/ds";
+import { Badge, Price } from "@/components/ds/Display";
 import { priceSummary, unitPrice, variantInStock } from "@/lib/seo/pricing";
 import { useWishlistStore } from "@/lib/store/useWishlistStore";
 import { useCartStore } from "@/lib/store/useCartStore";

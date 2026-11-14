@@ -13,7 +13,7 @@
      • punctuation and whitespace runs → one space
    tokenMatchLevel() mirrors the token rules of
    search_product_base(): word prefix (3), typo (2), inside a
-   word (1).
+   word (1); textMatchLevel() also accepts the synonyms table.
    ══════════════════════════════════════════════════════════════ */
 
 /** Harakat, superscript alef, Quranic marks and tatweel. */
@@ -116,7 +116,12 @@ export function tokenMatchLevel(token: string, word: string): 0 | 1 | 2 | 3 {
  * 5 exact, 4 starts with the query, else the weakest token level
  * (3 word, 2 typo, 1 inside a word); 0 when a token is missing.
  */
-export function textMatchLevel(query: string, text: string): number {
+export function textMatchLevel(
+  query: string,
+  text: string,
+  /** Normalised word → words that match too (the search_synonyms table). */
+  synonyms?: ReadonlyMap<string, readonly string[]>,
+): number {
   const q = normalizeSearch(query);
   const target = normalizeSearch(text);
   if (!q || !target) return 0;
@@ -126,8 +131,11 @@ export function textMatchLevel(query: string, text: string): number {
   let weakest = 3;
   for (const token of searchTokens(q)) {
     let best = 0;
-    for (const word of words) {
-      best = Math.max(best, tokenMatchLevel(token, word));
+    for (const alt of [token, ...(synonyms?.get(token) ?? [])]) {
+      for (const word of words) {
+        best = Math.max(best, tokenMatchLevel(alt, word));
+        if (best === 3) break;
+      }
       if (best === 3) break;
     }
     if (best === 0) return 0;

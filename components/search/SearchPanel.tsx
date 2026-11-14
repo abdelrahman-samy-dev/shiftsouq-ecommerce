@@ -18,7 +18,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Clock, Search, X } from "lucide-react";
-import { Price } from "@/components/ds";
+import { Price } from "@/components/ds/Display";
 import type { Locale } from "@/lib/types";
 import type { SuggestCategory, SuggestProduct } from "@/lib/dal/products";
 import { discoveryCopy } from "@/lib/search/copy";
