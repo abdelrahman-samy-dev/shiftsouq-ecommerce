@@ -11,15 +11,17 @@
    No client-side state management needed.
    ══════════════════════════════════════════════════════════════ */
 
-import { cookies } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ChevronRight, Package } from "lucide-react";
 
 import { getProducts, getCategories, getAvailableFiltersForCategories } from "@/lib/dal";
 import { getDictionary } from "@/lib/i18n/get-dictionary";
-import type { Locale } from "@/lib/types";
-import { APP_NAME, PRODUCTS_PER_PAGE } from "@/lib/constants";
+import type { ProductFilters } from "@/lib/types";
+import { PRODUCTS_PER_PAGE } from "@/lib/constants";
+import { getRequestLocale } from "@/lib/seo/locale";
+import { SEO_COPY } from "@/lib/seo/copy";
+import { buildPageMetadata } from "@/lib/seo/metadata";
 import ProductCard from "@/components/product/ProductCard";
 import AnimatedProductCard from "@/components/product/AnimatedProductCard";
 import Pagination from "@/components/shared/Pagination";
@@ -27,17 +29,65 @@ import SortSelect from "@/components/shop/SortSelect";
 import ShopFilters from "@/components/shop/ShopFilters";
 import MobileFilterToggle from "@/components/shop/MobileFilterToggle";
 
-/* ── Static Metadata ──────────────────────────────────────── */
+type SearchParams = { [key: string]: string | string[] | undefined };
 
-export const metadata: Metadata = {
-  title: `Shop | ${APP_NAME}`,
-  description: `Browse our full collection of premium products at ${APP_NAME}.`,
-  openGraph: {
-    title: `Shop | ${APP_NAME}`,
-    description: `Browse our full collection of premium products at ${APP_NAME}.`,
-    type: "website",
-  },
-};
+/** Grid: two columns below lg, three columns beside the filter sidebar above. */
+const SHOP_CARD_SIZES = "(max-width: 1023px) 50vw, 330px";
+
+const first = (value: string | string[] | undefined) =>
+  typeof value === "string" ? value : undefined;
+
+/* ── Metadata (visitor's language) ─────────────────────────
+   Canonical rules:
+   - /shop?category=x duplicates /category/x → canonical there.
+   - Pagination keeps ?page=N; sort/price/size/colour filters
+     point to the unfiltered list.
+   - Search results are noindex (follow) with canonical /shop.  */
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}): Promise<Metadata> {
+  const [params, locale] = await Promise.all([searchParams, getRequestLocale()]);
+  const copy = SEO_COPY[locale];
+
+  const category = first(params.category);
+  const query = first(params.q)?.trim();
+  const isNew = params.isNew === "true";
+  const page = Number.parseInt(first(params.page) ?? "1", 10);
+  const pageNumber = Number.isFinite(page) && page > 1 ? page : 1;
+
+  if (category) {
+    const categories = await getCategories();
+    const match =
+      categories.find((c) => c.slug === category) ??
+      categories.flatMap((c) => c.children).find((c) => c.slug === category);
+    if (match) {
+      const name = locale === "ar" ? match.name_ar : match.name_en;
+      return buildPageMetadata({
+        locale,
+        title: name,
+        description: copy.categoryDescription(name),
+        path: `/category/${encodeURIComponent(match.slug)}`,
+      });
+    }
+  }
+
+  const baseTitle = query
+    ? copy.searchTitle(query.slice(0, 60))
+    : isNew
+      ? copy.newArrivalsTitle
+      : copy.shopTitle;
+
+  return buildPageMetadata({
+    locale,
+    title: pageNumber > 1 ? `${baseTitle} — ${copy.pageSuffix(pageNumber)}` : baseTitle,
+    description: copy.shopDescription,
+    path: pageNumber > 1 && !query ? `/shop?page=${pageNumber}` : "/shop",
+    noindex: Boolean(query),
+  });
+}
 
 /* ── Page Component ────────────────────────────────────────── */
 
@@ -53,11 +103,10 @@ export const metadata: Metadata = {
 export default async function ShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const resolvedParams = await searchParams;
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  const locale = await getRequestLocale();
   const isAr = locale === "ar";
 
   const [dict, categories] = await Promise.all([
@@ -106,10 +155,14 @@ export default async function ShopPage({
   // If a category is selected, fetch filters for that category. Otherwise, fetch all available globally.
   let filterCategoryIds: string[] = [];
   if (categorySlug) {
-    const activeCat = categories.find((c) => c.slug === categorySlug) ??
-      categories.flatMap((c) => c.children).find((c) => c.slug === categorySlug);
-    if (activeCat) {
-      filterCategoryIds = [activeCat.id, ...(activeCat as any).children?.map((c: any) => c.id) || []];
+    const parent = categories.find((c) => c.slug === categorySlug);
+    const child = parent
+      ? undefined
+      : categories.flatMap((c) => c.children).find((c) => c.slug === categorySlug);
+    if (parent) {
+      filterCategoryIds = [parent.id, ...parent.children.map((c) => c.id)];
+    } else if (child) {
+      filterCategoryIds = [child.id];
     }
   }
   const availableFilters = await getAvailableFiltersForCategories(filterCategoryIds);
@@ -118,7 +171,7 @@ export default async function ShopPage({
   const { products, count } = await getProducts(
     {
       categorySlug,
-      sortBy: sortBy as any,
+      sortBy: sortBy as ProductFilters["sortBy"],
       isNew: isNew || undefined,
       minPrice: minPrice && !isNaN(minPrice) ? minPrice : undefined,
       maxPrice: maxPrice && !isNaN(maxPrice) ? maxPrice : undefined,
@@ -240,14 +293,16 @@ export default async function ShopPage({
             <div className="divider mb-6" />
 
             {/* ── Products Grid ────────────────────────── */}
+            <h2 className="sr-only">{isAr ? "المنتجات" : "Products"}</h2>
             {products.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 animate-fade-in-up">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
                 {products.map((product, index) => (
                   <AnimatedProductCard key={product.id} index={index}>
                     <ProductCard
                       product={product}
                       locale={locale}
-                      dict={dict as any}
+                      dict={dict}
+                      sizes={SHOP_CARD_SIZES}
                     />
                   </AnimatedProductCard>
                 ))}

@@ -20,10 +20,35 @@ import type {
   Product,
   ProductWithDetails,
   ProductImage,
+  ProductVariant,
   ProductFilters,
   PaginationParams,
 } from "@/lib/types";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
+import { toSafeLikeTerm } from "@/lib/search/normalize";
+
+/* ── Listing types ───────────────────────────────────────────── */
+
+/**
+ * Variant fields listing cards need: options (to decide whether
+ * "Add to cart" can go straight to the cart), stock and the price
+ * override (to show the price checkout will charge).
+ */
+export type ListingVariant = Pick<
+  ProductVariant,
+  "id" | "size" | "color_en" | "color_ar" | "color_hex" | "stock" | "price_override"
+>;
+
+/** A product as returned by listing queries (cards, grids, wishlist). */
+export type ListingProduct = Omit<ProductWithDetails, "variants"> & {
+  variants: ListingVariant[];
+};
+
+/** Columns selected for listing cards. */
+const LISTING_SELECT = `*, category:categories!category_id(name_en, name_ar, slug),
+         store:stores!store_id(name, slug),
+         product_images(id, url, alt_text_en, alt_text_ar, is_primary, sort_order),
+         variants:product_variants(id, size, color_en, color_ar, color_hex, stock, price_override)`;
 
 /* ── Private Helpers ─────────────────────────────────────────── */
 
@@ -38,7 +63,7 @@ import { PRODUCTS_PER_PAGE } from "@/lib/constants";
  * @param raw - A single row from the Supabase query with joined relations.
  * @returns A fully-typed `ProductWithDetails` object.
  */
-function reshapeProduct(raw: Record<string, unknown>): ProductWithDetails {
+function reshapeProduct(raw: Record<string, unknown>): ListingProduct {
   const rawImages = raw.product_images;
   const images = Array.isArray(rawImages) ? (rawImages as ProductImage[]) : [];
   const primaryImage =
@@ -48,7 +73,7 @@ function reshapeProduct(raw: Record<string, unknown>): ProductWithDetails {
     ...(raw as unknown as Product),
     category: (raw.category as ProductWithDetails["category"]) ?? null,
     store: (raw.store as ProductWithDetails["store"]) ?? null,
-    variants: (raw.variants as ProductWithDetails["variants"]) ?? [],
+    variants: (raw.variants as ListingVariant[]) ?? [],
     primary_image: primaryImage,
   };
 }
@@ -190,7 +215,7 @@ const SORT_MAP: Record<string, { column: string; ascending: boolean }> = {
 export async function getProducts(
   filters?: ProductFilters,
   pagination?: PaginationParams
-): Promise<{ products: ProductWithDetails[]; count: number }> {
+): Promise<{ products: ListingProduct[]; count: number }> {
   try {
     const supabase = getPublicClient();
     const page = pagination?.page ?? 1;
@@ -242,13 +267,7 @@ export async function getProducts(
     /* ── Build main query ──────────────────────────────────── */
     let query = supabase
       .from("products")
-      .select(
-        `*, category:categories!category_id(name_en, name_ar, slug),
-         store:stores!store_id(name, slug),
-         product_images(id, url, alt_text_en, alt_text_ar, is_primary, sort_order),
-         variants:product_variants(id, size, color_en)`,
-        { count: "exact" }
-      )
+      .select(LISTING_SELECT, { count: "exact" })
       .eq("product_images.is_primary", true)
       .eq("is_active", true);
 
@@ -273,9 +292,10 @@ export async function getProducts(
     if (filters?.maxPrice !== undefined) {
       query = query.lte("base_price", filters.maxPrice);
     }
-    if (filters?.search) {
+    const searchTerm = filters?.search ? toSafeLikeTerm(filters.search) : "";
+    if (searchTerm) {
       query = query.or(
-        `name_en.ilike.%${filters.search}%,name_ar.ilike.%${filters.search}%`
+        `name_en.ilike.%${searchTerm}%,name_ar.ilike.%${searchTerm}%`
       );
     }
     if (filters?.isNew) {
@@ -325,7 +345,7 @@ export async function getProducts(
  */
 export async function getFeaturedProducts(
   limit: number = 8
-): Promise<ProductWithDetails[]> {
+): Promise<ListingProduct[]> {
   const { products } = await getProducts(
     { isFeatured: true },
     { page: 1, pageSize: limit }
@@ -387,7 +407,7 @@ export const getProductBySlug = cache(async (slug: string) => {
  */
 export async function getProductsByIds(
   ids: string[]
-): Promise<ProductWithDetails[]> {
+): Promise<ListingProduct[]> {
   if (ids.length === 0) return [];
 
   try {
@@ -395,12 +415,7 @@ export async function getProductsByIds(
 
     const { data, error } = await supabase
       .from("products")
-      .select(
-        `*, category:categories!category_id(name_en, name_ar, slug),
-         store:stores!store_id(name, slug),
-         product_images(id, url, alt_text_en, alt_text_ar, is_primary, sort_order),
-         variants:product_variants(id, size, color_en)`
-      )
+      .select(LISTING_SELECT)
       .eq("product_images.is_primary", true)
       .eq("is_active", true)
       .in("id", ids);

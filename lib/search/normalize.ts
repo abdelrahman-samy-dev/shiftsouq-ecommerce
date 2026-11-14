@@ -144,3 +144,17 @@ export function buildSearchableText(fields: (string | null | undefined)[]): stri
     .map((f) => normalizeText(f!))
     .join(" ");
 }
+
+/**
+ * Makes a user-typed search term safe to embed in a PostgREST
+ * `or(...ilike...)` filter: characters that separate or group
+ * filter expressions (`,` `(` `)`), quoting/escape characters and
+ * LIKE wildcards are replaced with spaces, and the length is capped.
+ */
+export function toSafeLikeTerm(raw: string, maxLength = 100): string {
+  return raw
+    .replace(/[,()"'\%*_:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}

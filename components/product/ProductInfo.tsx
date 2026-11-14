@@ -6,22 +6,34 @@
    Complete product info panel for the PDP: brand, title, rating,
    price, color/size variant selectors, description, and CTA.
 
-   SRP Refactoring: Sub-components are extracted into focused,
-   single-responsibility units (StarRating, PriceDisplay,
-   ColorSelector, SizeSelector, QuantitySelector, StockStatus).
+   Variant rules (match checkout, see place_order()):
+   - An option with a single value (one colour, one size, or a
+     product with one variant) is pre-selected, so the buyer is
+     never asked to "select options" when there is no choice.
+   - Options with no stock for the current selection are disabled
+     and marked "out of stock".
+   - The price shown is the price checkout charges: variant
+     price_override, else a valid sale price, else base price
+     (lib/seo/pricing). Before a full selection, the lowest price
+     of the in-stock variants is shown as "From …" when they differ.
+   - Add to cart is disabled when the selected variant has no stock.
 
    Supports LTR/RTL and Dark Mode via CSS custom properties.
    ══════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShoppingCart, Heart, Star, CheckCircle, X, Check } from "lucide-react";
 import type { ProductVariant, ProductImage } from "@/lib/types";
-import { formatPrice, getDiscountPercentage } from "@/lib/utils";
+import { formatPrice } from "@/lib/utils";
 import type { Locale } from "@/lib/types";
+import { FREE_SHIPPING_THRESHOLD } from "@/lib/checkout/shipping";
+import { MAX_CART_QUANTITY } from "@/lib/constants";
+import { priceSummary, unitPrice } from "@/lib/seo/pricing";
 import { useCartStore } from "@/lib/store/useCartStore";
 import { useWishlistStore } from "@/lib/store/useWishlistStore";
+import { useHydrated } from "./use-hydrated";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -45,10 +57,12 @@ interface ProductInfoProduct {
   variants: ProductVariant[];
 }
 
+type Dict = Record<string, Record<string, string>>;
+
 interface ProductInfoProps {
   product: ProductInfoProduct;
   locale: Locale;
-  dict: Record<string, Record<string, string>>;
+  dict: Dict;
 }
 
 /* ── Sub-Components (SRP) ────────────────────────────────────── */
@@ -57,12 +71,16 @@ interface ProductInfoProps {
  * Renders a star rating display with partial-fill support.
  * Purely presentational — no interactive behavior.
  */
-function StarRating({ rating, max = 5 }: { rating: number; max?: number }) {
+function StarRating({ rating, max = 5, locale }: { rating: number; max?: number; locale: Locale }) {
   return (
     <div
       className="flex items-center gap-0.5"
       role="img"
-      aria-label={`Rating: ${rating} out of ${max}`}
+      aria-label={
+        locale === "ar"
+          ? `التقييم ${rating.toFixed(1)} من ${max}`
+          : `Rating: ${rating.toFixed(1)} out of ${max}`
+      }
     >
       {Array.from({ length: max }, (_, i) => {
         const filled = i < Math.floor(rating);
@@ -99,44 +117,49 @@ function StarRating({ rating, max = 5 }: { rating: number; max?: number }) {
 
 /**
  * Displays the product price with optional sale styling.
- * Shows original price, sale price, discount badge, and shipping teaser.
+ * Shows the price checkout charges, the struck-through base price
+ * when lower, the discount badge and the free-shipping note.
  */
 function PriceDisplay({
-  basePrice,
-  salePrice,
+  price,
+  compareAt,
+  discountPercent,
+  fromPrice,
   locale,
-  dict,
 }: {
-  basePrice: number;
-  salePrice: number | null;
+  price: number;
+  compareAt: number | null;
+  discountPercent: number;
+  /** True when the price is the lowest of several ("From …"). */
+  fromPrice: boolean;
   locale: Locale;
-  dict: Record<string, Record<string, string>>;
 }) {
   const isAr = locale === "ar";
-  const hasSale = salePrice !== null && salePrice < basePrice;
-  const displayPrice = hasSale ? salePrice! : basePrice;
-  const discountPct = hasSale
-    ? getDiscountPercentage(basePrice, salePrice!)
-    : 0;
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-3 flex-wrap">
+        {fromPrice && (
+          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+            {isAr ? "يبدأ من" : "From"}
+          </span>
+        )}
         <span
           className="text-3xl font-bold"
           style={{ color: "var(--text-primary)" }}
         >
-          {formatPrice(displayPrice, locale)}
+          {formatPrice(price, locale)}
         </span>
-        {hasSale && (
+        {compareAt !== null && (
           <span
             className="text-lg line-through"
-            style={{ color: "var(--text-faint)" }}
+            style={{ color: "var(--text-muted)" }}
           >
-            {formatPrice(basePrice, locale)}
+            <span className="sr-only">{isAr ? "السعر قبل الخصم:" : "Was"} </span>
+            {formatPrice(compareAt, locale)}
           </span>
         )}
-        {hasSale && (
+        {compareAt !== null && discountPercent > 0 && (
           <span
             className="text-sm font-semibold px-2 py-0.5 rounded-lg"
             style={{
@@ -145,17 +168,32 @@ function PriceDisplay({
               border: "1px solid var(--destructive-border)",
             }}
           >
-            {dict?.common?.save ?? "Save"} {discountPct}%
+            {isAr ? "وفّر" : "Save"} {discountPercent}%
           </span>
         )}
       </div>
-      <p className="text-sm" style={{ color: "var(--success)" }}>
-        ✓{" "}
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+        <span style={{ color: "var(--success)" }} aria-hidden="true">✓</span>{" "}
         {isAr
-          ? "شحن مجاني للطلبات فوق 500 ج.م"
-          : "Free shipping on orders over EGP 500"}
+          ? `شحن مجاني للطلبات من ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)}`
+          : `Free shipping on orders from ${formatPrice(FREE_SHIPPING_THRESHOLD, locale)}`}
       </p>
     </div>
+  );
+}
+
+/** Diagonal line drawn over an option that is out of stock. */
+function OutOfStockStrike() {
+  return (
+    <span
+      className="absolute inset-0 flex items-center justify-center pointer-events-none"
+      aria-hidden="true"
+    >
+      <span
+        className="block w-[120%] h-[1.5px] -rotate-45"
+        style={{ background: "var(--text-muted)" }}
+      />
+    </span>
   );
 }
 
@@ -167,19 +205,22 @@ function ColorSelector({
   colors,
   selectedColor,
   onSelect,
+  isAvailable,
   locale,
 }: {
   colors: ProductVariant[];
   selectedColor: string | null;
   onSelect: (hex: string | null) => void;
+  isAvailable: (hex: string) => boolean;
   locale: Locale;
 }) {
   const isAr = locale === "ar";
+  const single = colors.length === 1;
 
   const selectedColorName = useMemo(() => {
     if (!selectedColor) return null;
     const variant = colors.find((v) => v.color_hex === selectedColor);
-    return variant ? (isAr ? variant.color_ar : variant.color_en) : null;
+    return variant ? (isAr ? variant.color_ar ?? variant.color_en : variant.color_en) : null;
   }, [selectedColor, colors, isAr]);
 
   return (
@@ -202,24 +243,30 @@ function ColorSelector({
       </div>
       <div
         className="flex items-center gap-2.5 flex-wrap"
-        role="radiogroup"
+        role="group"
         aria-label={isAr ? "اختيار اللون" : "Color selection"}
       >
         {colors.map((v) => {
-          const isSelected = selectedColor === v.color_hex;
+          const hex = v.color_hex!;
+          const isSelected = selectedColor === hex;
+          const available = isAvailable(hex);
+          const colorName = (isAr ? v.color_ar ?? v.color_en : v.color_en) ?? hex;
+          const oosLabel = isAr ? "غير متوفر" : "out of stock";
           return (
             <button
               key={v.id}
               type="button"
-              onClick={() =>
-                onSelect(isSelected ? null : v.color_hex!)
-              }
-              title={isAr ? v.color_ar ?? "" : v.color_en ?? ""}
-              aria-label={`Color: ${isAr ? v.color_ar : v.color_en}`}
+              // A single colour stays selected; otherwise clicking again clears it.
+              onClick={() => onSelect(isSelected && !single ? null : hex)}
+              title={available ? colorName : `${colorName} — ${oosLabel}`}
+              aria-label={`${isAr ? "اللون" : "Color"}: ${colorName}${available ? "" : ` (${oosLabel})`}`}
               aria-pressed={isSelected}
-              className="relative w-9 h-9 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              disabled={!available && !isSelected}
+              className={`relative w-9 h-9 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                available ? "" : "opacity-40 cursor-not-allowed"
+              }`}
               style={{
-                backgroundColor: v.color_hex ?? "#ccc",
+                backgroundColor: hex,
                 boxShadow: isSelected
                   ? `0 0 0 2px var(--background), 0 0 0 4px var(--primary)`
                   : "0 0 0 1.5px var(--border)",
@@ -228,7 +275,7 @@ function ColorSelector({
             >
               {isSelected && (
                 <span className="absolute inset-0 flex items-center justify-center">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path
                       d="M2 6L5 9L10 3"
                       stroke="white"
@@ -239,6 +286,7 @@ function ColorSelector({
                   </svg>
                 </span>
               )}
+              {!available && <OutOfStockStrike />}
             </button>
           );
         })}
@@ -267,6 +315,7 @@ const SHOE_SIZE_CHART = [
 /**
  * SizeGuideModal — Displays a category-specific size chart.
  * Shows clothing measurements for 'men', shoe conversions for 'sneakers'.
+ * Only opens after a click, so it always renders on the client.
  */
 function SizeGuideModal({
   isOpen,
@@ -279,22 +328,21 @@ function SizeGuideModal({
   categorySlug: string;
   locale: Locale;
 }) {
-  const [mounted, setMounted] = useState(false);
-
   useEffect(() => {
-    setMounted(true);
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    if (!isOpen) return;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKey);
     };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   const isAr = locale === "ar";
-  if (!isOpen || !mounted) return null;
+  if (!isOpen) return null;
 
   const isSneakers = categorySlug === "sneakers";
   const title = isSneakers
@@ -322,9 +370,9 @@ function SizeGuideModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+          <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
             {title}
-          </h3>
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -383,7 +431,7 @@ function SizeGuideModal({
           )}
         </div>
 
-        <p className="text-xs mt-4" style={{ color: "var(--text-faint)" }}>
+        <p className="text-xs mt-4" style={{ color: "var(--text-muted)" }}>
           {isAr
             ? "* القياسات تقريبية وقد تختلف حسب التصميم."
             : "* Measurements are approximate and may vary by style."}
@@ -396,26 +444,25 @@ function SizeGuideModal({
 
 /**
  * Size pill selector — renders a row of toggleable size buttons
- * with a dynamic "Size guide" link that opens the category-aware modal.
+ * with a "Size guide" link that opens the category-aware modal.
  */
 function SizeSelector({
   sizes,
   selectedSize,
   onSelect,
+  isAvailable,
   locale,
-  dict,
-  categorySlug,
   onOpenSizeGuide,
 }: {
   sizes: ProductVariant[];
   selectedSize: string | null;
   onSelect: (size: string | null) => void;
+  isAvailable: (size: string) => boolean;
   locale: Locale;
-  dict: Record<string, Record<string, string>>;
-  categorySlug: string;
   onOpenSizeGuide: () => void;
 }) {
   const isAr = locale === "ar";
+  const single = sizes.length === 1;
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -424,35 +471,37 @@ function SizeSelector({
           className="text-sm font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          {isAr ? "المقاس" : "Size guide"}
+          {isAr ? "المقاس" : "Size"}
         </span>
         <button
           type="button"
           onClick={onOpenSizeGuide}
           className="text-sm underline underline-offset-2 hover:text-[var(--text-primary)] transition-colors"
           style={{ color: "var(--text-muted)" }}
-          aria-label={isAr ? "دليل المقاسات" : "Size guide"}
         >
-          {isAr ? "دليل المقاسات" : "Size guide"} ↗
+          {isAr ? "دليل المقاسات" : "Size guide"} <span aria-hidden="true">↗</span>
         </button>
       </div>
       <div
         className="flex flex-wrap gap-2"
-        role="radiogroup"
+        role="group"
         aria-label={isAr ? "اختيار المقاس" : "Size selection"}
       >
         {sizes.map((v) => {
-          const isSelected = selectedSize === v.size;
-          const isOos = v.stock === 0;
+          const size = v.size!;
+          const isSelected = selectedSize === size;
+          const available = isAvailable(size);
+          const oosLabel = isAr ? "غير متوفر" : "out of stock";
           return (
             <button
               key={v.id}
               type="button"
-              onClick={() => onSelect(isSelected ? null : v.size!)}
+              onClick={() => onSelect(isSelected && !single ? null : size)}
               aria-pressed={isSelected}
-              disabled={isOos}
+              aria-label={`${isAr ? "المقاس" : "Size"} ${size}${available ? "" : ` (${oosLabel})`}`}
+              disabled={!available && !isSelected}
               className={`relative h-10 min-w-[3rem] px-4 rounded-xl text-sm font-semibold transition-all duration-200 border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-                isOos ? "opacity-40 cursor-not-allowed" : ""
+                available ? "" : "opacity-40 cursor-not-allowed"
               }`}
               style={{
                 background: isSelected
@@ -467,21 +516,10 @@ function SizeSelector({
                 boxShadow: isSelected ? "var(--shadow-sm)" : "none",
                 transform: isSelected ? "scale(1.05)" : "scale(1)",
               }}
-              title={isOos ? (isAr ? "غير متوفر" : "Out of stock") : undefined}
+              title={available ? undefined : oosLabel}
             >
-              {v.size}
-              {/* Diagonal strikethrough for out-of-stock */}
-              {isOos && (
-                <span
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                  aria-hidden="true"
-                >
-                  <span
-                    className="block w-[120%] h-[1.5px] -rotate-45"
-                    style={{ background: "var(--text-faint)" }}
-                  />
-                </span>
-              )}
+              {size}
+              {!available && <OutOfStockStrike />}
             </button>
           );
         })}
@@ -495,11 +533,16 @@ function SizeSelector({
  */
 function QuantitySelector({
   quantity,
+  max,
   onQuantityChange,
+  locale,
 }: {
   quantity: number;
+  max: number;
   onQuantityChange: (q: number) => void;
+  locale: Locale;
 }) {
+  const isAr = locale === "ar";
   return (
     <div
       className="flex items-center rounded-xl border overflow-hidden"
@@ -508,9 +551,10 @@ function QuantitySelector({
       <button
         type="button"
         onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
-        className="w-10 h-12 flex items-center justify-center text-lg font-medium transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-primary"
+        disabled={quantity <= 1}
+        className="w-10 h-12 flex items-center justify-center text-lg font-medium transition-colors hover:bg-surface-elevated disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-primary"
         style={{ color: "var(--text-primary)" }}
-        aria-label="Decrease quantity"
+        aria-label={isAr ? "إنقاص الكمية" : "Decrease quantity"}
       >
         −
       </button>
@@ -521,16 +565,17 @@ function QuantitySelector({
           color: "var(--text-primary)",
         }}
         aria-live="polite"
-        aria-label={`Quantity: ${quantity}`}
+        aria-label={isAr ? `الكمية: ${quantity}` : `Quantity: ${quantity}`}
       >
         {quantity}
       </span>
       <button
         type="button"
-        onClick={() => onQuantityChange(quantity + 1)}
-        className="w-10 h-12 flex items-center justify-center text-lg font-medium transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-primary"
+        onClick={() => onQuantityChange(Math.min(max, quantity + 1))}
+        disabled={quantity >= max}
+        className="w-10 h-12 flex items-center justify-center text-lg font-medium transition-colors hover:bg-surface-elevated disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-primary"
         style={{ color: "var(--text-primary)" }}
-        aria-label="Increase quantity"
+        aria-label={isAr ? "زيادة الكمية" : "Increase quantity"}
       >
         +
       </button>
@@ -543,21 +588,21 @@ function QuantitySelector({
  * for the currently selected variant.
  */
 function StockStatus({
-  variant,
+  stock,
   locale,
 }: {
-  variant: ProductVariant;
+  stock: number;
   locale: Locale;
 }) {
   const isAr = locale === "ar";
-  const inStock = variant.stock > 0;
+  const inStock = stock > 0;
 
   return (
     <div
       className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl"
       style={{
         background: inStock ? "var(--success-bg)" : "var(--destructive-bg)",
-        color: inStock ? "var(--success)" : "var(--destructive)",
+        color: "var(--text-primary)",
         border: `1px solid ${inStock ? "rgba(22,163,74,0.2)" : "var(--destructive-border)"}`,
       }}
       role="status"
@@ -565,16 +610,54 @@ function StockStatus({
     >
       <span
         className={`w-2 h-2 rounded-full ${inStock ? "bg-success" : "bg-destructive"}`}
+        aria-hidden="true"
       />
       {inStock
         ? isAr
-          ? `متوفر — ${variant.stock} قطعة`
-          : `In stock — ${variant.stock} left`
+          ? `متوفر — ${stock} قطعة`
+          : `In stock — ${stock} left`
         : isAr
           ? "نفد من المخزون"
           : "Out of stock"}
     </div>
   );
+}
+
+/** Renders plain-text descriptions as paragraphs (no HTML from the database). */
+function DescriptionText({ text }: { text: string }) {
+  const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim());
+  return (
+    <div
+      className="text-sm leading-relaxed space-y-2"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      {paragraphs.map((paragraph, i) => {
+        const lines = paragraph.split("\n");
+        return (
+          <p key={i}>
+            {lines.map((line, j) => (
+              <Fragment key={j}>
+                {j > 0 && <br />}
+                {line}
+              </Fragment>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Variant helpers ─────────────────────────────────────────── */
+
+function uniqueBy(variants: ProductVariant[], key: "color_hex" | "size"): ProductVariant[] {
+  const seen = new Set<string>();
+  return variants.filter((v) => {
+    const value = v[key];
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
 }
 
 /* ── Main Component ──────────────────────────────────────────── */
@@ -603,19 +686,28 @@ export default function ProductInfo({
   const addCartItem = useCartStore((s) => s.addItem);
   const toggleWishlist = useWishlistStore((s) => s.toggleWishlist);
   const wishlistIds = useWishlistStore((s) => s.productIds);
+  const hydrated = useHydrated();
 
-  /* ── Local state ────────────────────────────────────────── */
-  const [selectedColor, setSelectedColor] = useState<string | null>(null);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  /* ── Options ────────────────────────────────────────────── */
+  const variants = product.variants;
+  const uniqueColors = useMemo(() => uniqueBy(variants, "color_hex"), [variants]);
+  const uniqueSizes = useMemo(() => uniqueBy(variants, "size"), [variants]);
+  const hasColors = uniqueColors.length > 0;
+  const hasSizes = uniqueSizes.length > 0;
+
+  /* ── Local state — single options start selected ────────── */
+  const [selectedColor, setSelectedColor] = useState<string | null>(() =>
+    uniqueColors.length === 1 ? uniqueColors[0].color_hex : null
+  );
+  const [selectedSize, setSelectedSize] = useState<string | null>(() =>
+    uniqueSizes.length === 1 ? uniqueSizes[0].size : null
+  );
   const [quantity, setQuantity] = useState(1);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
 
   /* Derive wishlisted from the reactive productIds array */
-  const wishlistActive = mounted ? wishlistIds.includes(product.id) : false;
+  const wishlistActive = hydrated ? wishlistIds.includes(product.id) : false;
 
   const categorySlug = product.category?.slug ?? "";
 
@@ -628,84 +720,117 @@ export default function ProductInfo({
       : product.category.name_en
     : null;
 
-  const hasSale =
-    product.sale_price !== null && product.sale_price < product.base_price;
-  const discountPct = hasSale
-    ? getDiscountPercentage(product.base_price, product.sale_price!)
-    : 0;
+  /* ── Availability per option, given the other selection ── */
+  const isColorAvailable = useCallback(
+    (hex: string) =>
+      variants.some(
+        (v) =>
+          v.color_hex === hex &&
+          (!hasSizes || !selectedSize || v.size === selectedSize) &&
+          v.stock > 0
+      ),
+    [variants, hasSizes, selectedSize]
+  );
+  const isSizeAvailable = useCallback(
+    (size: string) =>
+      variants.some(
+        (v) =>
+          v.size === size &&
+          (!hasColors || !selectedColor || v.color_hex === selectedColor) &&
+          v.stock > 0
+      ),
+    [variants, hasColors, selectedColor]
+  );
 
-  /* ── Unique variant extraction (memoised) ───────────────── */
-  const uniqueColors = useMemo(() => {
-    const seen = new Set<string>();
-    return product.variants.filter((v) => {
-      if (!v.color_hex) return false;
-      if (seen.has(v.color_hex)) return false;
-      seen.add(v.color_hex);
-      return true;
-    });
-  }, [product.variants]);
+  /* ── Selected variant (only once every option is chosen) ─ */
+  const selectionComplete =
+    (!hasColors || selectedColor !== null) && (!hasSizes || selectedSize !== null);
 
-  const uniqueSizes = useMemo(() => {
-    const seen = new Set<string>();
-    return product.variants.filter((v) => {
-      if (!v.size) return false;
-      if (seen.has(v.size)) return false;
-      seen.add(v.size);
-      return true;
-    });
-  }, [product.variants]);
-
-  const hasVariants = product.variants.length > 0;
-  const hasColors = uniqueColors.length > 0;
-  const hasSizes = uniqueSizes.length > 0;
-
-  /* ── CTA state logic ────────────────────────────────────── */
-  const ctaDisabled =
-    hasVariants &&
-    ((hasColors && !selectedColor) || (hasSizes && !selectedSize));
-
-  /** Find the variant matching the current color + size selection */
   const selectedVariant = useMemo(() => {
-    if (!hasVariants) return null;
+    if (variants.length === 0 || !selectionComplete) return null;
+    if (!hasColors && !hasSizes) {
+      // Variants without options: pick the first one that can be bought.
+      return variants.find((v) => v.stock > 0) ?? variants[0];
+    }
     return (
-      product.variants.find((v) => {
-        const colorMatch = !selectedColor || v.color_hex === selectedColor;
-        const sizeMatch = !selectedSize || v.size === selectedSize;
-        return colorMatch && sizeMatch;
-      }) ?? null
+      variants.find(
+        (v) =>
+          (!hasColors || v.color_hex === selectedColor) &&
+          (!hasSizes || v.size === selectedSize)
+      ) ?? null
     );
-  }, [product.variants, selectedColor, selectedSize, hasVariants]);
+  }, [variants, selectionComplete, hasColors, hasSizes, selectedColor, selectedSize]);
 
-  const inStock = !selectedVariant || selectedVariant.stock > 0;
+  /* ── Price: exact for the selected variant, else "From" ─── */
+  const summary = priceSummary(product, variants);
+  const displayPrice = selectedVariant ? unitPrice(product, selectedVariant) : summary.price;
+  const compareAt =
+    product.base_price > 0 && displayPrice < product.base_price ? product.base_price : null;
+  const discountPct = compareAt
+    ? Math.round(((compareAt - displayPrice) / compareAt) * 100)
+    : 0;
+  const fromPrice = !selectedVariant && summary.varies;
+
+  /* ── CTA state ──────────────────────────────────────────── */
+  const purchasable = variants.length > 0;
+  const needsSelection = purchasable && !selectionComplete;
+  const comboUnavailable = purchasable && selectionComplete && !selectedVariant;
+  const inStock = selectedVariant
+    ? selectedVariant.stock > 0
+    : purchasable && !comboUnavailable && summary.inStock;
+  const ctaDisabled = !purchasable || needsSelection || comboUnavailable || !inStock;
+
+  const maxQuantity = Math.max(
+    1,
+    Math.min(MAX_CART_QUANTITY, selectedVariant ? selectedVariant.stock : MAX_CART_QUANTITY)
+  );
+  const effectiveQuantity = Math.min(quantity, maxQuantity);
+
+  const ctaLabel = !purchasable || (selectedVariant && !inStock)
+    ? isAr ? "نفد من المخزون" : "Out of stock"
+    : comboUnavailable
+      ? isAr ? "غير متوفر" : "Unavailable"
+      : needsSelection
+        ? isAr ? "اختر الخيارات" : "Select options"
+        : !inStock
+          ? isAr ? "نفد من المخزون" : "Out of stock"
+          : t("common", "addToCart", "Add to cart");
+
+  const missingOptions = [
+    hasColors && !selectedColor ? (isAr ? "اللون" : "a color") : null,
+    hasSizes && !selectedSize ? (isAr ? "المقاس" : "a size") : null,
+  ].filter(Boolean) as string[];
+
+  const closeSizeGuide = useCallback(() => setSizeGuideOpen(false), []);
 
   /** Toggle wishlist via Zustand store */
   const handleWishlistToggle = useCallback(() => {
     toggleWishlist(product.id);
   }, [toggleWishlist, product.id]);
 
-  /** Add to cart via Zustand store */
+  /** Add the selected variant to the cart at the price checkout charges. */
   const handleAddToCart = useCallback(() => {
-    const currentPrice = hasSale ? product.sale_price! : product.base_price;
+    if (!selectedVariant || selectedVariant.stock <= 0) return;
     const primaryImage = product.images?.[0];
 
     addCartItem({
       productId: product.id,
-      variantId: selectedVariant?.id || "default",
+      variantId: selectedVariant.id,
       name_en: product.name_en,
       name_ar: product.name_ar,
       slug: product.slug,
       image: primaryImage?.url || "",
-      size: selectedVariant?.size || null,
-      color_en: selectedVariant?.color_en || null,
-      color_ar: selectedVariant?.color_ar || null,
-      color_hex: selectedVariant?.color_hex || null,
-      price: selectedVariant?.price_override || currentPrice,
-      quantity: quantity,
+      size: selectedVariant.size || null,
+      color_en: selectedVariant.color_en || null,
+      color_ar: selectedVariant.color_ar || null,
+      color_hex: selectedVariant.color_hex || null,
+      price: unitPrice(product, selectedVariant),
+      quantity: effectiveQuantity,
     });
 
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 2000);
-  }, [product, selectedVariant, quantity, hasSale, addCartItem]);
+  }, [product, selectedVariant, effectiveQuantity, addCartItem]);
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in-up">
@@ -730,7 +855,7 @@ export default function ProductInfo({
               {t("products", "new", "New")}
             </span>
           )}
-          {hasSale && (
+          {compareAt !== null && discountPct > 0 && (
             <span className="badge badge-sale">
               {t("products", "sale", "Sale")} −{discountPct}%
             </span>
@@ -761,14 +886,14 @@ export default function ProductInfo({
         {/* Rating + Orders */}
         {product.review_count > 0 && (
           <div className="flex items-center gap-3 flex-wrap">
-            <StarRating rating={product.rating} />
+            <StarRating rating={product.rating} locale={locale} />
             <span
               className="text-sm font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
               {product.rating.toFixed(1)}
             </span>
-            <span style={{ color: "var(--border)" }}>·</span>
+            <span style={{ color: "var(--border)" }} aria-hidden="true">·</span>
             <span
               className="text-sm"
               style={{ color: "var(--text-muted)" }}
@@ -778,12 +903,12 @@ export default function ProductInfo({
             </span>
             {product.total_orders > 0 && (
               <>
-                <span style={{ color: "var(--border)" }}>·</span>
+                <span style={{ color: "var(--border)" }} aria-hidden="true">·</span>
                 <span
                   className="flex items-center gap-1 text-sm"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  <CheckCircle size={14} className="text-success" />
+                  <CheckCircle size={14} className="text-success" aria-hidden="true" />
                   {product.total_orders}{" "}
                   {t(
                     "product",
@@ -799,51 +924,59 @@ export default function ProductInfo({
 
       <div className="divider" />
 
-      {/* ── Pricing (extracted sub-component) ─────────────────── */}
+      {/* ── Pricing (same rule as checkout) ───────────────────── */}
       <PriceDisplay
-        basePrice={product.base_price}
-        salePrice={product.sale_price}
+        price={displayPrice}
+        compareAt={compareAt}
+        discountPercent={discountPct}
+        fromPrice={fromPrice}
         locale={locale}
-        dict={dict}
       />
 
-      {/* ── Color Selector (extracted sub-component) ──────────── */}
+      {/* ── Color Selector ────────────────────────────────────── */}
       {hasColors && (
         <ColorSelector
           colors={uniqueColors}
           selectedColor={selectedColor}
           onSelect={setSelectedColor}
+          isAvailable={isColorAvailable}
           locale={locale}
         />
       )}
 
-      {/* ── Size Selector (extracted sub-component) ───────────── */}
+      {/* ── Size Selector ─────────────────────────────────────── */}
       {hasSizes && (
         <SizeSelector
           sizes={uniqueSizes}
           selectedSize={selectedSize}
           onSelect={setSelectedSize}
+          isAvailable={isSizeAvailable}
           locale={locale}
-          dict={dict}
-          categorySlug={categorySlug}
           onOpenSizeGuide={() => setSizeGuideOpen(true)}
         />
       )}
 
-      {/* ── Stock Status (extracted sub-component) ────────────── */}
-      {selectedVariant && (
-        <StockStatus variant={selectedVariant} locale={locale} />
-      )}
+      {/* ── Stock Status ──────────────────────────────────────── */}
+      {selectedVariant ? (
+        <StockStatus stock={selectedVariant.stock} locale={locale} />
+      ) : !purchasable ? (
+        <StockStatus stock={0} locale={locale} />
+      ) : null}
 
       {/* ── CTA: Add to Cart + Wishlist ─────────────────────── */}
       <div className="flex items-center gap-2 sm:gap-3">
-        <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} />
+        <QuantitySelector
+          quantity={effectiveQuantity}
+          max={maxQuantity}
+          onQuantityChange={setQuantity}
+          locale={locale}
+        />
 
         {/* Add to Cart */}
         <motion.button
           type="button"
           whileTap={{ scale: 0.97 }}
-          disabled={ctaDisabled || !inStock}
+          disabled={ctaDisabled}
           onClick={handleAddToCart}
           className={`flex-1 h-10 sm:h-12 text-sm sm:text-base font-bold gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
             addedToCart ? "btn-secondary" : "btn-primary"
@@ -858,7 +991,7 @@ export default function ProductInfo({
                 exit={{ scale: 0.8, opacity: 0 }}
                 className="flex items-center gap-2"
               >
-                <Check size={20} strokeWidth={2.5} className="text-success" />
+                <Check size={20} strokeWidth={2.5} className="text-success" aria-hidden="true" />
                 <span className="text-success">
                   {isAr ? "تمت الإضافة!" : "Added to Cart!"}
                 </span>
@@ -871,18 +1004,8 @@ export default function ProductInfo({
                 exit={{ scale: 0.8, opacity: 0 }}
                 className="flex items-center gap-2"
               >
-                <ShoppingCart size={20} strokeWidth={2} />
-                <span>
-                  {!inStock
-                    ? isAr
-                      ? "نفد من المخزون"
-                      : "Out of Stock"
-                    : ctaDisabled
-                      ? isAr
-                        ? "اختر الخيارات"
-                        : "Select options"
-                      : t("common", "addToCart", "Add to cart")}
-                </span>
+                <ShoppingCart size={20} strokeWidth={2} aria-hidden="true" />
+                <span>{ctaLabel}</span>
               </motion.span>
             )}
           </AnimatePresence>
@@ -926,16 +1049,16 @@ export default function ProductInfo({
         </motion.button>
       </div>
 
-      {/* ── CTA hint when disabled ───────────────────────────── */}
-      {ctaDisabled && (
+      {/* ── CTA hint when options are missing ─────────────────── */}
+      {needsSelection && missingOptions.length > 0 && (
         <p
           className="text-xs text-center"
           style={{ color: "var(--text-muted)" }}
-          role="alert"
+          role="status"
         >
           {isAr
-            ? `يرجى اختيار ${hasColors && !selectedColor ? "اللون" : ""} ${hasSizes && !selectedSize ? "والمقاس" : ""} للمتابعة`
-            : `Please select ${hasColors && !selectedColor ? "a color" : ""} ${hasSizes && !selectedSize ? "and a size" : ""} to continue`}
+            ? `يرجى اختيار ${missingOptions.join(" و")} للمتابعة`
+            : `Please select ${missingOptions.join(" and ")} to continue`}
         </p>
       )}
 
@@ -956,7 +1079,7 @@ export default function ProductInfo({
             {/* Product ref */}
             <p
               className="text-xs font-semibold tracking-wider uppercase"
-              style={{ color: "var(--text-faint)" }}
+              style={{ color: "var(--text-muted)" }}
             >
               {t("product", "productRef", "PRODUCT REF.")}{" "}
               {product.slug.toUpperCase()}
@@ -964,21 +1087,11 @@ export default function ProductInfo({
 
             {/* Description text */}
             {description ? (
-              <div
-                className="text-sm leading-relaxed space-y-2"
-                style={{ color: "var(--text-secondary)" }}
-                dangerouslySetInnerHTML={{
-                  __html: description
-                    .replace(/\n\n/g, "</p><p>")
-                    .replace(/\n/g, "<br/>")
-                    .replace(/^/, "<p>")
-                    .replace(/$/, "</p>"),
-                }}
-              />
+              <DescriptionText text={description} />
             ) : (
               <p
                 className="text-sm italic"
-                style={{ color: "var(--text-faint)" }}
+                style={{ color: "var(--text-muted)" }}
               >
                 {isAr ? "لا يوجد وصف متاح" : "No description available"}
               </p>
@@ -1009,12 +1122,11 @@ export default function ProductInfo({
                 onClick={() => setSizeGuideOpen(true)}
                 className="text-sm font-semibold self-start transition-colors group/sg"
                 style={{ color: "var(--text-muted)" }}
-                aria-label={isAr ? "عرض دليل المقاسات" : "View size guide"}
               >
                 <span className="underline underline-offset-4 decoration-dashed group-hover/sg:decoration-solid group-hover/sg:text-[var(--text-primary)] transition-colors">
                   {isAr ? "عرض دليل المقاسات" : "View size guide"}
                 </span>
-                <span className="inline-block ms-1 transition-transform group-hover/sg:translate-x-0.5">
+                <span className="inline-block ms-1 transition-transform group-hover/sg:translate-x-0.5" aria-hidden="true">
                   ↗
                 </span>
               </button>
@@ -1025,7 +1137,7 @@ export default function ProductInfo({
           {hasSizes && (
             <SizeGuideModal
               isOpen={sizeGuideOpen}
-              onClose={() => setSizeGuideOpen(false)}
+              onClose={closeSizeGuide}
               categorySlug={categorySlug}
               locale={locale}
             />

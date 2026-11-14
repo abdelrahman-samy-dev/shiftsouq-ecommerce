@@ -1,20 +1,13 @@
 /* ══════════════════════════════════════════════════════════════
    Robots — /robots.txt
    ──────────────────────────────────────────────────────────────
-   Instructs search engine crawlers on which paths to index.
-   Blocks admin routes and API endpoints while allowing all
-   public-facing pages.
-
-   R2 from the Security & SEO Audit.
+   Public catalogue pages are crawlable; account, checkout, cart,
+   admin and API routes are not. The sitemap URL comes from
+   NEXT_PUBLIC_SITE_URL (see lib/seo/site.ts).
    ══════════════════════════════════════════════════════════════ */
 
 import type { MetadataRoute } from "next";
-
-const BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : "https://shiftsouq.com";
+import { SITE_URL } from "@/lib/seo/site";
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -22,9 +15,9 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/admin/", "/api/", "/checkout/", "/orders/", "/profile/"],
+        disallow: ["/admin", "/api/", "/checkout", "/orders", "/profile", "/cart", "/wishlist"],
       },
     ],
-    sitemap: `${BASE_URL}/sitemap.xml`,
+    sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }

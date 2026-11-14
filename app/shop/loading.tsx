@@ -29,7 +29,7 @@ export default function ShopLoading() {
                   <div
                     key={`cat-${i}`}
                     className="h-8 skeleton-block rounded-md"
-                    style={{ width: `${60 + Math.random() * 30}%` }}
+                    style={{ width: `${60 + ((i * 37) % 30)}%` }}
                   />
                 ))}
               </div>

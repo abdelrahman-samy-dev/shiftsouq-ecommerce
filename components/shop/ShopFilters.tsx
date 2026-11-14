@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { CategoryWithChildren } from "@/lib/types";
 
@@ -46,8 +46,10 @@ export default function ShopFilters({
   const activeCategory = currentCategorySlug || searchParams.get("category") || "";
   const activeMinPrice = searchParams.get("minPrice") || "";
   const activeMaxPrice = searchParams.get("maxPrice") || "";
-  const activeSizes = searchParams.get("sizes")?.split(",").filter(Boolean) || [];
-  const activeColors = searchParams.get("colors")?.split(",").filter(Boolean) || [];
+  const sizesParam = searchParams.get("sizes");
+  const colorsParam = searchParams.get("colors");
+  const activeSizes = useMemo(() => sizesParam?.split(",").filter(Boolean) ?? [], [sizesParam]);
+  const activeColors = useMemo(() => colorsParam?.split(",").filter(Boolean) ?? [], [colorsParam]);
 
   /* Local state for price inputs (so they don't jump while typing) */
   const [minPrice, setMinPrice] = useState(activeMinPrice);

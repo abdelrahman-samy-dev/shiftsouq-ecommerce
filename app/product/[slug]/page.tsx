@@ -6,8 +6,11 @@
    dynamic SEO metadata for individual products.
 
    Architecture:
-   - `generateMetadata` provides dynamic title, description,
-     and OpenGraph tags for SEO and social sharing.
+   - `generateMetadata` provides the title, description, canonical
+     URL, OpenGraph/Twitter cards (product image + price) in the
+     visitor's language.
+   - Product + BreadcrumbList JSON-LD; offers use the checkout
+     pricing rule and variant stock (lib/seo).
    - Related products are fetched by `category_id` at the DB level
      (no client-side filtering of the full catalogue).
    - Client sub-components (ProductGallery, ProductInfo) receive
@@ -15,16 +18,21 @@
    ══════════════════════════════════════════════════════════════ */
 
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { getProductBySlug, getProducts } from "@/lib/dal";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
-import type { Locale } from "@/lib/types";
-import { APP_NAME } from "@/lib/constants";
+import { getDictionary, type Dictionary } from "@/lib/i18n/get-dictionary";
+import type { Locale, ProductImage, ProductVariant } from "@/lib/types";
+import { formatPrice } from "@/lib/utils";
+import { getRequestLocale } from "@/lib/seo/locale";
+import { SEO_COPY } from "@/lib/seo/copy";
+import { buildPageMetadata, toMetaDescription } from "@/lib/seo/metadata";
+import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo/json-ld";
+import { priceSummary } from "@/lib/seo/pricing";
+import JsonLd from "@/lib/seo/JsonLd";
 
 import ProductGallery from "@/components/product/ProductGallery";
 import ProductInfo from "@/components/product/ProductInfo";
@@ -57,24 +65,24 @@ export async function generateStaticParams() {
 
 /* ── Dynamic Metadata (SEO + OpenGraph + Twitter) ─────────── */
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : "https://shiftsouq.com");
+type ProductRecord = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>>;
+
+/** Localised name/description/category for a product record. */
+function localize(product: ProductRecord, locale: Locale) {
+  const isAr = locale === "ar";
+  const name: string = isAr ? product.name_ar || product.name_en : product.name_en;
+  const description: string | null = isAr
+    ? product.description_ar ?? product.description_en
+    : product.description_en ?? product.description_ar;
+  const category = product.category as { name_en: string; name_ar: string; slug: string } | null;
+  const categoryName = category ? (isAr ? category.name_ar : category.name_en) : null;
+  return { name, description, category, categoryName };
+}
 
 /**
- * Generates dynamic page metadata for SEO and social sharing.
- *
- * Includes:
- * - Localized title and description
- * - Full OpenGraph tags (product type, price, availability, images)
- * - Twitter card (summary_large_image)
- * - Canonical URL
- *
- * Uses `getProductBySlug` which is wrapped in `React.cache()`,
- * so this call and the page component share the same DB result
- * without duplicate queries.
+ * Title, description, canonical URL and share cards for a product.
+ * `getProductBySlug` is wrapped in `React.cache()`, so this and the
+ * page share one database query.
  */
 export async function generateMetadata({
   params,
@@ -82,65 +90,36 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const [product, locale] = await Promise.all([getProductBySlug(slug), getRequestLocale()]);
+  const copy = SEO_COPY[locale];
 
-  if (!product) {
-    return {
-      title: `Product Not Found | ${APP_NAME}`,
-      description: "The requested product could not be found.",
-    };
-  }
+  // Throwing here (not only in the page) lets crawlers, which get blocking
+  // metadata, receive a real 404 instead of a soft 404 behind the loading shell.
+  if (!product) notFound();
 
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
-  const isAr = locale === "ar";
+  const { name, description } = localize(product, locale);
+  const variants = (product.variants ?? []) as ProductVariant[];
+  const images = (product.images ?? []) as ProductImage[];
+  const summary = priceSummary(product, variants);
+  const price = formatPrice(summary.price, locale);
+  const image = images[0];
 
-  const name = isAr ? product.name_ar : product.name_en;
-  const description = isAr
-    ? product.description_ar ?? product.description_en
-    : product.description_en ?? product.description_ar;
-
-  const primaryImage = product.images?.[0]?.url;
-  const productUrl = `${BASE_URL}/product/${slug}`;
-  const displayPrice = product.sale_price ?? product.base_price;
-
-  return {
-    title: `${name} | ${APP_NAME}`,
-    description: description?.slice(0, 160) ?? undefined,
-    alternates: {
-      canonical: productUrl,
-    },
-    openGraph: {
-      title: name,
-      description: description?.slice(0, 160) ?? undefined,
-      url: productUrl,
-      siteName: APP_NAME,
-      locale: isAr ? "ar_EG" : "en_US",
-      type: "website",
-      images: primaryImage
-        ? [
-            {
-              url: primaryImage,
-              width: 800,
-              height: 800,
-              alt: name,
-            },
-          ]
-        : undefined,
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: `${name} | ${APP_NAME}`,
-      description: description?.slice(0, 160) ?? undefined,
-      images: primaryImage ? [primaryImage] : undefined,
-    },
+  return buildPageMetadata({
+    locale,
+    title: name,
+    description: description?.trim() ? description : copy.productDescription(name, price),
+    path: `/product/${encodeURIComponent(product.slug)}`,
+    image: image
+      ? { url: image.url, alt: (locale === "ar" ? image.alt_text_ar : image.alt_text_en) || name }
+      : null,
     other: {
-      "product:price:amount": String(displayPrice),
+      "product:price:amount": summary.price.toFixed(2),
       "product:price:currency": "EGP",
-      "product:availability": "in stock",
+      "product:availability": summary.inStock ? "in stock" : "out of stock",
+      "product:condition": "new",
       ...(product.brand ? { "product:brand": product.brand } : {}),
     },
-  };
+  });
 }
 
 /* ── Page Component ────────────────────────────────────────── */
@@ -158,9 +137,8 @@ export default async function ProductPage({
 }) {
   const { slug } = await params;
 
-  /* Locale from cookie */
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value || "en") as Locale;
+  /* Locale from cookie (validated) */
+  const locale = await getRequestLocale();
   const isAr = locale === "ar";
 
   /* Parallel data fetching — dict + product */
@@ -173,44 +151,41 @@ export default async function ProductPage({
   if (!product) notFound();
 
   /* Localized helpers */
-  const name = isAr ? product.name_ar : product.name_en;
-  const categoryName = product.category
-    ? isAr
-      ? product.category.name_ar
-      : product.category.name_en
-    : null;
+  const { name, description, categoryName } = localize(product, locale);
+  const copy = SEO_COPY[locale];
 
-   /* Related products are loaded asynchronously via Suspense below */
+  /* Related products are loaded asynchronously via Suspense below */
 
-  /* Safe cast: images & variants are always arrays from the DAL */
-  const images = (product.images ?? []) as typeof product.images &
-    {
-      id: string;
-      url: string;
-      alt_text_en: string | null;
-      alt_text_ar: string | null;
-      is_primary: boolean;
-      sort_order: number;
-      created_at: string;
-      product_id: string;
-    }[];
+  /* Images & variants are always arrays from the DAL */
+  const images = (product.images ?? []) as ProductImage[];
+  const variants = (product.variants ?? []) as ProductVariant[];
 
-  const variants = (product.variants ?? []) as typeof product.variants &
-    {
-      id: string;
-      product_id: string;
-      size: string | null;
-      color_en: string | null;
-      color_ar: string | null;
-      color_hex: string | null;
-      sku: string;
-      stock: number;
-      price_override: number | null;
-      created_at: string;
-    }[];
+  /* ── Structured data (Product + BreadcrumbList) ─────────── */
+  const structuredData = [
+    productJsonLd({
+      product,
+      variants,
+      locale,
+      name,
+      description: toMetaDescription(
+        description ?? copy.productDescription(name, formatPrice(priceSummary(product, variants).price, locale)),
+        5000
+      ),
+      images: images.map((img) => img.url),
+      categoryName,
+    }),
+    breadcrumbJsonLd([
+      { name: copy.home, path: "/" },
+      ...(product.category && categoryName
+        ? [{ name: categoryName, path: `/category/${encodeURIComponent(product.category.slug)}` }]
+        : []),
+      { name, path: `/product/${encodeURIComponent(product.slug)}` },
+    ]),
+  ];
 
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
+      <JsonLd data={structuredData} />
       <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-12">
         {/* ── Breadcrumb ─────────────────────────────────────── */}
         <nav
@@ -332,7 +307,7 @@ async function RelatedProducts({
   currentProductId: string;
   categorySlug?: string;
   locale: Locale;
-  dict: any;
+  dict: Dictionary;
   isAr: boolean;
 }) {
   const relatedResult = await getProducts(
@@ -380,7 +355,7 @@ async function RelatedProducts({
             <ProductCard
               product={p}
               locale={locale}
-              dict={dict as any}
+              dict={dict}
             />
           </AnimatedProductCard>
         ))}

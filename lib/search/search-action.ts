@@ -12,7 +12,7 @@
 "use server";
 
 import { createServerClient } from "@/lib/supabase/server";
-import { normalizeText, scoreMatch, buildSearchableText } from "./normalize";
+import { normalizeText, scoreMatch, buildSearchableText, toSafeLikeTerm } from "./normalize";
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -78,8 +78,10 @@ export async function searchAction(
   categorySlug?: string
 ): Promise<SearchResponse> {
   const trimmedQuery = query.trim();
+  // Term used inside the PostgREST filter: no separators or wildcards from the user.
+  const likeTerm = toSafeLikeTerm(trimmedQuery);
 
-  if (trimmedQuery.length < 1) {
+  if (trimmedQuery.length < 1 || likeTerm.length < 1) {
     return { results: [], products: [], categories: [], query: trimmedQuery, totalCount: 0 };
   }
 
@@ -88,8 +90,8 @@ export async function searchAction(
 
   // Run product and category searches in parallel
   const [productResults, categoryResults] = await Promise.all([
-    searchProducts(supabase, trimmedQuery, normalizedQuery, categorySlug),
-    searchCategories(supabase, trimmedQuery, normalizedQuery),
+    searchProducts(supabase, likeTerm, normalizedQuery, categorySlug),
+    searchCategories(supabase, likeTerm, normalizedQuery),
   ]);
 
   const allResults: SearchResult[] = [

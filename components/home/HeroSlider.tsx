@@ -1,6 +1,17 @@
 "use client";
 
-import { useRef } from "react";
+/* ══════════════════════════════════════════════════════════════
+   HeroSlider — home page hero carousel
+   ──────────────────────────────────────────────────────────────
+   Only the first slide's image is in the initial HTML, fetched
+   eagerly with high priority (it is the page's LCP). The other
+   slides are stacked under it by the fade effect, so lazy loading
+   alone would still download them all up front; their images are
+   mounted once the page has finished loading, well before the
+   first autoplay transition.
+   ══════════════════════════════════════════════════════════════ */
+
+import { useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -13,14 +24,31 @@ import "swiper/css/navigation";
 import "swiper/css/pagination";
 import "swiper/css/effect-fade";
 
+type SlideCopy = { title?: string; subtitle?: string };
+
 interface HeroSliderProps {
-  dict: any;
+  dict: {
+    hero?: {
+      slide1?: SlideCopy;
+      slide2?: SlideCopy;
+      slide3?: SlideCopy;
+      slide4?: SlideCopy;
+      discover?: string;
+    };
+  };
   locale: string;
 }
 
 export function HeroSlider({ dict, locale }: HeroSliderProps) {
   const isAr = locale === "ar";
-  const swiperRef = useRef(null);
+  const [loadOtherSlides, setLoadOtherSlides] = useState(false);
+
+  /** Mount the other slides' images after the window load event. */
+  const deferOtherSlides = useCallback(() => {
+    const show = () => setLoadOtherSlides(true);
+    if (document.readyState === "complete") show();
+    else window.addEventListener("load", show, { once: true });
+  }, []);
 
   const slides = [
     {
@@ -98,19 +126,23 @@ export function HeroSlider({ dict, locale }: HeroSliderProps) {
           }}
           className="w-full h-full"
           key={locale} // Re-mount Swiper on locale change to fix RTL internal direction
+          onAfterInit={deferOtherSlides}
         >
           {slides.map((slide) => (
             <SwiperSlide key={slide.id} className="relative w-full h-full overflow-hidden">
               {/* Background Image with subtle zoom animation */}
-              <div className="absolute inset-0 w-full h-full">
-                <Image
-                  src={slide.image}
-                  alt={slide.title}
-                  fill
-                  priority={slide.id === 1}
-                  className="object-cover object-center scale-100 transition-transform duration-[10000ms] ease-out hover:scale-105"
-                  sizes="100vw"
-                />
+              <div className="absolute inset-0 w-full h-full bg-zinc-900">
+                {(slide.id === 1 || loadOtherSlides) && (
+                  <Image
+                    src={slide.image}
+                    alt=""
+                    fill
+                    loading={slide.id === 1 ? "eager" : "lazy"}
+                    fetchPriority={slide.id === 1 ? "high" : "low"}
+                    className="object-cover object-center scale-100 transition-transform duration-[10000ms] ease-out hover:scale-105"
+                    sizes="100vw"
+                  />
+                )}
               </div>
 
               {/* Cinematic Vignette Overlay */}
@@ -158,10 +190,10 @@ export function HeroSlider({ dict, locale }: HeroSliderProps) {
         </Swiper>
 
         {/* Custom Navigation Arrows - Premium Glassmorphism */}
-        <div className="swiper-button-prev-custom absolute top-1/2 start-3 sm:start-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 -translate-x-4 rtl:translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
+        <div role="button" aria-label={isAr ? "الشريحة السابقة" : "Previous slide"} className="swiper-button-prev-custom absolute top-1/2 start-3 sm:start-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 -translate-x-4 rtl:translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
           <ChevronLeft size={22} className="rtl:rotate-180 sm:w-7 sm:h-7" strokeWidth={1.5} />
         </div>
-        <div className="swiper-button-next-custom absolute top-1/2 end-3 sm:end-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 translate-x-4 rtl:-translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
+        <div role="button" aria-label={isAr ? "الشريحة التالية" : "Next slide"} className="swiper-button-next-custom absolute top-1/2 end-3 sm:end-8 z-10 w-10 h-10 sm:w-14 sm:h-14 border border-white/20 bg-black/20 hover:bg-white/10 hover:border-white/60 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer text-white shadow-[0_4px_30px_rgba(0,0,0,0.3)] transition-all duration-500 -translate-y-1/2 opacity-0 translate-x-4 rtl:-translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 rtl:group-hover:translate-x-0 hover:scale-110">
           <ChevronRight size={22} className="rtl:rotate-180 sm:w-7 sm:h-7" strokeWidth={1.5} />
         </div>
 
