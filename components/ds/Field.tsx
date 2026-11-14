@@ -139,7 +139,8 @@ export function Checkbox({ label, description, className, id, ...props }: Checkb
         type="checkbox"
         className="peer mt-0.5 size-[18px] shrink-0 appearance-none rounded-[2px] border border-border-hover bg-surface-elevated
           checked:bg-text-primary checked:border-text-primary transition-colors duration-150
-          bg-no-repeat bg-center checked:bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22 fill=%22none%22 stroke=%22%23f6f4ef%22 stroke-width=%222%22><path d=%22M3.5 8.5l3 3 6-7%22/></svg>')]"
+          bg-no-repeat bg-center checked:bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22 fill=%22none%22 stroke=%22%23f6f4ef%22 stroke-width=%222%22><path d=%22M3.5 8.5l3 3 6-7%22/></svg>')]
+          dark:checked:bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22 fill=%22none%22 stroke=%22%23121110%22 stroke-width=%222%22><path d=%22M3.5 8.5l3 3 6-7%22/></svg>')]"
         {...props}
       />
       <span className="flex flex-col">
