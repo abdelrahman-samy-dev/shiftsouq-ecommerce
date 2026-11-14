@@ -150,9 +150,13 @@
   --color-warning:            var(--warning);
   --color-warning-bg:         var(--warning-bg);
 
-  /* Latin face first; Arabic glyphs fall through to IBM Plex Sans Arabic. */
-  --font-sans:    var(--font-instrument-sans), var(--font-plex-arabic), system-ui, sans-serif;
-  --font-display: var(--font-instrument-serif), var(--font-plex-arabic), Georgia, serif;
+  /* Real faces first, size-adjusted fallbacks after. Each Google font only
+     covers its own script (unicode-range), so Latin text uses Instrument and
+     Arabic falls through to IBM Plex Sans Arabic. The "… Fallback" faces that
+     next/font generates are local Arial and cover every script, so they must
+     come after both real fonts or they swallow the Arabic text. */
+  --font-sans:    "Instrument Sans", "IBM Plex Sans Arabic", "Instrument Sans Fallback", "IBM Plex Sans Arabic Fallback", system-ui, sans-serif;
+  --font-display: "Instrument Serif", "IBM Plex Sans Arabic", "Instrument Serif Fallback", "IBM Plex Sans Arabic Fallback", Georgia, serif;
   --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --shadow-xs:    var(--shadow-xs);
