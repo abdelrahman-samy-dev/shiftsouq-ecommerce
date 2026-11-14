@@ -31,6 +31,14 @@ async function stockOf(id: string) {
   return data!.stock as number;
 }
 
+/** Registers a Paymob order for the order, as startOnlinePayment does (the webhook needs it). */
+async function registerAttempt(orderId: string, total: number) {
+  const id = `test-${crypto.randomUUID()}`;
+  const { error } = await admin.from("payment_attempts").insert({ paymob_order_id: id, order_id: orderId, amount_cents: Math.round(Number(total) * 100) });
+  if (error) throw error;
+  return id;
+}
+
 async function placeOrder(qty: number, extra: Record<string, unknown> = {}) {
   return admin.rpc("place_order", {
     p_user_id: null,
@@ -103,7 +111,13 @@ d("database security", () => {
         p_contact: {},
       });
       expect(error).not.toBeNull();
-      const paid = await c.rpc("mark_order_paid", { p_order_id: crypto.randomUUID(), p_amount_cents: 1, p_transaction_id: "x", p_success: true });
+      const paid = await c.rpc("mark_order_paid", {
+        p_order_id: crypto.randomUUID(),
+        p_paymob_order_id: "x",
+        p_amount_cents: 1,
+        p_transaction_id: "x",
+        p_success: true,
+      });
       expect(paid.error).not.toBeNull();
     }
   });
@@ -120,15 +134,26 @@ d("database security", () => {
   });
 
   it("refuses to oversell", async () => {
-    const { error } = await placeOrder(99);
-    // 99 > 20 in stock
+    await admin.from("product_variants").update({ stock: 2 }).eq("id", variantId);
+    const { error } = await placeOrder(3);
+    // 3 > 2 in stock
     expect(error?.message).toMatch(/out_of_stock/);
+    await admin.from("product_variants").update({ stock: 20 }).eq("id", variantId);
+    // More than 10 of one item is refused before stock is even looked at.
+    expect((await placeOrder(11)).error?.message).toMatch(/invalid_quantity/);
   });
 
   it("a payment for less than the order total is not accepted", async () => {
     const { data } = await placeOrder(1);
     const order = data![0];
-    const { data: res } = await admin.rpc("mark_order_paid", { p_order_id: order.order_id, p_amount_cents: 100, p_transaction_id: "t1", p_success: true });
+    const attempt = await registerAttempt(order.order_id, order.total);
+    const { data: res } = await admin.rpc("mark_order_paid", {
+      p_order_id: order.order_id,
+      p_paymob_order_id: attempt,
+      p_amount_cents: 100,
+      p_transaction_id: `t1-${crypto.randomUUID()}`,
+      p_success: true,
+    });
     expect(res).toBe("amount_mismatch");
     const { data: o } = await admin.from("orders").select("payment_status").eq("id", order.order_id).single();
     expect(o!.payment_status).not.toBe("paid");
@@ -138,9 +163,13 @@ d("database security", () => {
     const { data } = await placeOrder(1);
     const order = data![0];
     const cents = Math.round(Number(order.total) * 100);
-    const first = await admin.rpc("mark_order_paid", { p_order_id: order.order_id, p_amount_cents: cents, p_transaction_id: "t2", p_success: true });
+    const attempt = await registerAttempt(order.order_id, order.total);
+    const txn = `t2-${crypto.randomUUID()}`;
+    const pay = () =>
+      admin.rpc("mark_order_paid", { p_order_id: order.order_id, p_paymob_order_id: attempt, p_amount_cents: cents, p_transaction_id: txn, p_success: true });
+    const first = await pay();
     expect(first.data).toBe("paid");
-    const again = await admin.rpc("mark_order_paid", { p_order_id: order.order_id, p_amount_cents: cents, p_transaction_id: "t2", p_success: true });
+    const again = await pay();
     expect(again.data).toBe("already_paid");
     const { data: o } = await admin.from("orders").select("payment_status, status").eq("id", order.order_id).single();
     expect(o).toMatchObject({ payment_status: "paid", status: "confirmed" });
