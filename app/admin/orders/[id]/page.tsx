@@ -281,12 +281,27 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                 </KeyValue>
               ) : null}
               <KeyValue label={t.detail.stock}>{order.stock_released ? t.detail.stockReleased : t.detail.stockReserved}</KeyValue>
+              {order.needs_refund ? (
+                <KeyValue label={t.detail.refund}>
+                  <span role="status" className="font-medium text-destructive">
+                    {t.detail.needsRefund}
+                  </span>
+                </KeyValue>
+              ) : null}
               <KeyValue label={t.detail.updated}>{formatDateTime(order.updated_at, locale)}</KeyValue>
             </KeyValueList>
           </Panel>
 
+          {order.notes ? (
+            <Panel title={t.detail.notes}>
+              <p className="whitespace-pre-line text-[0.8125rem] leading-relaxed text-text-primary">
+                <bdi>{order.notes}</bdi>
+              </p>
+            </Panel>
+          ) : null}
+
           <Panel title={t.note.title}>
-            <OrderNote orderId={order.id} initial={order.notes ?? ""} locale={locale} />
+            <OrderNote orderId={order.id} initial={order.internal_note ?? ""} locale={locale} />
           </Panel>
         </div>
       </div>

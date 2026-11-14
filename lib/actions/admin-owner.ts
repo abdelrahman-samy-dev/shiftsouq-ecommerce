@@ -142,9 +142,10 @@ const nameSchema = z.string().trim().max(120);
 export type AddMemberResult = { ok: true; created: false } | { ok: true; created: true; tempPassword: string } | Fail;
 
 /**
- * Adds an admin by e-mail. An existing account is promoted; otherwise a
- * new account is created with a temporary password that is returned once
- * (the owner passes it on; the new admin changes it after signing in).
+ * Adds an admin by e-mail. An existing account is promoted only once its
+ * e-mail address is confirmed; otherwise a new account is created with a
+ * temporary password that is returned once (the owner passes it on; the
+ * new admin changes it after signing in).
  */
 export async function addTeamMember(rawEmail: string, rawName: string): Promise<AddMemberResult> {
   const ctx = await getAdminContext();
@@ -157,10 +158,13 @@ export async function addTeamMember(rawEmail: string, rawName: string): Promise<
 
   const { data: found, error: findError } = await ctx.supabase.rpc("admin_profile_by_email", { p_email: email.data });
   if (findError) return (logDb("team.find", findError), fail("save_failed"));
-  const existing = ((found ?? []) as { profile_id: string; role: string }[])[0];
+  const existing = ((found ?? []) as { profile_id: string; role: string; email_confirmed_at: string | null }[])[0];
 
   if (existing) {
     if (existing.role !== "customer") return fail("already_member");
+    // Anyone can sign up with someone else's address: only an account that proved it owns
+    // the mailbox may become an admin.
+    if (!existing.email_confirmed_at) return fail("unconfirmed");
     const { data, error } = await ctx.supabase
       .from("profiles")
       .update({ role: "admin" })

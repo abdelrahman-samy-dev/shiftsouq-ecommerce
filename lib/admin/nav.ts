@@ -103,6 +103,7 @@ export function entityHref(entity: string, id: string | null, action = ""): stri
   const safe = encodeURIComponent(id);
   switch (entity) {
     case "orders":
+    case "payment": // payment events are recorded against the order id
       return `/admin/orders/${safe}`;
     case "profiles":
       return `/admin/customers/${safe}`;
@@ -143,6 +144,7 @@ export const AUDIT_ENTITIES = [
   "profiles",
   "product_variants",
   "storage",
+  "payment",
 ] as const;
 export type AuditEntity = (typeof AUDIT_ENTITIES)[number];
 export const isAuditEntity = (v: unknown): v is AuditEntity =>
