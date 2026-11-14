@@ -29,11 +29,11 @@ export function FieldShell({ id, label, hint, error, optional, className, childr
       ) : null}
       {children}
       {error ? (
-        <p id={`${id}-error`} role="alert" className="text-[0.8125rem] text-destructive">
+        <p id={`${id}-error`} role="alert" className="text-[0.8125rem] text-pretty text-destructive">
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="text-[0.8125rem] text-text-muted">
+        <p id={`${id}-hint`} className="text-[0.8125rem] text-pretty text-text-muted">
           {hint}
         </p>
       ) : null}
@@ -107,7 +107,8 @@ export function Select({ label, hint, error, wrapperClassName, className, id, ch
         <select
           id={fieldId}
           aria-invalid={error ? true : undefined}
-          className={cn(controlClasses, "appearance-none pe-10 cursor-pointer", className)}
+          // items-center: customizable selects (appearance: base-select) lay out as flex boxes.
+          className={cn(controlClasses, "appearance-none items-center pe-10 cursor-pointer", className)}
           {...props}
         >
           {children}

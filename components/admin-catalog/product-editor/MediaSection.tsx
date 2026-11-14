@@ -254,7 +254,7 @@ export function MediaSection({
                       <select
                         value={img.color_en ?? ""}
                         onChange={(e) => edit(img.key, { color_en: e.target.value || null })}
-                        className={cn(small, "cursor-pointer appearance-none pe-9")}
+                        className={cn(small, "cursor-pointer appearance-none items-center pe-9")}
                       >
                         <option value="">{tm.allColours}</option>
                         {colourOptions.map((c) => (

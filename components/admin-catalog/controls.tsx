@@ -267,7 +267,7 @@ export function ListToolbar({
               value={s.value}
               onChange={(e) => navigate({ [s.name]: e.target.value })}
               className={cn(
-                "h-10 cursor-pointer appearance-none rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11",
+                "h-10 cursor-pointer appearance-none items-center rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11",
                 s.value ? "border-text-primary text-text-primary" : "border-border text-text-secondary",
               )}
             >

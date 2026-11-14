@@ -55,7 +55,7 @@ export function AdminFilterDropdown({
         disabled={isPending}
         onChange={(e) => handleSelect(e.target.value)}
         className={cn(
-          "h-9 w-full min-w-36 cursor-pointer sm:min-w-40 appearance-none rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] pointer-coarse:h-11",
+          "h-9 w-full min-w-36 cursor-pointer items-center sm:min-w-40 appearance-none rounded-sm border bg-surface-elevated ps-3 pe-9 text-[0.8125rem] text-text-primary outline-none transition-[border-color,box-shadow] pointer-coarse:h-11",
           "hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] disabled:opacity-60",
           known ? "border-text-primary" : "border-border",
         )}
