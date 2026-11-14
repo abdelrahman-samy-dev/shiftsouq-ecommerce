@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Dialog } from "@/components/ds";
 import { payForMyOrder } from "@/lib/actions/paymob";
-import { cancelOrder } from "@/app/orders/actions";
+import { cancelOrder } from "@/app/(store)/orders/actions";
 import { CardPaymentDialog, type CardSession } from "@/components/checkout/CardPaymentDialog";
 import type { PaymentMethodValue } from "./order-rules";
 
