@@ -31,7 +31,17 @@ import { BagButton, WishlistLink } from "./HeaderActions";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { ThemeToggle } from "./ThemeToggle";
 import { shellCopy } from "./copy";
-import { ANNOUNCEMENT_COOKIE, announcementKey, announcementMessages, buildMenuItems, categoryHref } from "./shell-rules";
+import {
+  ANNOUNCEMENT_COOKIE,
+  announcementKey,
+  announcementMessages,
+  buildMenuItems,
+  categoryHref,
+  navBreakpoint,
+  type NavBreakpoint,
+} from "./shell-rules";
+
+const HIDE_AT: Record<NavBreakpoint, string> = { lg: "lg:hidden", xl: "xl:hidden", "2xl": "2xl:hidden" };
 
 export default async function Header({ locale = "en" }: { locale?: Locale }) {
   const copy = shellCopy(locale);
@@ -43,6 +53,8 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
   const showBar = messages.length > 0 && cookieStore.get(ANNOUNCEMENT_COOKIE)?.value !== dismissKey;
 
   const items = buildMenuItems(nav, locale, { newIn: copy.newIn, collections: copy.collections, shopAll: copy.shopAll });
+  // Long category names: the inline navigation waits for a wider screen.
+  const breakpoint = navBreakpoint(items);
   const topCategories = nav.categories.map((c) => ({
     href: categoryHref(c.slug),
     label: locale === "ar" ? c.name.ar : c.name.en,
@@ -68,8 +80,8 @@ export default async function Header({ locale = "en" }: { locale?: Locale }) {
       <HeaderFrame>
         <div className="container-x grid h-full grid-cols-[1fr_auto_1fr] items-center gap-4">
           <div className="flex h-full min-w-0 items-center">
-            <MobileMenu items={items} locale={locale} viewer={viewer} className="lg:hidden" />
-            <DesktopNav items={items} label={copy.primaryNav} openLabel={copy.openSubmenu("{name}")} />
+            <MobileMenu items={items} locale={locale} viewer={viewer} className={HIDE_AT[breakpoint]} />
+            <DesktopNav items={items} label={copy.primaryNav} openLabel={copy.openSubmenu("{name}")} breakpoint={breakpoint} />
           </div>
 
           <Link href="/" aria-label={copy.homeLink} className="flex h-full items-center justify-self-center px-2">

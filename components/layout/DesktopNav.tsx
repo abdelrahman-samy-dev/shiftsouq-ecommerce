@@ -16,13 +16,25 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { chunk, type MenuItem } from "./shell-rules";
+import { chunk, type MenuItem, type NavBreakpoint } from "./shell-rules";
 import { cn } from "@/lib/utils";
 
 const OPEN_DELAY = 90;
 const CLOSE_DELAY = 160;
 
-export function DesktopNav({ items, label, openLabel }: { items: MenuItem[]; label: string; openLabel: string }) {
+const SHOW_AT: Record<NavBreakpoint, string> = { lg: "lg:block", xl: "xl:block", "2xl": "2xl:block" };
+
+export function DesktopNav({
+  items,
+  label,
+  openLabel,
+  breakpoint = "lg",
+}: {
+  items: MenuItem[];
+  label: string;
+  openLabel: string;
+  breakpoint?: NavBreakpoint;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const pathname = usePathname();
@@ -45,8 +57,8 @@ export function DesktopNav({ items, label, openLabel }: { items: MenuItem[]; lab
   };
 
   return (
-    <nav aria-label={label} className="hidden h-full lg:block">
-      <ul className="flex h-full items-stretch gap-6 xl:gap-8">
+    <nav aria-label={label} className={cn("hidden h-full", SHOW_AT[breakpoint])}>
+      <ul className="flex h-full items-stretch gap-7">
         {items.map((item) => {
           const isOpen = open === item.key;
           const panelId = `${baseId}-${item.key}`;

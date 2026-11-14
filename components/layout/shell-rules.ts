@@ -154,7 +154,9 @@ export function buildMenuItems(
 
   const items: MenuItem[] = [...categories, { key: "new-in", label: labels.newIn, href: NEW_IN_HREF, panel: null }];
 
-  if (nav.collections.length) {
+  // A category already named like the collections menu wins (no two identical labels).
+  const clash = categories.some((c) => c.label.trim().toLowerCase() === labels.collections.trim().toLowerCase());
+  if (nav.collections.length && !clash) {
     items.push({
       key: "collections",
       label: labels.collections,
@@ -168,6 +170,22 @@ export function buildMenuItems(
     });
   }
   return items;
+}
+
+export type NavBreakpoint = "lg" | "xl" | "2xl";
+
+/**
+ * Smallest breakpoint at which the inline desktop navigation fits
+ * beside the centred wordmark (13px labels, ~7.2px per character,
+ * chevrons and gaps included). Below it the menu button is used.
+ */
+export function navBreakpoint(items: readonly Pick<MenuItem, "label" | "href" | "panel">[]): NavBreakpoint {
+  const width =
+    items.reduce((sum, item) => sum + item.label.length * 7.2 + (item.panel ? (item.href ? 22 : 16) : 0), 0) +
+    Math.max(0, items.length - 1) * 28;
+  if (width <= 380) return "lg";
+  if (width <= 500) return "xl";
+  return "2xl";
 }
 
 /** Splits a list into columns of at most `size` items (mega menu columns). */
