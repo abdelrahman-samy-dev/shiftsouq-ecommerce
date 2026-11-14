@@ -117,7 +117,7 @@ supabase/
   migrations/         schema, security, search, admin, checkout (all idempotent)
   seed.sql            generated from catalog/catalog.json
 catalog/catalog.json  demo catalogue: 39 products, 90 photos, collections, settings
-docs/                 design-system.md, catalog.md
+docs/                 design-system.md, catalog.md, security.md
 tests/                unit/, db/, e2e/
 ```
 
@@ -143,7 +143,23 @@ Every migration is idempotent and was rehearsed on a copy shaped like an existin
   2. Run `supabase/production/01-roles.sql`, then `supabase/production/02-upgrade.sql`. The second file runs all-or-nothing.
 - **Optional:** load the catalogue with `npm run catalog:import -- --env .env.production --rehost` (add `--settings` for the default store settings). Read [docs/catalog.md](docs/catalog.md) first.
 - **Auth → URL configuration:** set the Site URL to your domain and add `https://your-domain/**` to the redirect URLs.
-- **Recovery email template:** for reset links that work on any device, use `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`.
+- **Auth email templates:** keep Supabase's default links (`{{ .ConfirmationURL }}`, PKCE). `/auth/callback` accepts only a PKCE `code`; a `token_hash` link would sign in whoever opens it as the account the link was made for (login CSRF), so don't use `token_hash` templates. A reset link must be opened in the browser that asked for it.
+- **Auth settings checklist** (Dashboard → Authentication):
+  - Email provider: **Confirm email** on (the owner can only promote confirmed accounts in Admin → Team).
+  - **Secure email change** on, and **Secure password change** on (a recent sign-in is needed to change the password).
+  - Password: **minimum length 8** (the forms ask for 8 too) and **Prevent use of leaked passwords** on (Pro plan).
+  - Rate limits: keep Supabase's email and sign-in limits; the app adds its own per client and per email (sign-in, sign-up, reset links, orders, promo codes, order tracking, newsletter).
+- **Check row-level security after upgrading.** Policies created by hand in the dashboard are not removed by the migrations. Run:
+
+  ```sql
+  SELECT tablename, policyname, cmd, roles, qual, with_check
+    FROM pg_policies
+   WHERE schemaname IN ('public', 'storage')
+   ORDER BY tablename, policyname;
+  ```
+
+  Compare it with the list in [docs/security.md](docs/security.md) and drop anything else (`DROP POLICY "name" ON table;`): in particular any policy that lets `anon` or customers insert into `orders`, `order_items` or `contact_messages`, read `promocodes`, or write `profiles` other than their own.
+- **Paid orders that need a refund:** a payment that arrives after its order was cancelled and can't be revived is kept as paid with **Refund** shown on the order (Admin → Orders → the order). Refunds, voids and second payments are listed in Admin → Activity → Payments.
 
 ### 2. Environment variables (e.g. Vercel)
 
@@ -167,7 +183,7 @@ Set both callbacks of each integration to `https://your-domain/api/checkout/paym
 ## Tests and CI
 
 - **Unit:** pricing, delivery fees, search normalisation, size ordering, admin rules, settings schema and checkout rules.
-- **Database:** role escalation, private promo codes, server-only orders, server prices, overselling, payment amount and idempotency, stock release, promo limits, owner rules.
+- **Database:** role escalation, private promo codes, server-only orders, server prices, overselling, payment amount and idempotency, stock release, promo limits, owner rules, and the security review fixes (webhook order swap and transaction reuse, order limits, cash on delivery bypass, paying after cancel, internal notes, profile deletion, review columns, contact inserts).
 - **Browser:** guest and signed-in checkout, card decline then retry, order tracking, admin access, webhook signature, security headers, page health and Arabic layout.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs typecheck, lint, unit tests, a throwaway Supabase with the database tests, a production build and the browser tests on every pull request.
