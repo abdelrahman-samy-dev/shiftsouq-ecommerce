@@ -1,38 +1,42 @@
 "use client";
 
-import { Search } from "lucide-react";
+/* Search box for a list page: writes ?search= to the URL (debounced) and resets to page 1. */
+
+import { Search, X } from "lucide-react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useTransition, useState, useEffect } from "react";
+import { Spinner } from "@/components/ds";
+import { useLocale } from "@/components/providers/LocaleProvider";
+import { cn } from "@/lib/utils";
 
-export function AdminSearchInput({ placeholder }: { placeholder: string }) {
+export function AdminSearchInput({ placeholder, className, param = "search" }: { placeholder: string; className?: string; param?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const locale = useLocale();
   const [isPending, startTransition] = useTransition();
-  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
+  const [searchTerm, setSearchTerm] = useState(searchParams.get(param) || "");
 
   // Debounce the search input
   useEffect(() => {
     const timer = setTimeout(() => {
-      const currentSearch = searchParams.get("search") || "";
+      const currentSearch = searchParams.get(param) || "";
       if (searchTerm.trim() === currentSearch) return; // avoid redundant navigations
-
       const params = new URLSearchParams(searchParams.toString());
-      if (searchTerm.trim()) params.set("search", searchTerm.trim());
-      else params.delete("search");
-      params.set("page", "1"); // Reset to page 1 on new search
-
+      if (searchTerm.trim()) params.set(param, searchTerm.trim());
+      else params.delete(param);
+      params.delete("page"); // back to page 1 on a new search
+      const qs = params.toString();
       startTransition(() => {
-        router.push(`${pathname}?${params.toString()}`);
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       });
     }, 300);
-
     return () => clearTimeout(timer);
-  }, [searchTerm, pathname, router, searchParams]);
+  }, [searchTerm, pathname, router, searchParams, param]);
 
   return (
-    <div className="relative w-full sm:w-96">
-      <Search size={18} className="absolute start-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+    <div className={cn("relative w-full sm:w-80", className)}>
+      <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" strokeWidth={1.75} />
       <input
         type="search"
         placeholder={placeholder}
@@ -40,11 +44,22 @@ export function AdminSearchInput({ placeholder }: { placeholder: string }) {
         value={searchTerm}
         maxLength={80}
         onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full ps-10 pe-10 py-2 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-white transition-all"
+        className="h-9 w-full rounded-[3px] border border-border bg-surface-elevated ps-9 pe-9 text-[0.8125rem] text-text-primary placeholder:text-text-faint outline-none transition-[border-color,box-shadow] hover:border-border-hover focus:border-text-primary focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--text-primary)_12%,transparent)] pointer-coarse:h-11 [&::-webkit-search-cancel-button]:hidden"
       />
-      {isPending && (
-        <div className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-white rounded-full animate-spin" />
-      )}
+      <span className="absolute end-2 top-1/2 flex -translate-y-1/2 items-center">
+        {isPending ? (
+          <Spinner className="me-1 text-text-muted" />
+        ) : searchTerm ? (
+          <button
+            type="button"
+            onClick={() => setSearchTerm("")}
+            aria-label={locale === "ar" ? "مسح البحث" : "Clear search"}
+            className="grid size-6 place-items-center rounded-[2px] text-text-muted hover:bg-surface hover:text-text-primary"
+          >
+            <X aria-hidden="true" className="size-3.5" />
+          </button>
+        ) : null}
+      </span>
     </div>
   );
 }

@@ -1,166 +1,232 @@
 /* ══════════════════════════════════════════════════════════════
-   Admin Order Detail — /admin/orders/[id]
-   Items with variant labels, contact and address, money breakdown,
-   payment details, dates, and the allowed status changes.
+   Admin order detail — /admin/orders/[id]
+   Items and totals, the allowed status changes, a timeline from
+   the audit log, customer / delivery / payment details, the
+   internal note (never shown to the customer) and print links.
    ══════════════════════════════════════════════════════════════ */
 
 import type { Metadata } from "next";
-import Link from "next/link";
 import Image from "next/image";
-import { cookies } from "next/headers";
-import { ArrowLeft, ArrowRight, Package } from "lucide-react";
+import Link from "next/link";
+import { FileText, Package, Printer } from "lucide-react";
 import { z } from "zod";
-import { getOrderForAdmin } from "@/lib/dal/admin";
-import { APP_NAME } from "@/lib/constants";
-import { getDictionary } from "@/lib/i18n/get-dictionary";
+import { getOrderForAdmin, getOrderTimeline } from "@/lib/dal/admin";
+import { fill, formatAmount, formatDateTime, formatInt, getAdminText, type AdminText } from "@/lib/admin/i18n";
+import { adminImage } from "@/lib/admin/images";
+import { isOrderStatus, isPaymentStatus } from "@/lib/admin/orders";
+import type { AuditEntry } from "@/lib/admin/types";
+import { getLocale } from "@/lib/i18n/server";
 import { GOVERNORATES } from "@/lib/store/useCheckoutStore";
-import type { Locale } from "@/lib/types";
-import { formatDateTime, formatMoney, getAdminText } from "@/lib/admin/i18n";
-import { isAllowedImageUrl } from "@/lib/admin/products";
+import { cn } from "@/lib/utils";
+import { adminButton } from "../../components/buttons";
 import { OrderStatusPanel } from "../../components/OrderStatusPanel";
 import { OrderStatusBadge, PaymentMethodBadge, PaymentStatusBadge } from "../../components/StatusBadges";
+import { AdminEmptyState, KeyValue, KeyValueList, PageHeader, Panel } from "../../components/ui";
+import { OrderNote } from "./OrderNote";
 
-export const metadata: Metadata = {
-  title: `Order | ${APP_NAME} Admin`,
-};
+export const metadata: Metadata = { title: "Order" };
 
-const card = "bg-white dark:bg-[#0a0a0a] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl shadow-sm";
-const cardTitle = "px-5 py-4 border-b border-zinc-200 dark:border-zinc-800/80 text-base font-bold text-zinc-900 dark:text-white";
-
-function Row({ label, children, ltr = false }: { label: string; children: React.ReactNode; ltr?: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-2 text-sm">
-      <dt className="text-zinc-500 shrink-0">{label}</dt>
-      <dd className="font-medium text-zinc-900 dark:text-white text-end break-words min-w-0" dir={ltr ? "ltr" : "auto"}>
-        {children}
-      </dd>
-    </div>
-  );
+function timelineText(e: AuditEntry, t: AdminText): { title: string; detail?: string } {
+  const d = e.data as Record<string, unknown>;
+  switch (e.action) {
+    case "order.status": {
+      const to = isOrderStatus(d.to) ? t.status[d.to] : String(d.to ?? "");
+      const pay = isPaymentStatus(d.payment_to) ? fill(t.timeline.paymentTo, { to: t.payment[d.payment_to] }) : undefined;
+      return { title: fill(t.timeline.status, { to }), detail: pay };
+    }
+    case "order.cash_collected":
+      return { title: t.timeline.cash };
+    case "order.note":
+      return { title: t.timeline.note };
+    default:
+      return { title: t.activity.actions[e.action] ?? e.action };
+  }
 }
 
 export default async function AdminOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get("NEXT_LOCALE")?.value === "ar" ? "ar" : "en") as Locale;
-  const dict = await getDictionary(locale);
+  const [{ id }, locale] = await Promise.all([params, getLocale()]);
   const t = getAdminText(locale);
-  const currency = dict.common?.currency || "EGP";
-  const money = (n: number) => formatMoney(n, locale, currency);
-  const BackIcon = locale === "ar" ? ArrowRight : ArrowLeft;
-
-  const order = z.guid().safeParse(id).success ? await getOrderForAdmin(id) : null;
+  const valid = z.guid().safeParse(id).success;
+  const [order, timeline] = valid ? await Promise.all([getOrderForAdmin(id), getOrderTimeline(id)]) : [null, []];
+  const money = (n: number) => formatAmount(n, locale, 2);
 
   if (!order) {
     return (
-      <div className={`${card} p-12 text-center space-y-3`}>
-        <h1 className="text-xl font-bold text-zinc-900 dark:text-white">{t.detail.notFound}</h1>
-        <p className="text-sm text-zinc-500">{t.detail.notFoundBody}</p>
-        <Link href="/admin/orders" className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:underline">
-          <BackIcon size={16} /> {t.detail.back}
-        </Link>
-      </div>
+      <Panel>
+        <AdminEmptyState
+          icon={<Package />}
+          title={t.detail.notFound}
+          body={t.detail.notFoundBody}
+          action={
+            <Link href="/admin/orders" className={adminButton("outline", "sm")}>
+              {t.detail.back}
+            </Link>
+          }
+        />
+      </Panel>
     );
   }
 
   const gov = GOVERNORATES.find((g) => g.value === order.governorate);
   const governorate = gov ? (locale === "ar" ? gov.ar : gov.en) : order.governorate;
   const state = { status: order.status, payment_status: order.payment_status, payment_method: order.payment_method };
+  const units = order.items.reduce((n, i) => n + i.quantity, 0);
+
+  const events: { at: string | null; title: string; detail?: string; who?: string }[] = [
+    { at: order.created_at, title: t.timeline.placed, who: order.customer_name || t.orders.guest },
+    ...timeline.map((e) => {
+      const text = timelineText(e, t);
+      return { at: e.createdAt, ...text, who: e.actor ? e.actor.name || e.actor.email || t.timeline.system : t.timeline.system };
+    }),
+  ];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <Link href="/admin/orders" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white">
-          <BackIcon size={16} /> {t.detail.back}
-        </Link>
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white font-mono break-all">
-              {order.order_number}
-            </h1>
-            <p className="text-sm text-zinc-500 mt-1">
-              {t.detail.placed}: {formatDateTime(order.created_at, locale)}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <>
+      <PageHeader
+        back={{ href: "/admin/orders", label: t.detail.back }}
+        title={
+          <span dir="ltr" className="font-sans text-[1.625rem] font-medium tracking-tight tabular-nums sm:text-[1.875rem]">
+            {order.order_number}
+          </span>
+        }
+        description={`${t.detail.placed} ${formatDateTime(order.created_at, locale)}`}
+        meta={
+          <>
             <OrderStatusBadge status={order.status} text={t} />
             <PaymentStatusBadge status={order.payment_status} text={t} />
             <PaymentMethodBadge method={order.payment_method} text={t} long />
-          </div>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/admin/orders/${order.id}/print`} className={adminButton("outline", "sm")}>
+              <Printer aria-hidden="true" strokeWidth={1.75} />
+              {t.orderList.packingSlip}
+            </Link>
+            <Link href={`/admin/orders/${order.id}/print?doc=invoice`} className={adminButton("outline", "sm")}>
+              <FileText aria-hidden="true" strokeWidth={1.75} />
+              {t.orderList.invoice}
+            </Link>
+          </>
+        }
+      />
 
-      {/* ── Actions ────────────────────────────────────────── */}
-      <section className={card}>
-        <h2 className={cardTitle}>{t.detail.actionsTitle}</h2>
-        <div className="p-5">
-          <OrderStatusPanel orderId={order.id} order={state} locale={locale} />
-        </div>
-      </section>
+      <Panel title={t.detail.actionsTitle} className="mb-4 lg:mb-6">
+        <OrderStatusPanel orderId={order.id} order={state} locale={locale} />
+      </Panel>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* ── Items + totals ───────────────────────────────── */}
-        <section className={`${card} lg:col-span-2`}>
-          <h2 className={cardTitle}>
-            {t.detail.items} ({order.items.reduce((n, i) => n + i.quantity, 0)})
-          </h2>
-          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-            {order.items.map((item) => (
-              <li key={item.id} className="flex gap-4 p-4 sm:px-5">
-                <div className="w-14 h-14 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 overflow-hidden shrink-0 flex items-center justify-center">
-                  {item.image_url && isAllowedImageUrl(item.image_url) ? (
-                    <Image src={item.image_url} alt={item.product_name} width={56} height={56} className="w-full h-full object-cover" />
-                  ) : (
-                    <Package size={20} className="text-zinc-400" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-zinc-900 dark:text-white">
-                    {item.product_slug ? (
-                      <Link href={`/product/${item.product_slug}`} target="_blank" className="hover:underline" title={t.detail.viewProduct}>
-                        {item.product_name}
-                      </Link>
-                    ) : (
-                      item.product_name
-                    )}
-                  </div>
-                  {item.variant_label && <div className="text-xs text-zinc-500 mt-0.5">{item.variant_label}</div>}
-                  {item.sku && (
-                    <div className="text-[11px] text-zinc-400 font-mono mt-0.5" dir="ltr">
-                      {t.detail.sku}: {item.sku}
+      <div className="grid grid-cols-1 items-start gap-4 lg:gap-6 xl:grid-cols-3">
+        <div className="space-y-4 lg:space-y-6 xl:col-span-2">
+          {/* ── Items + totals ──────────────────────────────── */}
+          <Panel title={`${t.detail.items} · ${formatInt(units, locale)}`} padded={false}>
+            <ul className="divide-y divide-border">
+              {order.items.map((item) => {
+                const img = adminImage(item.image_url);
+                return (
+                  <li key={item.id} className="flex gap-4 px-4 py-4 sm:px-5">
+                    <span className="relative size-16 shrink-0 overflow-hidden rounded-[2px] bg-surface">
+                      {img ? <Image src={img.src} unoptimized={img.unoptimized} alt="" fill sizes="64px" className="object-cover" /> : null}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[0.875rem] text-text-primary">
+                        {item.product_slug ? (
+                          <Link href={`/product/${item.product_slug}`} target="_blank" className="hover:underline" title={t.detail.viewProduct}>
+                            {item.product_name}
+                          </Link>
+                        ) : (
+                          item.product_name
+                        )}
+                      </p>
+                      {item.variant_label ? <p className="text-[0.8125rem] text-text-muted">{item.variant_label}</p> : null}
+                      {item.sku ? (
+                        <p className="text-[0.75rem] tabular-nums text-text-faint">
+                          <bdi dir="ltr">{item.sku}</bdi>
+                        </p>
+                      ) : null}
                     </div>
-                  )}
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {money(item.unit_price)} × {item.quantity}
-                  </div>
+                    <div className="shrink-0 text-end">
+                      <p className="text-[0.875rem] font-medium tabular-nums">{money(item.unit_price * item.quantity)}</p>
+                      <p className="text-[0.75rem] tabular-nums text-text-muted">
+                        {money(item.unit_price)} × {formatInt(item.quantity, locale)}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <dl className="space-y-2 border-t border-border px-4 py-4 text-[0.8125rem] sm:px-5">
+              <div className="flex justify-between gap-4">
+                <dt className="text-text-muted">{t.detail.subtotal}</dt>
+                <dd className="tabular-nums">{money(order.subtotal)}</dd>
+              </div>
+              {order.discount_amount > 0 ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-text-muted">
+                    {t.detail.discount}
+                    {order.promo_code ? (
+                      <span className="ms-1.5 rounded-[2px] bg-surface px-1.5 py-0.5 text-[0.6875rem] tabular-nums text-text-secondary" dir="ltr">
+                        {order.promo_code}
+                      </span>
+                    ) : null}
+                  </dt>
+                  <dd className="tabular-nums text-accent">−{money(order.discount_amount)}</dd>
                 </div>
-                <div className="font-bold text-zinc-900 dark:text-white whitespace-nowrap">{money(item.unit_price * item.quantity)}</div>
-              </li>
-            ))}
-          </ul>
-          <dl className="border-t border-zinc-200 dark:border-zinc-800/80 px-5 py-3">
-            <Row label={t.detail.subtotal}>{money(order.subtotal)}</Row>
-            {order.discount_amount > 0 && (
-              <Row label={order.promo_code ? `${t.detail.discount} (${order.promo_code})` : t.detail.discount}>
-                −{money(order.discount_amount)}
-              </Row>
-            )}
-            <Row label={t.detail.shipping}>{order.shipping_cost > 0 ? money(order.shipping_cost) : t.detail.free}</Row>
-            {order.tax_amount > 0 && <Row label={t.detail.tax}>{money(order.tax_amount)}</Row>}
-            <div className="flex items-center justify-between gap-4 pt-3 mt-2 border-t border-zinc-200 dark:border-zinc-800/80">
-              <span className="font-bold text-zinc-900 dark:text-white">{t.detail.total}</span>
-              <span className="text-lg font-bold text-zinc-900 dark:text-white">{money(order.total)}</span>
-            </div>
-          </dl>
-        </section>
+              ) : null}
+              <div className="flex justify-between gap-4">
+                <dt className="text-text-muted">{t.detail.shipping}</dt>
+                <dd className="tabular-nums">{order.shipping_cost > 0 ? money(order.shipping_cost) : t.detail.free}</dd>
+              </div>
+              {order.tax_amount > 0 ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-text-muted">{t.detail.tax}</dt>
+                  <dd className="tabular-nums">{money(order.tax_amount)}</dd>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-4 border-t border-border pt-3 text-[0.9375rem] font-medium">
+                <dt>{t.detail.total}</dt>
+                <dd className="tabular-nums">{money(order.total)}</dd>
+              </div>
+            </dl>
+          </Panel>
 
-        <div className="space-y-6">
-          {/* ── Customer & address ───────────────────────────── */}
-          <section className={card}>
-            <h2 className={cardTitle}>{t.detail.contact}</h2>
-            <dl className="px-5 py-2 divide-y divide-zinc-100 dark:divide-zinc-800/60">
-              <Row label={t.detail.name}>{order.customer_name || t.orders.guest}</Row>
-              <Row label={t.detail.email} ltr>
+          {/* ── Timeline ────────────────────────────────────── */}
+          <Panel title={t.timeline.title}>
+            <ol className="relative">
+              {events.map((e, i) => (
+                <li key={i} className="relative flex gap-4 pb-5 last:pb-0">
+                  {i < events.length - 1 ? <span aria-hidden="true" className="absolute start-[5px] top-4 bottom-0 w-px bg-border" /> : null}
+                  <span
+                    aria-hidden="true"
+                    className={cn("mt-1.5 size-[11px] shrink-0 rounded-full border-2", i === events.length - 1 ? "border-text-primary bg-text-primary" : "border-border-hover bg-surface-elevated")}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[0.8125rem] text-text-primary">{e.title}</p>
+                    {e.detail ? <p className="text-[0.8125rem] text-text-secondary">{e.detail}</p> : null}
+                    <p className="mt-0.5 text-[0.75rem] text-text-muted">
+                      {formatDateTime(e.at, locale)}
+                      {e.who ? ` · ${fill(t.timeline.by, { name: e.who })}` : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Panel>
+        </div>
+
+        <div className="space-y-4 lg:space-y-6">
+          <Panel
+            title={t.detail.contact}
+            actions={
+              order.customer_id ? (
+                <Link href={`/admin/customers/${order.customer_id}`} className="text-[0.8125rem] text-text-muted hover:text-text-primary">
+                  {t.orderList.viewCustomer}
+                </Link>
+              ) : null
+            }
+          >
+            <KeyValueList className="-my-2.5">
+              <KeyValue label={t.detail.name}>{order.customer_name || t.orders.guest}</KeyValue>
+              <KeyValue label={t.detail.email} ltr>
                 {order.email ? (
                   <a href={`mailto:${encodeURIComponent(order.email)}`} className="hover:underline">
                     {order.email}
@@ -168,57 +234,62 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
                 ) : (
                   t.detail.none
                 )}
-              </Row>
-              <Row label={t.detail.phone} ltr>
+              </KeyValue>
+              <KeyValue label={t.detail.phone} ltr>
                 {order.phone ? (
-                  <a href={`tel:${order.phone.replace(/[^\d+]/g, "")}`} className="hover:underline">
+                  <a href={`tel:${order.phone.replace(/[^\d+]/g, "")}`} className="tabular-nums hover:underline">
                     {order.phone}
                   </a>
                 ) : (
                   t.detail.none
                 )}
-              </Row>
-              <Row label={t.detail.account}>{order.has_account ? t.detail.registered : t.detail.guestCheckout}</Row>
-            </dl>
-          </section>
+              </KeyValue>
+              <KeyValue label={t.detail.account}>{order.has_account ? t.detail.registered : t.detail.guestCheckout}</KeyValue>
+            </KeyValueList>
+          </Panel>
 
-          <section className={card}>
-            <h2 className={cardTitle}>{t.detail.address}</h2>
-            <dl className="px-5 py-2 divide-y divide-zinc-100 dark:divide-zinc-800/60">
-              <Row label={t.detail.governorate}>{governorate || t.detail.none}</Row>
-              <Row label={t.detail.city}>{order.city || t.detail.none}</Row>
-              <Row label={t.detail.street}>{order.address || t.detail.none}</Row>
-              {order.country && <Row label={t.detail.country}>{order.country}</Row>}
-            </dl>
-            {order.notes && (
-              <div className="px-5 pb-4">
-                <div className="text-xs font-semibold text-zinc-500 mb-1">{t.detail.notes}</div>
-                <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words">{order.notes}</p>
-              </div>
-            )}
-          </section>
+          <Panel title={t.detail.address}>
+            <address className="not-italic text-[0.8125rem] leading-relaxed text-text-primary">
+              {order.customer_name ? <span className="block"><bdi>{order.customer_name}</bdi></span> : null}
+              {order.address ? <span className="block whitespace-pre-line"><bdi>{order.address}</bdi></span> : null}
+              <span className="block">
+                {[order.city, governorate].filter(Boolean).length
+                  ? [order.city, governorate].filter(Boolean).map((part, i) => (
+                      <span key={i}>
+                        {i > 0 ? (locale === "ar" ? "، " : ", ") : null}
+                        <bdi>{part}</bdi>
+                      </span>
+                    ))
+                  : t.detail.none}
+              </span>
+              {order.country ? <span className="block text-text-muted">{order.country}</span> : null}
+            </address>
+          </Panel>
 
-          {/* ── Payment & dates ──────────────────────────────── */}
-          <section className={card}>
-            <h2 className={cardTitle}>{t.detail.paymentTitle}</h2>
-            <dl className="px-5 py-2 divide-y divide-zinc-100 dark:divide-zinc-800/60">
-              <Row label={t.detail.method}>{order.payment_method ? t.method[order.payment_method] : t.methodUnknown}</Row>
-              <Row label={t.detail.paymentStatus}>{t.payment[order.payment_status]}</Row>
-              <Row label={t.detail.transaction} ltr>
-                <span className="font-mono text-xs">{order.transaction_id || t.detail.none}</span>
-              </Row>
-              {order.paymob_order_id && (
-                <Row label={t.detail.paymobOrder} ltr>
-                  <span className="font-mono text-xs">{order.paymob_order_id}</span>
-                </Row>
-              )}
-              <Row label={t.detail.stock}>{order.stock_released ? t.detail.stockReleased : t.detail.stockReserved}</Row>
-              <Row label={t.detail.placed}>{formatDateTime(order.created_at, locale)}</Row>
-              <Row label={t.detail.updated}>{formatDateTime(order.updated_at, locale)}</Row>
-            </dl>
-          </section>
+          <Panel title={t.detail.paymentTitle}>
+            <KeyValueList className="-my-2.5">
+              <KeyValue label={t.detail.method}>{order.payment_method ? t.method[order.payment_method] : t.methodUnknown}</KeyValue>
+              <KeyValue label={t.detail.paymentStatus}>{t.payment[order.payment_status]}</KeyValue>
+              {order.transaction_id ? (
+                <KeyValue label={t.detail.transaction} ltr>
+                  <span className="text-[0.75rem] tabular-nums">{order.transaction_id}</span>
+                </KeyValue>
+              ) : null}
+              {order.paymob_order_id ? (
+                <KeyValue label={t.detail.paymobOrder} ltr>
+                  <span className="text-[0.75rem] tabular-nums">{order.paymob_order_id}</span>
+                </KeyValue>
+              ) : null}
+              <KeyValue label={t.detail.stock}>{order.stock_released ? t.detail.stockReleased : t.detail.stockReserved}</KeyValue>
+              <KeyValue label={t.detail.updated}>{formatDateTime(order.updated_at, locale)}</KeyValue>
+            </KeyValueList>
+          </Panel>
+
+          <Panel title={t.note.title}>
+            <OrderNote orderId={order.id} initial={order.notes ?? ""} locale={locale} />
+          </Panel>
         </div>
       </div>
-    </div>
+    </>
   );
 }

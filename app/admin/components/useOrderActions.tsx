@@ -26,13 +26,13 @@ export const ACTION_ICON: Record<OrderStatus, LucideIcon> = {
 };
 
 export const ACTION_COLOR: Record<OrderStatus, string> = {
-  pending: "text-zinc-500",
-  confirmed: "text-blue-600 dark:text-blue-400",
-  processing: "text-indigo-600 dark:text-indigo-400",
-  shipped: "text-orange-600 dark:text-orange-400",
-  delivered: "text-emerald-600 dark:text-emerald-400",
-  cancelled: "text-red-600 dark:text-red-400",
-  refunded: "text-purple-600 dark:text-purple-400",
+  pending: "text-text-muted",
+  confirmed: "text-text-primary",
+  processing: "text-text-primary",
+  shipped: "text-accent",
+  delivered: "text-success",
+  cancelled: "text-destructive",
+  refunded: "text-destructive",
 };
 
 const NEEDS_CONFIRM: OrderStatus[] = ["cancelled", "refunded"];
