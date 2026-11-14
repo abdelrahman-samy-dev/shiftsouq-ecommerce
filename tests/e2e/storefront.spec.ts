@@ -27,7 +27,7 @@ test.describe("storefront", () => {
 
   test("the product page shows the sale price", async ({ page }) => {
     await page.goto(`/product/${TEST_PRODUCT_SLUG}`);
-    await expect(page.getByText("EGP 120").first()).toBeVisible();
+    await expect(page.getByText("EGP 490").first()).toBeVisible();
   });
 
   test("Arabic switches the layout to right-to-left", async ({ page }) => {
