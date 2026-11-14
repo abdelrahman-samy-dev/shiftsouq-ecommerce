@@ -18,7 +18,10 @@ import { getStoreSettings } from "@/lib/settings";
 import { Notice, PageHeader } from "../components/ui";
 import { SettingsForm, type PaymobStatus } from "./SettingsForm";
 
-export const metadata: Metadata = { title: "Settings" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.settings };
+}
 
 export default async function AdminSettingsPage() {
   const [ctx, locale, settings, extras] = await Promise.all([getAdminContext(), getLocale(), getStoreSettings(), getSettingsExtras()]);

@@ -28,7 +28,10 @@ import { OrderStatusBadge, PaymentMethodBadge, PaymentStatusBadge } from "../com
 import { AdminEmptyState, FilterBar, PageHeader, Panel, TabsNav } from "../components/ui";
 import { adminButton } from "../components/buttons";
 
-export const metadata: Metadata = { title: "Orders" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.orders };
+}
 
 type SP = { page?: string; search?: string; status?: string; payment?: string; method?: string; queue?: string; sort?: string };
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);

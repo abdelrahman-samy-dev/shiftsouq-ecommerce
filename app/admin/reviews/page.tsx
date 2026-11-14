@@ -19,7 +19,10 @@ import { ActionButton } from "../components/ActionButton";
 import { AdminPagination } from "../components/AdminPagination";
 import { AdminEmptyState, PageHeader, Panel, TabsNav, Tag } from "../components/ui";
 
-export const metadata: Metadata = { title: "Reviews" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.reviews };
+}
 
 export default async function AdminReviewsPage({ searchParams }: { searchParams: Promise<{ view?: string; page?: string }> }) {
   const [sp, locale] = await Promise.all([searchParams, getLocale()]);

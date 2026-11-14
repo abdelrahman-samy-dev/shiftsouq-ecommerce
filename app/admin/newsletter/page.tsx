@@ -18,7 +18,10 @@ import { DataTable } from "../components/DataTable";
 import { ExportCsvButton } from "../components/ExportCsvButton";
 import { AdminEmptyState, FilterBar, PageHeader, Panel, TabsNav, Tag } from "../components/ui";
 
-export const metadata: Metadata = { title: "Newsletter" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.newsletter };
+}
 
 const VIEWS: NewsletterView[] = ["subscribed", "unsubscribed", "all"];
 

@@ -17,7 +17,10 @@ import { DataTable } from "../components/DataTable";
 import { Avatar, Notice, PageHeader, Panel, Tag } from "../components/ui";
 import { AddMemberForm, MemberActions } from "./TeamClient";
 
-export const metadata: Metadata = { title: "Team" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.team };
+}
 
 export default async function AdminTeamPage() {
   const [ctx, locale, team] = await Promise.all([getAdminContext(), getLocale(), getTeam()]);

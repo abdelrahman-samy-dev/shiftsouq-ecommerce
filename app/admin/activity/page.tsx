@@ -20,7 +20,10 @@ import { DataTable } from "../components/DataTable";
 import { DateRangeFilter } from "../components/DateRangeFilter";
 import { AdminEmptyState, Avatar, FilterBar, PageHeader, Panel } from "../components/ui";
 
-export const metadata: Metadata = { title: "Activity" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.activity };
+}
 
 function details(e: AuditEntry, t: AdminText, locale: string): string | null {
   const d = e.data;

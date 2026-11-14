@@ -19,10 +19,12 @@ import { getAdminProfileName, getQueueCounts } from "@/lib/dal/admin";
 import AdminShell from "./AdminShell";
 import { adminButton } from "./components/buttons";
 
-export const metadata: Metadata = {
-  title: { template: `%s · Admin · ${brand.name.en}`, default: `Admin · ${brand.name.en}` },
-  robots: { index: false, follow: false },
-};
+/** Tab titles follow the admin language: "Orders · Admin · Brand" / "الطلبات · الإدارة · العلامة". */
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const suffix = `${locale === "ar" ? "الإدارة" : "Admin"} · ${pick(brand.name, locale)}`;
+  return { title: { template: `%s · ${suffix}`, default: suffix }, robots: { index: false, follow: false } };
+}
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const [ctx, locale] = await Promise.all([getAdminContext(), getLocale()]);

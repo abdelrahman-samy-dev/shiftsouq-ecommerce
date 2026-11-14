@@ -24,7 +24,10 @@ import { OrderStatusBadge, PaymentMethodBadge, PaymentStatusBadge } from "../../
 import { AdminEmptyState, KeyValue, KeyValueList, PageHeader, Panel } from "../../components/ui";
 import { OrderNote } from "./OrderNote";
 
-export const metadata: Metadata = { title: "Order" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.orders.order };
+}
 
 function timelineText(e: AuditEntry, t: AdminText): { title: string; detail?: string } {
   const d = e.data as Record<string, unknown>;

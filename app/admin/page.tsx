@@ -19,12 +19,18 @@ import { adminImage } from "@/lib/admin/images";
 import { getLocale } from "@/lib/i18n/server";
 import { getStoreSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { brand, t as pick } from "@/lib/brand/config";
 import { DataTable } from "./components/DataTable";
 import { RevenueChart } from "./components/RevenueChart";
 import { OrderStatusBadge } from "./components/StatusBadges";
 import { AdminEmptyState, PageHeader, Panel, StatCard, type StatDelta } from "./components/ui";
 
-export const metadata: Metadata = { title: "Overview" };
+// The admin layout's title template applies to child routes only, so the overview spells its title out.
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const ar = locale === "ar";
+  return { title: { absolute: `${getAdminText(locale).shell.nav.overview} · ${ar ? "الإدارة" : "Admin"} · ${pick(brand.name, locale)}` } };
+}
 
 export default async function AdminOverviewPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const [{ period: rawPeriod }, locale] = await Promise.all([searchParams, getLocale()]);

@@ -18,7 +18,10 @@ import { DataTable, type SortDir } from "../components/DataTable";
 import { ExportCsvButton } from "../components/ExportCsvButton";
 import { AdminEmptyState, Avatar, FilterBar, PageHeader, Panel } from "../components/ui";
 
-export const metadata: Metadata = { title: "Customers" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.customers };
+}
 
 const PAGE_SIZE = 25;
 

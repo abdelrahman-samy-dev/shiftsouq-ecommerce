@@ -21,7 +21,10 @@ import { cn } from "@/lib/utils";
 import { adminButton } from "../../../components/buttons";
 import { PrintButton } from "./PrintButton";
 
-export const metadata: Metadata = { title: "Print" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.orderList.print };
+}
 
 const PRINT_CSS = `
 @page { size: A4; margin: 14mm 12mm; }

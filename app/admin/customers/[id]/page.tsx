@@ -19,7 +19,10 @@ import { DataTable } from "../../components/DataTable";
 import { OrderStatusBadge, PaymentStatusBadge } from "../../components/StatusBadges";
 import { AdminEmptyState, Avatar, KeyValue, KeyValueList, PageHeader, Panel, StatCard, Tag } from "../../components/ui";
 
-export const metadata: Metadata = { title: "Customer" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.orders.customer };
+}
 
 export default async function AdminCustomerPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, locale] = await Promise.all([params, getLocale()]);

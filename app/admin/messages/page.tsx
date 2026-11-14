@@ -18,7 +18,10 @@ import { AdminPagination } from "../components/AdminPagination";
 import { AdminEmptyState, Avatar, PageHeader, TabsNav } from "../components/ui";
 import { MessageActions } from "./MessageActions";
 
-export const metadata: Metadata = { title: "Messages" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getAdminText(await getLocale());
+  return { title: t.shell.nav.messages };
+}
 
 const VIEWS: InboxView[] = ["inbox", "unread", "archived"];
 const SAFE_EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
