@@ -1514,10 +1514,14 @@ html:has(.ds-overlay[open]) { overflow: hidden; }
     appearance: base-select;
   }
 
-  select {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+  /* Defaults only (base layer), so each select's own Tailwind classes for
+     size, weight and colour still win. */
+  @layer base {
+    select {
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
   }
 
   /* Built-in chevron for selects that don't draw their own. */
