@@ -57,11 +57,10 @@ export default function ProductRail({ title, eyebrow, action, locale, children, 
   const scrollable = !(edges.start && edges.end);
 
   return (
-    // Below the fold: the browser skips layout and paint (and lazy photos) until it scrolls near.
     <section
       aria-labelledby={id}
       className={cn(
-        "py-14 md:py-20 [content-visibility:auto] [contain-intrinsic-size:auto_560px] md:[contain-intrinsic-size:auto_720px]",
+        "py-14 md:py-20",
         className,
       )}
     >

@@ -44,6 +44,7 @@ import { buildPageMetadata, toMetaDescription } from "@/lib/seo/metadata";
 import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo/json-ld";
 import { priceSummary } from "@/lib/seo/pricing";
 import JsonLd from "@/lib/seo/JsonLd";
+import { brand as storeBrand } from "@/lib/brand/config";
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -139,6 +140,9 @@ export default async function ProductPage({ params, searchParams }: Params & { s
   }));
   const requested = typeof query.color === "string" ? query.color : null;
   const trail = breadcrumbTrail(product, locale);
+  // The maker's name is worth showing only when it isn't the store's own brand.
+  const ownNames = [storeBrand.name.en, storeBrand.name.ar].map((n) => n.toLowerCase());
+  const maker = product.brand && !ownNames.includes(product.brand.trim().toLowerCase()) ? product.brand : null;
 
   const structuredData = [
     productJsonLd({
@@ -160,9 +164,9 @@ export default async function ProductPage({ params, searchParams }: Params & { s
     <div className="flex flex-col gap-5">
       <Breadcrumbs items={trail.map((t, i) => ({ label: t.name, href: i < trail.length - 1 ? t.path : undefined }))} />
       <div className="flex flex-col gap-3">
-        {product.brand || product.is_new ? (
+        {maker || product.is_new ? (
           <p className="t-eyebrow flex flex-wrap gap-x-3">
-            {product.brand ? <span>{product.brand}</span> : null}
+            {maker ? <span>{maker}</span> : null}
             {product.is_new ? <span className="text-accent">{isAr ? "جديد" : "New"}</span> : null}
           </p>
         ) : null}
@@ -224,7 +228,7 @@ export default async function ProductPage({ params, searchParams }: Params & { s
         <CompleteTheLook productId={product.id} locale={locale} />
       </Suspense>
 
-      <section id="reviews" aria-labelledby="reviews-title" className="scroll-mt-[calc(var(--header-height)+1rem)] border-t border-border [content-visibility:auto] [contain-intrinsic-size:auto_1000px]">
+      <section id="reviews" aria-labelledby="reviews-title" className="scroll-mt-[calc(var(--header-height)+1rem)] border-t border-border">
         <div className="container-x py-14 md:py-20">
           <h2 id="reviews-title" className="t-h2 mb-8 md:mb-10">
             {reviewsCopy(locale).heading}
