@@ -1585,6 +1585,8 @@ html:has(.ds-overlay[open]) { overflow: hidden; }
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     background: transparent;
+    /* Don't inherit a medium/bold trigger: only the chosen row is emphasised. */
+    font-weight: 400;
     white-space: nowrap;
     cursor: pointer;
   }
