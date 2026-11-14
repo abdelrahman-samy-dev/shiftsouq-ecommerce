@@ -14,12 +14,18 @@
    Guests may check out: the order is stored without a user and
    this browser gets the httpOnly receipt cookie. Every refusal
    (invalid phone, payment method off or unavailable, cash on
-   delivery above the limit, bad promo code) happens before any
-   stock is reserved.
+   delivery above the limit, bad promo code, a line that can't be
+   priced) happens before any stock is reserved.
+
+   Every order reserves stock, so orders are limited: at most 20
+   lines and 10 of each item, a few orders per hour per client and
+   per phone, and at most 3 orders waiting for payment or
+   confirmation per phone / email (checked inside place_order(),
+   which also re-checks the cash on delivery ceiling).
 
    Promo codes work for guests too. Wrong codes are rate-limited
-   per client (hashed IP, or the account when signed in); codes
-   that work are never counted.
+   per client (hashed IP, or the account when signed in): every
+   try is counted first and a code that works gives its hit back.
    ══════════════════════════════════════════════════════════════ */
 
 import { z } from "zod";
@@ -31,10 +37,23 @@ import { getPaymentAvailability } from "@/lib/dal/orders";
 import { rememberBuyerPhone, saveAddressFromCheckout } from "@/lib/dal/account";
 import { readReceiptCookie, setReceiptCookie } from "@/lib/dal/receipt";
 import { safeEqual } from "@/lib/payments/paymob";
-import { clientKey, PROMO_LIMIT, rateLimit } from "@/lib/checkout/rate-limit";
+import {
+  clientKey,
+  MAX_OPEN_UNPAID_ORDERS,
+  ORDER_ACCOUNT_LIMIT,
+  ORDER_IP_LIMIT,
+  ORDER_PHONE_LIMIT,
+  PROMO_LIMIT,
+  rateLimit,
+  refundRateLimit,
+  targetKey,
+} from "@/lib/checkout/rate-limit";
 import type { LineStatus } from "@/lib/checkout/cart-sync";
+import { MAX_CART_QUANTITY } from "@/lib/constants";
 import {
   checkoutTotals,
+  COD_MAX_AMOUNT,
+  MAX_ORDER_LINES,
   normalizeEgyptianMobile,
   paymentOptions,
   round2,
@@ -48,7 +67,7 @@ const itemSchema = z.object({
   productId: z.guid(),
   /** "default" (or empty) when the product has no options */
   variantId: z.string().max(64).optional(),
-  quantity: z.number().int().min(1).max(99),
+  quantity: z.number().int().min(1).max(MAX_CART_QUANTITY),
 });
 
 const orderSchema = z.object({
@@ -66,7 +85,7 @@ const orderSchema = z.object({
   promoCode: z.string().trim().max(40).optional(),
   /** Signed-in buyers only: add this address to their address book. */
   saveAddress: z.boolean().optional(),
-  items: z.array(itemSchema).min(1).max(50),
+  items: z.array(itemSchema).min(1).max(MAX_ORDER_LINES),
 });
 
 export type CreateOrderInput = z.input<typeof orderSchema>;
@@ -90,6 +109,9 @@ export interface CreateOrderResult {
     | "invalid_promo"
     | "payment_unavailable"
     | "cod_limit"
+    | "too_many_items"
+    | "rate_limited"
+    | "too_many_open_orders"
     | "server";
   /** Why the payment method was refused, when code = "payment_unavailable". */
   paymentReason?: "store_off" | "gateway";
@@ -123,6 +145,9 @@ async function currentBuyer(): Promise<{ userId: string | null; profileId: strin
 /* ── Action ──────────────────────────────────────────────────── */
 
 export async function createOrder(input: CreateOrderInput): Promise<CreateOrderResult> {
+  if (Array.isArray(input?.items) && input.items.length > MAX_ORDER_LINES) {
+    return { success: false, code: "too_many_items", error: `An order can have up to ${MAX_ORDER_LINES} different items.` };
+  }
   const parsed = orderSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, code: "invalid_input", error: parsed.error.issues[0]?.message ?? "Invalid order details." };
@@ -160,11 +185,25 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       const line = toLine(it);
       const key = `${line.product_id}:${line.variant_id ?? ""}`;
       const prev = lines.get(key);
-      lines.set(key, { ...line, quantity: Math.min(99, (prev?.quantity ?? 0) + line.quantity) });
+      lines.set(key, { ...line, quantity: (prev?.quantity ?? 0) + line.quantity });
+    }
+    if ([...lines.values()].some((l) => l.quantity > MAX_CART_QUANTITY)) {
+      return { success: false, code: "invalid_input", error: `At most ${MAX_CART_QUANTITY} of one item per order.` };
     }
 
     /* Delivery needs the discounted subtotal: price the lines and the code first. */
     const priced = await priceLines([...lines.values()]);
+    // A line that can't be priced (hidden product, a variant of another product…) is refused,
+    // never counted as 0 — the cash on delivery limit is decided on this subtotal.
+    const unpriced = [...lines.values()].find((_, i) => priced.unitPrices[i] == null);
+    if (unpriced) {
+      return {
+        success: false,
+        code: "product_unavailable",
+        itemId: unpriced.variant_id ?? unpriced.product_id,
+        error: "A product in your cart is no longer available.",
+      };
+    }
     let discount = 0;
     if (data.promoCode) {
       const promo = await checkPromo(data.promoCode, priced.subtotal, buyer.userId);
@@ -187,6 +226,15 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       return { success: false, code: "cod_limit", error: "Cash on delivery isn't available for this amount. Please pay online." };
     }
 
+    /* Each order holds stock: a few per hour per client and per phone number. */
+    const [byClient, byPhone] = await Promise.all([
+      rateLimit("order", await clientKey(buyer.userId), buyer.userId ? ORDER_ACCOUNT_LIMIT : ORDER_IP_LIMIT),
+      rateLimit("order-phone", targetKey(phone), ORDER_PHONE_LIMIT),
+    ]);
+    if (!byClient || !byPhone) {
+      return { success: false, code: "rate_limited", error: "Too many orders in a short time. Please try again later." };
+    }
+
     const contact = {
       name: `${data.firstName} ${data.lastName}`.trim(),
       phone,
@@ -204,6 +252,9 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       p_payment_method: data.paymentMethod,
       p_contact: contact,
       p_promo_code: data.promoCode || null,
+      // Re-checked inside the transaction, on the total it computes itself.
+      p_cod_max: COD_MAX_AMOUNT,
+      p_max_open_orders: MAX_OPEN_UNPAID_ORDERS,
     });
 
     if (error) return mapOrderError(error.message);
@@ -310,14 +361,15 @@ async function promoDiscount(code: string, subtotal: number): Promise<PromoPrevi
 }
 
 /**
- * A promo code check that counts towards the client's limit only when it fails,
- * and is refused outright once the client has used up its wrong attempts.
+ * A promo code check. Every try is counted first (so concurrent guesses can't
+ * all pass one check), a code that works gives its hit back, and the client is
+ * refused outright once it has used up its wrong attempts.
  */
 async function checkPromo(code: string, subtotal: number, userId: string | null): Promise<PromoPreview> {
   const key = await clientKey(userId);
-  if (!(await rateLimit("promo", key, PROMO_LIMIT, 0))) return { ok: false, discount: 0, reason: "rate_limited" };
+  if (!(await rateLimit("promo", key, PROMO_LIMIT, 1))) return { ok: false, discount: 0, reason: "rate_limited" };
   const result = await promoDiscount(code, subtotal);
-  if (!result.ok) await rateLimit("promo", key, PROMO_LIMIT, 1);
+  if (result.ok) await refundRateLimit("promo", key, PROMO_LIMIT);
   return result;
 }
 
@@ -473,6 +525,12 @@ function mapOrderError(message: string): CreateOrderResult {
       return { success: false, code, itemId: id, error: "Please choose a size or colour for every product." };
     case "invalid_promo":
       return { success: false, code, promoReason: "invalid", error: "This promo code is not valid for your order." };
+    case "cod_limit":
+      return { success: false, code, error: "Cash on delivery isn't available for this amount. Please pay online." };
+    case "too_many_open_orders":
+      return { success: false, code, error: "You already have orders waiting for payment or confirmation." };
+    case "too_many_items":
+      return { success: false, code, error: `An order can have up to ${MAX_ORDER_LINES} different items.` };
     case "empty_cart":
     case "invalid_quantity":
     case "invalid_payment_method":
