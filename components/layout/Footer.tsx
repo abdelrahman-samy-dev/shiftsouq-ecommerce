@@ -18,6 +18,7 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 import { ThemeToggle } from "./ThemeToggle";
 import { shellCopy } from "./copy";
 import { NEW_IN_HREF, categoryHref, phoneHref, socialLinks, whatsappHref } from "./shell-rules";
+import { PaymentMarks, marksFor } from "@/components/ui/PaymentMarks";
 
 const linkClass = "inline-flex min-h-9 items-center text-[0.875rem] text-text-secondary transition-colors hover:text-text-primary";
 
@@ -68,11 +69,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
   const address = t(contact.address, locale);
   const hours = t(contact.hours, locale);
 
-  const paymentMarks = [
-    payments.cod ? copy.cod : null,
-    ...(payments.card ? ["Visa", "Mastercard", isAr ? "ميزة" : "Meeza"] : []),
-    payments.wallet ? copy.wallets : null,
-  ].filter((m): m is string => !!m);
+  const paymentMarks = marksFor(payments);
 
   return (
     <footer className="mt-auto border-t border-border bg-background text-text-primary">
@@ -156,16 +153,7 @@ export default async function Footer({ locale = "en" }: { locale?: Locale }) {
         <div className="container-x">
           <div className="flex flex-col gap-3 border-t border-border py-6 md:flex-row md:items-center md:gap-6">
             <h2 className="t-eyebrow shrink-0">{copy.waysToPay}</h2>
-            <ul className="flex flex-wrap gap-2" aria-label={copy.waysToPay}>
-              {paymentMarks.map((m) => (
-                <li
-                  key={m}
-                  className="inline-flex h-7 items-center rounded-sm border border-border px-2.5 text-[0.75rem] font-medium text-text-secondary"
-                >
-                  {m}
-                </li>
-              ))}
-            </ul>
+            <PaymentMarks ids={paymentMarks} locale={locale} label={copy.waysToPay} />
           </div>
         </div>
       ) : null}
