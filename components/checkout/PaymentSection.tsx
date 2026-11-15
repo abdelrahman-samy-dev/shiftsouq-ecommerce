@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Banknote, CreditCard, Smartphone } from "lucide-react";
 import { Button, RadioCard } from "@/components/ds";
 import { cn } from "@/lib/utils";
+import { PaymentMarks, type PaymentMarkId } from "@/components/ui/PaymentMarks";
 import {
   formatEgyptianMobile,
   formatMoney,
@@ -40,6 +41,8 @@ interface PaymentSectionProps {
 
 const ICONS: Record<PaymentMethod, typeof Banknote> = { cod: Banknote, card: CreditCard, wallet: Smartphone };
 const ORDER: PaymentMethod[] = ["cod", "card", "wallet"];
+
+const CARD_MARKS: PaymentMarkId[] = ["visa", "mastercard", "meeza"];
 
 export function PaymentSection({
   locale,
@@ -80,12 +83,22 @@ export function PaymentSection({
               onChange={() => onSelect(m)}
               icon={<Icon className="size-5" strokeWidth={1.5} aria-hidden="true" />}
               label={label[m]}
+              aside={
+                m === "card" ? (
+                  <PaymentMarks ids={CARD_MARKS} locale={lang} size="sm" className="hidden sm:flex" />
+                ) : undefined
+              }
               description={
                 !o.available ? (
                   <span className="text-text-muted">{paymentUnavailableMessage(o.reason, lang)}</span>
                 ) : m === "wallet" && method === "wallet" && phone ? (
                   <>
                     {hint[m]} <span className="block text-text-secondary">{t.walletTo(formatEgyptianMobile(phone))}</span>
+                  </>
+                ) : m === "card" ? (
+                  <>
+                    {hint[m]}
+                    <PaymentMarks ids={CARD_MARKS} locale={lang} size="sm" className="mt-2 sm:hidden" />
                   </>
                 ) : (
                   hint[m]
