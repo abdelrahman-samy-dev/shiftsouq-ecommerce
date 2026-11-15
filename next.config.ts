@@ -81,6 +81,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // No floating dev badge (keeps local screenshots and recordings clean).
+  devIndicators: false,
   async headers() {
     const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
     return [
